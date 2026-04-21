@@ -47,6 +47,81 @@
 ### Next Steps
 - I can: (A) consolidate dependencies and fix the nested package.json, then implement the print integration and `sheetsApi`, or (B) implement the sync engine and auth first — tell me which to prioritize.
 
+## APP STRUCTURE — Current File Tree (snapshot)
+**Date/Time:** 2026-04-21 10:10 UTC
+
+Top-level (project root):
+
+- `.env`
+- `.git/`
+- `.gitignore`
+- `DEVLOG.md`
+- `FSY_SCANNER_PLAN.md` (v1.2)
+- `fsy-scanner/` (Expo app directory)
+
+`fsy-scanner/` (Expo project):
+
+- `.expo/`
+- `.gitignore`
+- `App.tsx`
+- `SETUP_NOTES.md`
+- `app/`
+- `app.json`
+- `assets/` (icons, splash, logo)
+- `declarations.d.ts`
+- `index.ts`
+- `node_modules/`
+- `package-lock.json`
+- `package.json` (top-level Expo deps + printer lib)
+- `src/`
+- `tsconfig.json`
+- `fsy-scanner/` (nested package directory - contains additional dependencies)
+
+`fsy-scanner/app/`:
+
+- `(tabs)/`
+     - `scan.tsx` (placeholder)
+     - `participants.tsx` (placeholder)
+     - `settings.tsx` (placeholder)
+- `confirm/`
+     - `[id].tsx` (placeholder)
+- `_layout.tsx`
+
+`fsy-scanner/src/`:
+
+- `auth/`
+     - `google.ts` (stub)
+- `db/`
+     - `schema.ts` (DDL per plan v1.2)
+     - `migrations.ts` (migration runner v1)
+     - `participants.ts` (implemented CRUD)
+     - `syncQueue.ts` (implemented CRUD)
+- `sync/`
+     - `engine.ts` (stub)
+     - `puller.ts` (stub)
+     - `pusher.ts` (stub)
+     - `sheetsApi.ts` (stub)
+- `print/`
+     - `printer.ts` (stub)
+     - `receipt.ts` (string-based stub — needs declarative document)
+- `store/`
+     - `useAppStore.ts` (minimal Zustand store)
+- `hooks/`
+     - `useScanner.ts` (stub)
+     - `useSyncStatus.ts` (stub)
+- `utils/`
+     - `deviceId.ts` (persisted UUID)
+     - `time.ts` (helpers)
+
+`fsy-scanner/fsy-scanner/` (nested package dir):
+
+- `package.json` (contains `zustand`, `date-fns`, `@react-native-async-storage/async-storage`)
+- `package-lock.json`
+
+Notes:
+- Several UI screens are placeholders and need implementation per Plan v1.2 (scanner UI, confirm flow, toasts).
+- Core DB code (schema, migrations, participants, syncQueue) implemented and type-checked.
+- Sync, auth, and print wiring remain to be implemented.
 
 ## 1.5 — Implement participants & syncQueue CRUD
 **Date/Time:** 2026-04-21 09:10 UTC
