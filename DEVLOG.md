@@ -11,6 +11,29 @@
 
 ---
 
+## 1.3 — Retry npm installs
+**Date/Time:** 2026-04-21 08:31 UTC
+**Status:** ⚠️ Complete with notes
+
+### What I Did
+Retried npm installs for the non-Expo packages listed in Section 6. Verified npm cache and re-ran installations for `zustand`, `date-fns`, and `@react-native-async-storage/async-storage`. Checked npm registry for the thermal-printer package versions.
+
+### Verification Result
+- `npm cache verify` completed successfully.
+- Installed: `zustand@^4.5.0`, `date-fns@^3.6.0`, `@react-native-async-storage/async-storage@^1.23.0` — installation succeeded (npm added packages and updated dependencies).
+- Thermal printer package `react-native-thermal-receipt-printer-image-qr@^1.2.0` remains unavailable; npm shows only `0.1.x` versions (latest `0.1.12`).
+
+### Issues Encountered
+- Plan-specified thermal printer package version (`^1.2.0`) does not exist on npm. Per plan rules, do not substitute silently — plan needs correction or explicit approval to use an alternative/version.
+
+### Corrections Made
+- N/A
+
+### Deviations from Plan
+- Did not install the thermal-printer package because the requested version is not published. Other dependency installs were retried and succeeded.
+
+
+
 <!-- ═══════════════════════════════════════════════════════════════════
      PASTE NEW ENTRIES BELOW THIS LINE. ALWAYS APPEND — NEVER EDIT ABOVE.
      ═══════════════════════════════════════════════════════════════════ -->
