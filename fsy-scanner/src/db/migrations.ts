@@ -24,7 +24,8 @@ function execSql(db: DB, sql: string, params: any[] = []): Promise<any> {
 }
 
 export async function runMigrations(dbParam?: DB): Promise<void> {
-  const db = dbParam ?? SQLite.openDatabase('fsy_scanner.db');
+  const openDb: any = (SQLite as any).openDatabase ?? (SQLite as any).openDatabaseSync;
+  const db = dbParam ?? openDb('fsy_scanner.db');
 
   try {
     // Ensure app_settings table exists first (migration requirement)

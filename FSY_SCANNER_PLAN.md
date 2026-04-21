@@ -1,8 +1,15 @@
 # FSY Check-In Scanner App — AI Coder Project Plan
-**Version:** 1.1  
+**Version:** 1.2  
 **Prepared by:** Jayson (ML Engineer · Dagami Ward FSY Organizer)  
 **For:** AI Coders — Cursor, Copilot, Trae SOLO  
 **Status:** Active — Follow exactly as written
+
+### Changelog
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-04-21 | Initial plan |
+| 1.1 | 2026-04-21 | Added DEVLOG format, anti-hallucination rules, verification checks |
+| 1.2 | 2026-04-21 | **Replaced thermal printer package** — `react-native-thermal-receipt-printer-image-qr@^1.2.0` does not exist on npm. Replaced with `@finan-me/react-native-thermal-printer@^1.0.9`. Updated Sections 6.2, 7.11, 7.13. |
 
 ---
 
@@ -293,10 +300,12 @@ expo-crypto
 
 ```
 zustand@^4.5.0
-react-native-thermal-receipt-printer-image-qr@^1.2.0
+@finan-me/react-native-thermal-printer@^1.0.9
 date-fns@^3.6.0
 @react-native-async-storage/async-storage@^1.23.0
 ```
+
+> ⚠️ **PLAN CORRECTION v1.2:** The originally specified package `react-native-thermal-receipt-printer-image-qr@^1.2.0` does not exist on npm — its published versions are `0.1.x` only and the package is abandoned (last published 4 years ago). The approved replacement is `@finan-me/react-native-thermal-printer@^1.0.9` — actively maintained, declarative API, built-in Bluetooth device scanning. Do NOT install the old package under any version.
 
 ### 6.3 Google Sheets API — No SDK
 
@@ -562,33 +571,58 @@ updateRegistrationRow(
 
 ### 7.11 `src/print/receipt.ts`
 
-**Purpose:** Build ESC/POS byte commands for the receipt.
+**Purpose:** Build the declarative print document for `@finan-me/react-native-thermal-printer`.
 
-**Receipt layout (80mm paper, ~48 chars wide):**
+> ⚠️ **PLAN CORRECTION v1.2:** Do NOT use raw ESC/POS byte commands. The approved library uses a declarative JSON document format. Use the API exactly as shown below.
 
+**Import:**
+
+```typescript
+import { ThermalPrinter } from '@finan-me/react-native-thermal-printer';
 ```
-================================
-      FSY 2026 Leyte
-      CHECK-IN RECEIPT
-================================
-Name:  Juan dela Cruz
-Room:  204
-Table: 7
-================================
-Checked in: 15 Jun 2026 09:42
-Device: [device_id short form]
-================================
-    Welcome to FSY 2026!
-================================
-[FULL CUT]
+
+**Receipt layout (80mm paper):**
+
+```typescript
+// src/print/receipt.ts
+export function buildReceiptDocument(participant: Participant, eventName: string, deviceId: string) {
+  return [
+    { type: 'text', content: eventName, style: { align: 'center', bold: true, size: 'double' } },
+    { type: 'text', content: 'CHECK-IN RECEIPT', style: { align: 'center' } },
+    { type: 'line' },
+    { type: 'text', content: participant.full_name, style: { bold: true, size: 'double_width' } },
+    { type: 'text', content: `Room:  ${participant.room_number ?? '(not assigned)'}` },
+    { type: 'text', content: `Table: ${participant.table_number ?? '(not assigned)'}` },
+    { type: 'line' },
+    { type: 'text', content: `Checked in: ${formatDisplay(participant.registered_at!)}`, style: { align: 'right' } },
+    { type: 'text', content: `Device: ${deviceId.substring(0, 8)}`, style: { align: 'right' } },
+    { type: 'line' },
+    { type: 'text', content: 'Welcome to FSY!', style: { align: 'center', bold: true } },
+    { type: 'text', content: ' ' },
+    { type: 'text', content: ' ' },
+  ];
+}
+```
+
+**Print call (in `src/print/printer.ts`):**
+
+```typescript
+await ThermalPrinter.print({
+  printers: [{
+    address: `bt:${printerAddress}`,   // prefix bt: is required for Bluetooth
+    options: { paperWidthMm: 80 }
+  }],
+  documents: [buildReceiptDocument(participant, eventName, deviceId)]
+});
 ```
 
 **Rules:**
 - Event name comes from `app_settings.event_name`
-- If `room_number` is null/empty: print `Room:  (not assigned)`
-- If `table_number` is null/empty: print `Table: (not assigned)`
-- Device ID on receipt: first 8 characters only
-- Print is triggered after SQLite write and sync task enqueue — never before
+- If `room_number` is null/empty: show `(not assigned)`
+- If `table_number` is null/empty: show `(not assigned)`
+- Device ID on receipt: first 8 characters only (`deviceId.substring(0, 8)`)
+- Print is triggered AFTER SQLite write and sync task enqueue — never before
+- The `bt:` prefix before the MAC address is required by this library
 
 ---
 
@@ -1006,16 +1040,28 @@ VERIFY:
 
 ```
 ACTION:
-  Implement src/print/printer.ts.
-  Functions: connect(address), disconnect(), printReceipt(data), isConnected()
-  Auto-reconnect: if print is called and printer is disconnected, attempt reconnect once before failing.
-  All print errors must be caught and surfaced to Zustand store — never crash the app.
+  Implement src/print/printer.ts using @finan-me/react-native-thermal-printer.
+  Import: import { ThermalPrinter } from '@finan-me/react-native-thermal-printer'
+
+  Functions to implement:
+    scanForPrinters(): Promise<Device[]>
+      — calls ThermalPrinter.scanDevices(), returns combined paired + found list
+
+    printReceipt(participant, eventName, deviceId): Promise<void>
+      — reads printerAddress from app_settings
+      — calls ThermalPrinter.print() with bt:{address} and 80mm paper width
+      — uses buildReceiptDocument() from src/print/receipt.ts
+      — on error: updates Zustand store printerConnected = false, throws so caller can show toast
+
+  Do NOT implement connect()/disconnect() manually —
+  this library manages the BT connection internally per print call.
 
 VERIFY:
-  Connect to printer. Call printReceipt with test data.
-  Expected: Receipt prints with correct content.
+  Connect to printer. Call printReceipt with test participant data.
+  Expected: Receipt prints matching Section 7.11 layout.
   Turn printer off. Call printReceipt.
-  Expected: Error toast shown. App does not crash. Registration is still complete in SQLite.
+  Expected: Error is thrown and caught by confirm screen — toast shown, app does not crash.
+  Registration in SQLite is still complete regardless of print result.
 ```
 
 #### Task 5.2 — Implement receipt.ts
@@ -1037,15 +1083,18 @@ VERIFY:
 ```
 ACTION:
   Add printer section to app/(tabs)/settings.tsx.
-  "Scan for Printers" button: lists nearby Bluetooth printers by name and MAC address.
-  Tap a printer to pair and save address to app_settings.
-  Show connection status (connected / disconnected).
+  "Scan for Printers" button: calls ThermalPrinter.scanDevices() from
+    @finan-me/react-native-thermal-printer — returns { paired: Device[], found: Device[] }.
+  Display combined list of paired + found devices by name and address.
+  Tap a device to save its MAC address to app_settings.printer_address.
+  Show last-saved printer address and a "Test Print" button.
 
 VERIFY:
-  Open settings. Tap scan. Select printer.
-  Expected: Printer address saved to app_settings.printer_address
-  Expected: Status shows "Connected"
-  Restart app. Expected: App reconnects to saved printer automatically.
+  Open settings. Tap "Scan for Printers". Select printer from list.
+  Expected: app_settings.printer_address saved correctly.
+  Tap "Test Print".
+  Expected: A test receipt prints from the selected printer.
+  Restart app. Expected: Previously saved printer address is pre-loaded in settings.
 ```
 
 **→ PHASE 5 COMPLETE WHEN:** All 3 tasks verified. DEVLOG updated.
@@ -1271,5 +1320,5 @@ AI Coder: [Your name/model]
 
 ---
 
-*End of FSY Scanner App Project Plan v1.1*  
+*End of FSY Scanner App Project Plan v1.2*  
 *For questions or plan amendments, contact Jayson before proceeding.*
