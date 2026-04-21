@@ -11,6 +11,43 @@
 
 ---
 
+## 1.6 — Codebase Audit
+**Date/Time:** 2026-04-21 10:05 UTC
+**Status:** ⚠️ Audit complete — action items created
+
+### What I Did
+- Ran a full TypeScript check and inspected key project files, dependency manifests, and the implemented database code.
+- Verified schema, migrations, `participants` and `syncQueue` implementations.
+
+### Verification Result
+- TypeScript: `npx tsc --noEmit` — no type errors under `strict` mode.
+- `src/db/schema.ts` and `src/db/migrations.ts` implemented per plan v1.2. See [fsy-scanner/src/db/schema.ts](fsy-scanner/src/db/schema.ts) and [fsy-scanner/src/db/migrations.ts](fsy-scanner/src/db/migrations.ts).
+
+### Findings & Issues
+- **Nested package.json detected:** Project contains a nested `fsy-scanner/fsy-scanner/package.json` that holds `zustand`, `date-fns`, and `@react-native-async-storage/async-storage` while the top-level `fsy-scanner/package.json` only lists Expo and printer dependencies. This split can cause inconsistent installs and build failures. See [fsy-scanner/fsy-scanner/package.json](fsy-scanner/fsy-scanner/package.json).
+- **Unimplemented sync & auth:** `src/sync/sheetsApi.ts`, `src/sync/puller.ts`, `src/sync/pusher.ts`, and `src/auth/google.ts` are placeholders and must be implemented to enable Sheets sync. See [fsy-scanner/src/sync/sheetsApi.ts](fsy-scanner/src/sync/sheetsApi.ts).
+- **Print integration not wired:** `src/print/printer.ts` is unimplemented and `src/print/receipt.ts` still returns a plain string — Plan v1.2 requires a declarative print document using `@finan-me/react-native-thermal-printer`. Files: [fsy-scanner/src/print/printer.ts](fsy-scanner/src/print/printer.ts), [fsy-scanner/src/print/receipt.ts](fsy-scanner/src/print/receipt.ts).
+- **UI placeholders:** Scanner and confirm screens are stubs (`app/(tabs)/scan.tsx`, `app/confirm/[id].tsx`) — need to implement camera scanning, reticle, and confirm flow per plan. See [fsy-scanner/app/(tabs)/scan.tsx](fsy-scanner/app/(tabs)/scan.tsx).
+- **Sync engine missing:** `src/sync/engine.ts` is a scaffold; the orchestration (pull → push, auth handling, backoff) is not yet implemented.
+- **Migration invocation:** `runMigrations()` exists but is not yet invoked on app startup — add a call during app initialization to ensure DB is created and `device_id` set.
+- **Type declarations:** `declarations.d.ts` added as a minimal workaround for JS-only modules; consider adding proper types where possible.
+
+### Action Items (high priority)
+1. Consolidate dependencies: merge `fsy-scanner/fsy-scanner/package.json` dependencies into top-level `fsy-scanner/package.json` and remove the nested project directory, or document the reason for the nested layout. (Blocks reproducible installs.)
+2. Implement `src/sync/sheetsApi.ts`, `src/sync/puller.ts`, `src/sync/pusher.ts`, and `src/sync/engine.ts` per Plan Sections 7.5–7.8.
+3. Implement OAuth in `src/auth/google.ts` and `getValidToken()` to support Sheets requests.
+4. Implement `src/print/printer.ts` to call `@finan-me/react-native-thermal-printer` and update `src/print/receipt.ts` to return the declarative document (use `buildReceiptDocument`).
+5. Wire `runMigrations()` on app startup and add a small runtime test route to verify DB tables and `app_settings` keys (including `db_version` and `device_id`).
+6. Implement essential UI flows: scanner preview, confirm screen logic, and toast feedback.
+7. Add runtime verification tests for migrations, participants upsert, and syncQueue operations (Phase 1 VERIFY tasks).
+
+### Deviations from Plan
+- None — all deviations are recorded as issues and action items.
+
+### Next Steps
+- I can: (A) consolidate dependencies and fix the nested package.json, then implement the print integration and `sheetsApi`, or (B) implement the sync engine and auth first — tell me which to prioritize.
+
+
 ## 1.5 — Implement participants & syncQueue CRUD
 **Date/Time:** 2026-04-21 09:10 UTC
 **Status:** ✅ Complete
