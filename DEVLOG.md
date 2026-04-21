@@ -11,6 +11,62 @@
 
 ---
 
+---
+
+## PLAN CORRECTION — Thermal Printer Package Replacement
+**Date/Time:** 2026-04-21  
+**Status:** ⚠️ Plan amendment — not a code task — no verification required  
+**Issued by:** Jayson (Project Owner)  
+
+### What Changed
+The thermal printer package specified in Plan v1.1 (`react-native-thermal-receipt-printer-image-qr@^1.2.0`) does not exist on npm. The AI coder correctly identified this, reported it per the plan rules, and did not silently substitute an alternative. This was an error in the original plan.
+
+**Replaced with:** `@finan-me/react-native-thermal-printer@^1.0.9`
+
+Reasons for choosing this replacement:
+- Actively maintained (published ~4 months ago as of April 2026)
+- Declarative JSON document API — no raw ESC/POS byte manipulation required
+- Built-in `ThermalPrinter.scanDevices()` for Bluetooth printer discovery
+- Explicit 80mm paper width support
+
+### Sections Updated in Plan v1.2
+- Section 6.2 — dependency list corrected
+- Section 7.11 — `receipt.ts` rewritten for declarative API with code example
+- Phase 5, Task 5.1 — `printer.ts` implementation updated
+- Phase 5, Task 5.3 — Settings UI updated to use `ThermalPrinter.scanDevices()`
+
+### Action Required from AI Coder
+1. Install the new package:
+     ```bash
+     cd fsy-scanner
+     npm install @finan-me/react-native-thermal-printer@^1.0.9
+     ```
+2. Verify install:
+     ```bash
+     npm ls @finan-me/react-native-thermal-printer
+     ```
+     Expected: version `1.0.x` shown with no errors
+3. Do NOT install `react-native-thermal-receipt-printer-image-qr` under any version
+4. Proceed to Phase 1 Tasks 1.2 onward using Plan v1.2
+
+### Corrections Made
+- Plan v1.1 specified a non-existent npm package version — corrected in v1.2
+- All affected sections updated to use the new library API
+
+### Deviations from Plan
+- None — this entry documents a plan correction, not a code deviation
+
+---
+
+## PHASE 1 SUMMARY (Partial — pending package fix)
+**Date:** 2026-04-21  
+**Tasks completed:** 1/9 (Task 1.1 — Expo project initialized and Metro verified)  
+**Tasks blocked:** Task 1.2 — thermal printer package install pending plan correction  
+**Issues encountered:** Thermal printer package version did not exist; network ECONNRESET on first npm install attempt (resolved on retry)  
+**Ready for Phase 2:** ❌ No — Phase 1 tasks 1.2–1.9 still pending after package fix  
+
+---
+
 ## 1.3 — Retry npm installs
 **Date/Time:** 2026-04-21 08:31 UTC
 **Status:** ⚠️ Complete with notes
