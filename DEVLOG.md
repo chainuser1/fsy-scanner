@@ -19,20 +19,14 @@
 **Date/Time:**  
 **Status:** ✅ Complete | ⚠️ Complete with notes | ❌ Failed  
 **Date/Time:** 2026-04-21 08:24 UTC
-**Status:** ⚠️ Complete with notes
-
 ### What I Did
 Created an Expo TypeScript app at `fsy-scanner` using `npx create-expo-app` and removed the nested `.git` so the root repo tracks the project. Installed the Expo-managed packages listed in the plan (`expo-sqlite`, `expo-camera`, `expo-barcode-scanner`, `expo-auth-session`, `expo-secure-store`, `expo-network`, `expo-crypto`). Attempted to install additional npm packages from Section 6 and recorded failures. Started the Metro bundler to verify the scaffold.
-
 ### How I Followed the Plan
 - Ran: `npx create-expo-app fsy-scanner --template expo-template-blank-typescript` (Task 1.1 ACTION)
-- Installed Expo-managed packages with `npx expo install` per Section 6 guidance.
 - Attempted `npm --prefix ./fsy-scanner install` for npm packages from Section 6 (see Issues below).
 - Verified: `npx expo start` (Metro bundler started successfully).
-
 ### Verification Result
 - `npx expo start` succeeded: Metro Bundler started and reported a listening URL (e.g. "Metro waiting on exp://192.168.1.12:8081").
-- Attempt to install `react-native-thermal-receipt-printer-image-qr@^1.2.0` failed with `ETARGET` (no matching version).
 - Attempt to install the remaining npm packages (`zustand`, `date-fns`, `@react-native-async-storage/async-storage`) failed with a network error (`ECONNRESET`). npm log: `/home/lotus_clan/.npm/_logs/2026-04-21T08_24_48_720Z-debug-0.log`.
 
 ### Issues Encountered
