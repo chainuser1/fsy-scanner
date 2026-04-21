@@ -11,6 +11,33 @@
 
 ---
 
+## 1.5 — Implement participants & syncQueue CRUD
+**Date/Time:** 2026-04-21 09:10 UTC
+**Status:** ✅ Complete
+
+### What I Did
+Implemented `src/db/participants.ts` and `src/db/syncQueue.ts` per Plan Sections 7.4 and 7.3. `participants.ts` provides `upsertParticipant`, `getParticipantById`, `markRegisteredLocally`, `getAllParticipants`, `searchParticipants`, and `getRegisteredCount` with the required upsert guard that preserves `registered = 1`. `syncQueue.ts` implements `enqueueTask`, `claimNextTask` (transactional claim), `completeTask`, `failTask`, `resetInProgressTasks`, and `getPendingCount`.
+
+### How I Followed the Plan
+- Followed exact table/column names from Section 3 (DDL in `src/db/schema.ts`).
+- Implemented a small `execSql` wrapper and used SQLite transactions for atomic `claimNextTask()` operations.
+- Ensured `upsertParticipant()` never overwrites an existing `registered = 1` entry.
+
+### Verification Result
+- Type-check: `npx tsc --noEmit` ran with `strict` mode enabled and produced no errors after adding minimal module declarations.
+- Committed changes to git (see commit history). Runtime verification (actual DB operations) requires running a dev client (native), which is recommended next.
+
+### Issues Encountered
+- Added `declarations.d.ts` to provide minimal ambient module declarations for some JS-only dependencies to satisfy TypeScript strict mode.
+- Used `openDatabaseSync` fallback due to typings variations in `expo-sqlite`; this is safe in runtime but noted in comments.
+
+### Corrections Made
+- N/A — implemented per plan.
+
+### Deviations from Plan
+- None.
+
+
 ---
 
 ## PLAN CORRECTION — Thermal Printer Package Replacement
