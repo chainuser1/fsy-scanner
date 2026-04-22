@@ -859,3 +859,18 @@ subsequent-run tests required.
 
 ### Deviations from Plan
 - None.
+
+## 1.13 — Enforce JDK 17 for Android CI Builds
+**Date/Time:** 2026-04-22 UTC
+**Status:** ✅ Completed
+
+### What I Did
+- Updated `.github/workflows/android-build.yml` to verify the installed Java runtime and print `java -version` / `javac -version` during build.
+- Added a step to append `org.gradle.java.home=$JAVA_HOME` into `fsy-scanner/android/gradle.properties`, forcing Gradle to use the Java 17 runtime installed by `actions/setup-java`.
+
+### Verification Result
+- Workflow updated and ready for CI.
+- This prevents the `Unsupported class file major version 69` failure caused by Java 25.
+
+### Deviations from Plan
+- None.
