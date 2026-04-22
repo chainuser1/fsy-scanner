@@ -17,6 +17,7 @@
     "expo-camera": "~17.0.10",
     "expo-crypto": "~15.0.8",
     "expo-network": "~8.0.8",
+    "expo-secure-store": "~13.0.2",
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
