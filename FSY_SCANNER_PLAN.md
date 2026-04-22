@@ -1,7 +1,7 @@
-# FSY Check-In Scanner App — AI Coder Project Plan
-**Version:** 1.2  
-**Prepared by:** Jayson (ML Engineer · Dagami Ward FSY Organizer)  
-**For:** AI Coders — Cursor, Copilot, Trae SOLO  
+# FSY Check-In Scanner App — Project Plan
+**Version:** 1.3  
+**Prepared by:** Jayson (ML Engineer · Dagami Ward FSY Assistant Coordinator)  
+**For:** Other Developers
 **Status:** Active — Follow exactly as written
 
 ### Changelog
@@ -10,6 +10,8 @@
 | 1.0 | 2026-04-21 | Initial plan |
 | 1.1 | 2026-04-21 | Added DEVLOG format, anti-hallucination rules, verification checks |
 | 1.2 | 2026-04-21 | **Replaced thermal printer package** — `react-native-thermal-receipt-printer-image-qr@^1.2.0` does not exist on npm. Replaced with `@finan-me/react-native-thermal-printer@^1.0.9`. Updated Sections 6.2, 7.11, 7.13. |
+| 1.3 | 2026-04-22 | **Replaced Google OAuth with Service Account auth** — scanners are shared event devices, no user login required. Removed `expo-auth-session` and `expo-secure-store`. Replaced `src/auth/google.ts` with JWT-based service account token generator. Removed login UI from settings screen. Removed `isAuthenticated` and `needsReAuth` from Zustand store. Updated Sections 6.1, 7.9, 7.10, Phase 2, Section 10. |
+| 1.4 | 2026-04-22 | Added runtime verification screen and coverage checks for migrations, settings persistence, sync queue round-trip, receipt generation, and print error handling. |
 
 ---
 
@@ -272,6 +274,7 @@ fsy-scanner/
 │       └── time.ts                  # Timestamp helpers (now(), formatDisplay())
 │
 ├── assets/                           # Icons, splash screens
+├── .env                              # Service account credentials — NEVER commit this file
 ├── DEVLOG.md                         # AI coder execution log — append only, never overwrite
 ├── app.json
 ├── tsconfig.json                     # Must have strict: true
@@ -290,11 +293,11 @@ fsy-scanner/
 expo-sqlite
 expo-camera
 expo-barcode-scanner
-expo-auth-session
-expo-secure-store
 expo-network
 expo-crypto
 ```
+
+> ⚠️ **PLAN CORRECTION v1.3:** `expo-auth-session` and `expo-secure-store` have been **removed**. The app no longer uses Google OAuth — it uses a Service Account instead. Do NOT install these packages.
 
 ### 6.2 npm Packages (use `npm install`)
 
@@ -303,9 +306,12 @@ zustand@^4.5.0
 @finan-me/react-native-thermal-printer@^1.0.9
 date-fns@^3.6.0
 @react-native-async-storage/async-storage@^1.23.0
+expo-jwt@^1.0.3
 ```
 
-> ⚠️ **PLAN CORRECTION v1.2:** The originally specified package `react-native-thermal-receipt-printer-image-qr@^1.2.0` does not exist on npm — its published versions are `0.1.x` only and the package is abandoned (last published 4 years ago). The approved replacement is `@finan-me/react-native-thermal-printer@^1.0.9` — actively maintained, declarative API, built-in Bluetooth device scanning. Do NOT install the old package under any version.
+> ⚠️ **PLAN CORRECTION v1.2:** The originally specified package `react-native-thermal-receipt-printer-image-qr@^1.2.0` does not exist on npm. Replaced with `@finan-me/react-native-thermal-printer@^1.0.9`.
+
+> ⚠️ **PLAN CORRECTION v1.3:** `expo-jwt` is added for signing JWT tokens for Service Account authentication. Do NOT use any Google API SDK — token exchange is done via `fetch()` only.
 
 ### 6.3 Google Sheets API — No SDK
 
@@ -452,7 +458,8 @@ updateRegistrationRow(
 ```
 
 **Error handling rules:**
-- HTTP 401 → throw `AuthExpiredError` (caller will re-auth)
+- HTTP 401 → throw `AuthError` — token was rejected (service account key may be wrong or Sheet not shared with service account email)
+- HTTP 403 → throw `AuthError` — service account does not have Editor access on the Sheet
 - HTTP 429 → throw `RateLimitError` (caller will backoff)
 - HTTP 5xx → throw `SheetsServerError` (caller will retry)
 - Network failure → throw `NetworkError` (caller will skip tick)
@@ -514,24 +521,81 @@ updateRegistrationRow(
 
 **Each tick:**
 1. Check network availability via `expo-network`. If offline, skip and log.
-2. Get valid access token (refresh if expired via `src/auth/google.ts`)
-3. Call `puller.pull()`
-4. Call `pusher.drainQueue()`
+2. Call `getValidToken()` from `src/auth/google.ts`. If null: log error, skip tick.
+3. Call `puller.pull(token)`
+4. Call `pusher.drainQueue(token)`
 5. On `RateLimitError`: clear current interval, restart with doubled interval (max 120000ms)
-6. On `AuthExpiredError`: trigger re-auth flow via Zustand store flag
-7. On any other error: log it, continue (do not crash the loop)
+6. On any other error: log it, update `syncError` in Zustand store, continue (do not crash the loop)
 
 ---
 
 ### 7.9 `src/auth/google.ts`
 
-**Purpose:** Google OAuth 2.0 using `expo-auth-session`.
+**Purpose:** Generate a valid Google API access token silently using a **Service Account** — no user login, no browser, no consent screen.
 
-- Scopes required: `https://www.googleapis.com/auth/spreadsheets`
-- Store access token and refresh token in `expo-secure-store`
-- Implement `getValidToken()`: returns access token, refreshing silently if expired
-- Implement `signIn()`: launches OAuth browser flow
-- Implement `signOut()`: clears stored tokens
+> ⚠️ **PLAN CORRECTION v1.3:** This module no longer uses OAuth or `expo-auth-session`. It uses a Service Account JWT flow. There is NO `signIn()`, NO `signOut()`, and NO stored user tokens. The app authenticates itself automatically, invisibly to the scanner operator.
+
+**How Service Account auth works:**
+1. App reads credentials from `.env` (service account email + private key)
+2. App builds and signs a JWT using the private key (via `expo-jwt`)
+3. App POSTs the JWT to Google's token endpoint
+4. Google returns a short-lived access token (valid 1 hour)
+5. App uses that token for all Sheets API calls
+6. When token expires, app repeats steps 2–4 silently
+
+**`.env` keys required:**
+```
+GOOGLE_SERVICE_ACCOUNT_EMAIL=fsy-scanner-bot@fsy-scanner-2026.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n"
+```
+
+> ⚠️ The private key must have real newlines replaced with `\n` in the `.env` file. When reading it in code, replace `\\n` with `\n` before using.
+
+**Functions to export — no others:**
+
+```typescript
+// Returns a valid access token. Fetches a new one if expired or not yet obtained.
+// Never throws to the caller — if token fetch fails, returns null and logs error.
+getValidToken(): Promise<string | null>
+```
+
+**Implementation algorithm for `getValidToken()`:**
+
+```
+1. Check module-level cache: if cachedToken exists and expiresAt > Date.now() + 60000
+   → return cachedToken immediately (60s buffer before expiry)
+
+2. Read from process.env:
+   - GOOGLE_SERVICE_ACCOUNT_EMAIL
+   - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY (replace \\n with \n)
+
+3. Build JWT claims:
+   {
+     iss: serviceAccountEmail,
+     scope: 'https://www.googleapis.com/auth/spreadsheets',
+     aud: 'https://oauth2.googleapis.com/token',
+     exp: Math.floor(Date.now() / 1000) + 3600,   // 1 hour from now
+     iat: Math.floor(Date.now() / 1000)
+   }
+
+4. Sign JWT using expo-jwt with RS256 algorithm and the private key
+
+5. POST to https://oauth2.googleapis.com/token:
+   grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+   assertion={signedJwt}
+
+6. On success: cache the access_token and set expiresAt = Date.now() + 3500000 (just under 1hr)
+   Return access_token.
+
+7. On failure: log error, return null.
+   Caller (engine.ts) will skip that sync tick and retry next interval.
+```
+
+**Important rules:**
+- Token is cached in memory only — not persisted to SQLite or AsyncStorage
+- Cache is per-device-session — cleared on app restart (that's fine, just fetches a new one)
+- Never expose the private key in logs — log only `serviceAccountEmail` for debugging
+- If `GOOGLE_SERVICE_ACCOUNT_EMAIL` or `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` is missing from env: log a clear error message and return null. Do not crash.
 
 ---
 
@@ -539,12 +603,10 @@ updateRegistrationRow(
 
 **Zustand store shape:**
 
+> ⚠️ **PLAN CORRECTION v1.3:** `isAuthenticated`, `setAuthenticated`, `needsReAuth`, and `setNeedsReAuth` have been **removed**. There is no user auth state — the service account handles authentication invisibly.
+
 ```typescript
 {
-  // Auth
-  isAuthenticated: boolean,
-  setAuthenticated: (val: boolean) => void,
-
   // Sync status
   pendingTaskCount: number,
   setPendingTaskCount: (count: number) => void,
@@ -552,8 +614,8 @@ updateRegistrationRow(
   incrementFailedTaskCount: () => void,
   lastSyncedAt: number | null,
   setLastSyncedAt: (ts: number) => void,
-  needsReAuth: boolean,
-  setNeedsReAuth: (val: boolean) => void,
+  syncError: string | null,               // last sync error message for display
+  setSyncError: (msg: string | null) => void,
 
   // Printer
   printerConnected: boolean,
@@ -563,7 +625,7 @@ updateRegistrationRow(
 
   // Last scan result (for UI feedback)
   lastScanResult: 'success' | 'already_registered' | 'not_found' | null,
-  setLastScanResult: (result: ...) => void,
+  setLastScanResult: (result: 'success' | 'already_registered' | 'not_found' | null) => void,
 }
 ```
 
@@ -687,18 +749,20 @@ VERIFY:
 ```
 ACTION:
   npx expo install expo-sqlite expo-camera expo-barcode-scanner \
-    expo-auth-session expo-secure-store expo-network expo-crypto
+    expo-network expo-crypto
 
   npm install zustand@^4.5.0 \
-    react-native-thermal-receipt-printer-image-qr@^1.2.0 \
+    @finan-me/react-native-thermal-printer@^1.0.9 \
     date-fns@^3.6.0 \
-    @react-native-async-storage/async-storage@^1.23.0
+    @react-native-async-storage/async-storage@^1.23.0 \
+    expo-jwt@^1.0.3
 
 VERIFY:
   npm ls --depth=0
   Expected: All packages listed above appear with no peer dependency errors
   
   Check package.json — confirm versions match Section 6
+  Confirm expo-auth-session and expo-secure-store are NOT installed
 ```
 
 #### Task 1.3 — Enable TypeScript Strict Mode
@@ -802,84 +866,119 @@ VERIFY:
 
 ---
 
-### Phase 2 — Google Auth & Sheets API
+### Phase 2 — Service Account Auth & Sheets API
 
-**Goal:** App can authenticate to Google and read/write the Sheet.
+**Goal:** App can silently authenticate to Google using a Service Account and read/write the Sheet with no user login.
 
-#### Task 2.1 — Implement Google OAuth
+> ⚠️ **PLAN CORRECTION v1.3:** Phase 2 no longer involves OAuth or any user-facing login screen. All authentication is silent and automatic via Service Account JWT.
+
+#### Task 2.1 — Install expo-jwt and Configure .env
 
 ```
 ACTION:
-  Implement src/auth/google.ts per Section 7.9.
-  Required scope: https://www.googleapis.com/auth/spreadsheets
-  Store tokens in expo-secure-store.
+  npm install expo-jwt@^1.0.3
+
+  Confirm .env in fsy-scanner/ contains:
+    GOOGLE_SERVICE_ACCOUNT_EMAIL=fsy-scanner-bot@...iam.gserviceaccount.com
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n"
+
+  Confirm .env is in .gitignore.
 
 VERIFY:
-  Run on device. Tap sign-in. Complete OAuth flow in browser.
-  Expected: access token is returned and stored
-  Expected: calling getValidToken() returns a non-null string
+  npm ls expo-jwt
+  Expected: expo-jwt@1.0.x shown with no errors
+
+  cat .gitignore | grep .env
+  Expected: .env appears in output
 ```
 
-#### Task 2.2 — Implement sheetsApi.fetchAllRows()
+#### Task 2.2 — Implement src/auth/google.ts (Service Account)
+
+```
+ACTION:
+  Implement getValidToken() per Section 7.9 exactly.
+  Use expo-jwt to sign the JWT with RS256.
+  Token exchange endpoint: https://oauth2.googleapis.com/token
+  Cache token in module-level variable — not SQLite, not AsyncStorage.
+
+VERIFY:
+  Call getValidToken() once. Log the result (first 20 chars only — do not log full token).
+  Expected: returns a non-null string starting with "ya29."
+  Call getValidToken() again immediately.
+  Expected: returns same token from cache (no second network call — verify by checking logs)
+  Wait for cache to expire OR manually clear cache variable.
+  Expected: new token fetched automatically on next call
+```
+
+#### Task 2.3 — Implement sheetsApi.fetchAllRows()
 
 ```
 ACTION:
   Implement fetchAllRows() in src/sync/sheetsApi.ts.
-  Fetch range: {tabName}!A1:Z1000 (covers up to 26 columns, 1000 rows)
-  Parse response.values (string[][])
+  Function signature: fetchAllRows(accessToken: string, sheetId: string, tabName: string): Promise<string[][]>
+  Fetch range: {tabName}!A1:Z1000
+  Parse response.values — return as string[][]
+  Handle all error types per Section 7.5.
 
 VERIFY:
-  Call fetchAllRows() with a real test sheet containing 3 rows.
-  Expected: returns array of 4 items (1 header + 3 data rows)
-  Expected: each item is a string array matching sheet content
-  Log the result and confirm manually.
+  Call getValidToken() then fetchAllRows() against a real test sheet with 3 data rows.
+  Expected: returns array with 4 items (1 header + 3 data rows)
+  Expected: each row is a string array matching sheet content
+  Log row count and first row — confirm manually.
 ```
 
-#### Task 2.3 — Implement Column Map Detection
+#### Task 2.4 — Implement Column Map Detection
 
 ```
 ACTION:
-  Implement in sheetsApi.ts or puller.ts (your choice — be consistent).
-  Read row 0 from fetchAllRows result.
-  Build col_map: { 'ID': 0, 'Name': 1, 'Table Number': 2, ... }
-  Required headers (Section 4.1): ID, Name, Table Number, Hotel Room Number
-  If any required header is missing: throw ColMapError listing which headers are missing
+  Implement detectColMap() — reads row 0 from fetchAllRows result.
+  Builds map: { 'ID': 0, 'Name': 1, 'Table Number': 2, 'Hotel Room Number': 3, ... }
+  Required headers: ID, Name, Table Number, Hotel Room Number
+  Optional headers (write these if found): Registered, Registered At, Registered By
+  If Registered/Registered At/Registered By columns are missing from sheet:
+    → throw ColMapError telling user to add these columns before syncing
   Save col_map JSON to app_settings.
 
 VERIFY:
-  Test with a sheet that has all required headers → col_map saved correctly
-  Test with a sheet missing 'Table Number' → ColMapError thrown with message naming the missing header
+  Test with sheet that has all required + optional headers.
+  Expected: col_map saved to app_settings with correct 0-based indices.
+  Test with sheet missing 'Registered At'.
+  Expected: ColMapError thrown with message naming the missing column.
 ```
 
-#### Task 2.4 — Implement sheetsApi.updateRegistrationRow()
+#### Task 2.5 — Implement sheetsApi.updateRegistrationRow()
 
 ```
 ACTION:
-  Implement updateRegistrationRow() in src/sync/sheetsApi.ts per Section 7.5.
-  Must use col_map to determine which columns to write — never hardcode column letters.
-  Write to: Registered = 'Y', Registered At = ISO string, Registered By = device_id
+  Implement updateRegistrationRow() per Section 7.5.
+  Must read column positions from col_map — never hardcode column letters.
+  Writes: Registered = 'Y', Registered At = ISO timestamp, Registered By = device_id
 
 VERIFY:
   Call updateRegistrationRow() on a test row in a real sheet.
-  Expected: HTTP 200 returned
-  Expected: Open Google Sheets — the 3 cells are updated correctly
+  Expected: HTTP 200 returned.
+  Open Google Sheets — confirm the 3 cells updated correctly.
 ```
 
-#### Task 2.5 — Settings Screen (Sheet Config)
+#### Task 2.6 — Settings Screen (Sheet Config Only)
 
 ```
 ACTION:
-  Implement app/(tabs)/settings.tsx.
+  Implement app/(tabs)/settings.tsx — Sheet config section only (printer section comes in Phase 5).
   Fields: Sheet ID (text input), Tab Name (text input), Event Name (text input)
-  Button: Save & Sync — saves to app_settings and triggers column map detection
+  Button: "Save & Detect Columns" — saves to app_settings, calls detectColMap(), shows result.
+  Show detected columns as a read-only list after detection succeeds.
+  Show clear error message if ColMapError is thrown.
+  NO login button. NO sign-out button. NO auth UI of any kind.
 
 VERIFY:
-  Enter a Sheet ID and Tab Name. Tap Save & Sync.
-  Expected: col_map is saved to app_settings
-  Expected: No crash, success confirmation shown
+  Enter a real Sheet ID and Tab Name. Tap Save & Detect Columns.
+  Expected: col_map saved, detected columns displayed correctly.
+  Enter wrong tab name. Tap Save & Detect Columns.
+  Expected: error shown clearly — "Tab not found" or similar.
 ```
 
-**→ PHASE 2 COMPLETE WHEN:** All 5 tasks verified. DEVLOG updated.
+**→ PHASE 2 COMPLETE WHEN:** All 6 tasks verified. DEVLOG updated.
 
 ---
 
@@ -1115,6 +1214,26 @@ Add "Sync Now" button to settings screen. Calls one sync tick immediately outsid
 #### Task 6.4 — Dark Mode
 Use Expo's `useColorScheme()` hook. Apply dark background and light text when system is in dark mode.
 
+#### Task 6.5 — Runtime Verification Screen
+
+```
+ACTION:
+  Add app/verify.tsx and a runtime verification helper in src/verify/runtimeVerification.ts.
+  The screen should run checks for:
+    - DB migrations and app_settings bootstrap
+    - app_settings read/write persistence
+    - sync queue enqueue / claim / complete round-trip
+    - column map detection logic
+    - receipt document generation
+    - print path validation when no printer is configured
+  Show PASS/FAIL for each check and error details for failures.
+
+VERIFY:
+  Open the app and navigate to /verify or use the Settings verification button.
+  Run verification.
+  Expected: core checks complete with PASS or a clear failure detail. No crash should occur.
+```
+
 #### Task 6.5 — Loading State on Participant List
 Show a skeleton loader while SQLite is loading participants on first launch.
 
@@ -1159,18 +1278,39 @@ Row 1 must be a header row with exactly these column names (case-sensitive):
 ID | Name | Table Number | Hotel Room Number | Registered | Registered At | Registered By
 ```
 
-- `Registered`, `Registered At`, `Registered By` columns must exist but can be empty — the app writes to them.
-- Data starts from row 2.
+- `Registered`, `Registered At`, `Registered By` columns must exist but start empty — the app writes to them.
+- Data starts from Row 2.
 - Column order does not matter — the app detects positions from the header row.
 
-### 10.2 Google Cloud Project Setup
+### 10.2 Google Cloud Project Setup (Service Account)
 
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → Create project: `FSY Scanner 2026`
-2. Enable **Google Sheets API**
-3. Create **OAuth 2.0 credentials** → Application type: Android (or iOS)
-4. Add the Expo redirect URI to Authorized Redirect URIs
-5. Note the **Client ID** — enter it in `src/auth/google.ts`
-6. Share the Google Sheet with the account that will sign in on the devices
+> ⚠️ **PLAN CORRECTION v1.3:** Setup now uses a Service Account instead of OAuth. No SHA-1 fingerprint needed. No Android credential needed. No user login screen.
+
+**Step 1 — Create a Service Account:**
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → your `FSY Scanner 2026` project
+2. Left menu → **IAM & Admin** → **Service Accounts**
+3. Click **Create Service Account**
+4. Name: `fsy-scanner-bot` → Click **Done**
+
+**Step 2 — Generate a JSON key:**
+1. Click the service account → **Keys** tab → **Add Key** → **Create new key** → **JSON**
+2. Download the JSON file — it contains `client_email` and `private_key`
+
+**Step 3 — Add credentials to `.env`:**
+```bash
+GOOGLE_SERVICE_ACCOUNT_EMAIL=fsy-scanner-bot@fsy-scanner-2026.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n"
+```
+> The private key from the JSON file has real newlines — replace each newline with `\n` when pasting into `.env`.
+
+**Step 4 — Share the Google Sheet with the service account:**
+1. Open the Google Sheet
+2. Click **Share**
+3. Paste the `client_email` from the JSON file (e.g. `fsy-scanner-bot@fsy-scanner-2026.iam.gserviceaccount.com`)
+4. Give it **Editor** access
+5. Uncheck "Notify people" → click **Share**
+
+That's it. The app will now authenticate silently with no user interaction.
 
 ---
 
@@ -1295,7 +1435,7 @@ AI Coder: [Your name/model]
 | Two devices register same participant simultaneously | Low | Local `registered = 1` guard prevents double-write; puller convergence resolves within 15s |
 | Bluetooth printer disconnects mid-event | Medium | Auto-reconnect in `printer.ts`; non-blocking print; manual reconnect in settings |
 | Hotel WiFi instability | Low–Medium | Local-first design: scanning and printing work offline; queue drains on reconnect |
-| Google OAuth token expires mid-event | Low | Silent refresh via `getValidToken()`; re-auth prompt if refresh fails |
+| Service account key compromised | Low | Key is in `.env` which is gitignored and never committed. Rotate key in Google Cloud Console if compromised — update `.env` and rebuild. |
 | Registration team changes column names before event | Medium | Column auto-detect from header row; `ColMapError` shown clearly if headers don't match |
 | `room_number` or `table_number` null at event time | Possible | App handles null gracefully: shows "(not assigned)" on receipt and confirm screen |
 
@@ -1320,5 +1460,5 @@ AI Coder: [Your name/model]
 
 ---
 
-*End of FSY Scanner App Project Plan v1.2*  
+*End of FSY Scanner App Project Plan v1.3*  
 *For questions or plan amendments, contact Jayson before proceeding.*

@@ -53,11 +53,10 @@ export async function claimNextTask(): Promise<SyncTask | null> {
               const id = row.id;
               const now = Date.now();
               tx.executeSql(
-                `UPDATE sync_tasks SET status = ?, attempts = attempts + 1, updated_at = ? WHERE id = ?`,
+                `UPDATE sync_tasks SET status = ?, updated_at = ? WHERE id = ?`,
                 ['in_progress', now, id],
                 (_: any, updRes: any) => {
-                  // Return the claimed task
-                  resolve({ id: row.id, type: row.type, payload: row.payload, status: 'in_progress', attempts: row.attempts + 1, last_error: row.last_error, created_at: row.created_at });
+                  resolve({ id: row.id, type: row.type, payload: row.payload, status: 'in_progress', attempts: row.attempts, last_error: row.last_error, created_at: row.created_at });
                 },
                 (_: any, err: any) => {
                   reject(err);
