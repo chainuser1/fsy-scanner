@@ -42,7 +42,7 @@ jobs:
         working-directory: fsy-scanner
 
       - name: Run Expo doctor
-        run: npx expo doctor
+        run: npx expo-doctor
         working-directory: fsy-scanner
 
   build-android:
