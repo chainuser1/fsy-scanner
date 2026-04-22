@@ -1,11 +1,18 @@
 export function buildReceiptDocument(
-  participant: { full_name?: string; room_number?: string | null; table_number?: string | null },
+  participant: {
+    full_name?: string;
+    room_number?: string | null;
+    table_number?: string | null;
+    tshirt_size?: string | null;
+    verified_at?: number | null;
+  },
   eventName = 'FSY'
 ) {
   const name = participant.full_name ?? '(unknown)';
   const room = participant.room_number || '(not assigned)';
   const table = participant.table_number || '(not assigned)';
-  const now = new Date().toLocaleString();
+  const shirt = participant.tshirt_size || '(not assigned)';
+  const verifiedAt = participant.verified_at ? new Date(participant.verified_at).toLocaleString() : new Date().toLocaleString();
 
   return [
     {
@@ -36,21 +43,29 @@ export function buildReceiptDocument(
     },
     {
       type: 'text',
-      content: `Name: ${name}`,
+      content: `${name}`,
+      style: {
+        align: 'left',
+        bold: true,
+      },
+    },
+    {
+      type: 'text',
+      content: `Room:   ${room}`,
       style: {
         align: 'left',
       },
     },
     {
       type: 'text',
-      content: `Room: ${room}`,
+      content: `Table:  ${table}`,
       style: {
         align: 'left',
       },
     },
     {
       type: 'text',
-      content: `Table: ${table}`,
+      content: `Shirt:  ${shirt}`,
       style: {
         align: 'left',
       },
@@ -61,9 +76,21 @@ export function buildReceiptDocument(
     },
     {
       type: 'text',
-      content: `Checked in: ${now}`,
+      content: `Verified: ${verifiedAt}`,
       style: {
-        align: 'left',
+        align: 'center',
+      },
+    },
+    {
+      type: 'line',
+      style: 'solid',
+    },
+    {
+      type: 'text',
+      content: 'Welcome to FSY 2026!',
+      style: {
+        align: 'center',
+        bold: true,
       },
     },
     {

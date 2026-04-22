@@ -13,7 +13,7 @@ import { ThermalPrinter } from '@finan-me/react-native-thermal-printer';
 import { getSetting, setSetting } from '../../src/db/appSettings';
 import { detectColMap, saveColMap } from '../../src/sync/puller';
 import { fetchAllRows } from '../../src/sync/sheetsApi';
-import { getValidToken } from '../../src/auth/google';
+import { getValidToken, getSheetsId, getSheetsTab, getEventName } from '../../src/auth/google';
 
 export default function Settings() {
   const router = useRouter();
@@ -32,11 +32,29 @@ export default function Settings() {
     async function loadSettings() {
       try {
         const values = await getSetting('sheets_id');
-        if (values) setSheetId(values);
+        if (values) {
+          setSheetId(values);
+        } else {
+          const envSheetsId = getSheetsId();
+          if (envSheetsId) setSheetId(envSheetsId);
+        }
+
         const savedTab = await getSetting('sheets_tab');
-        if (savedTab) setTabName(savedTab);
+        if (savedTab) {
+          setTabName(savedTab);
+        } else {
+          const envTabName = getSheetsTab();
+          if (envTabName) setTabName(envTabName);
+        }
+
         const savedEvent = await getSetting('event_name');
-        if (savedEvent) setEventName(savedEvent);
+        if (savedEvent) {
+          setEventName(savedEvent);
+        } else {
+          const envEventName = getEventName();
+          if (envEventName) setEventName(envEventName);
+        }
+
         const savedPrinter = await getSetting('printer_address');
         if (savedPrinter) setPrinterAddress(savedPrinter);
       } catch (err) {

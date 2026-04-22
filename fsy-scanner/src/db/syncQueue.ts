@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 
 type SyncTask = {
   id: number;
-  type: 'mark_registered' | 'pull_delta';
+  type: 'mark_registered' | 'mark_printed' | 'pull_delta';
   payload: string; // JSON
   status: string;
   attempts: number;
@@ -33,7 +33,7 @@ function execSql(sql: string, params: any[] = []) {
   });
 }
 
-export async function enqueueTask(type: 'mark_registered' | 'pull_delta', payload: object): Promise<number> {
+export async function enqueueTask(type: 'mark_registered' | 'mark_printed' | 'pull_delta', payload: object): Promise<number> {
   const now = Date.now();
   const res = await execSql('INSERT INTO sync_tasks (type, payload, status, attempts, created_at) VALUES (?,?,?,?,?)', [type, JSON.stringify(payload), 'pending', 0, now]);
   // insertId should be returned by executeSql result

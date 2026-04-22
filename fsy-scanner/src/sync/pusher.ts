@@ -35,7 +35,7 @@ export async function pusher(): Promise<void> {
     try {
       const payload = JSON.parse(task.payload);
 
-      if (task.type !== 'mark_registered') {
+      if (task.type !== 'mark_registered' && task.type !== 'mark_printed') {
         throw new Error(`Unsupported sync task type: ${task.type}`);
       }
 
@@ -43,10 +43,26 @@ export async function pusher(): Promise<void> {
         throw new Error('Invalid task payload: sheetsRow is required');
       }
 
-      await updateRegistrationRow(accessToken, sheetId, tabName, payload.sheetsRow, colMap, {
-        registeredAt: payload.registeredAt,
-        registeredBy: payload.registeredBy,
-      });
+      if (task.type === 'mark_registered') {
+        if (typeof payload.verifiedAt !== 'string' || !payload.registeredBy) {
+          throw new Error('Invalid mark_registered payload');
+        }
+
+        await updateRegistrationRow(accessToken, sheetId, tabName, payload.sheetsRow, colMap, {
+          registered: true,
+          verifiedAt: payload.verifiedAt,
+          registeredBy: payload.registeredBy,
+        });
+      } else {
+        if (typeof payload.printedAt !== 'string' || !payload.registeredBy) {
+          throw new Error('Invalid mark_printed payload');
+        }
+
+        await updateRegistrationRow(accessToken, sheetId, tabName, payload.sheetsRow, colMap, {
+          printedAt: payload.printedAt,
+          registeredBy: payload.registeredBy,
+        });
+      }
 
       await completeTask(task.id);
     } catch (error: any) {

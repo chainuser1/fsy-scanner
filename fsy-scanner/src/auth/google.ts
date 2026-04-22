@@ -1,209 +1,112 @@
-import base64 from 'base-64';
-import * as SecureStore from 'expo-secure-store';
+import QuickCrypto, { Buffer } from 'react-native-quick-crypto';
 
+// ─── Environment variables ────────────────────────────────────────────────────
 const SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 const SERVICE_ACCOUNT_PRIVATE_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-const SHEETS_ID = process.env.EXPO_PUBLIC_SHEETS_ID;
-const SHEETS_TAB = process.env.EXPO_PUBLIC_SHEETS_TAB;
-const EVENT_NAME = process.env.EXPO_PUBLIC_EVENT_NAME;
 
-const ACCESS_TOKEN_KEY = 'fsy_service_account_access_token';
-const ACCESS_TOKEN_EXPIRES_AT_KEY = 'fsy_service_account_access_token_expires_at';
-const TOKEN_URI = 'https://oauth2.googleapis.com/token';
-const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+export const SHEETS_ID = process.env.EXPO_PUBLIC_SHEETS_ID ?? '';
+export const SHEETS_TAB = process.env.EXPO_PUBLIC_SHEETS_TAB ?? '';
+export const EVENT_NAME = process.env.EXPO_PUBLIC_EVENT_NAME ?? '';
 
-function requireEnv(name: string, value: string | undefined): string {
-  if (!value) {
-    throw new Error(`Missing required env var ${name}`);
-  }
-  return value;
-}
+// ─── In-memory token cache ────────────────────────────────────────────────────
+let cachedToken: string | null = null;
+let expiresAt: number = 0;
 
-function encodeBase64Url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const slice = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...slice);
-  }
-
-  return base64
-    .encode(binary)
+// ─── JWT helpers ──────────────────────────────────────────────────────────────
+function base64UrlEncode(str: string): string {
+  return Buffer.from(str, 'utf8')
+    .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/=+$/g, '');
 }
 
-function encodeBase64UrlString(value: string): string {
-  return base64
-    .encode(value)
+function signRS256(input: string, privateKeyPem: string): string {
+  const signer = QuickCrypto.createSign('RSA-SHA256');
+  signer.update(input);
+  return signer
+    .sign(privateKeyPem, 'base64')
+    .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/=+$/g, '');
 }
 
-function getCryptoSubtle(): SubtleCrypto {
-  const globalCrypto = (globalThis as any).crypto;
-  if (!globalCrypto || !globalCrypto.subtle) {
-    throw new Error('WebCrypto SubtleCrypto is unavailable in this environment');
-  }
-  return globalCrypto.subtle as SubtleCrypto;
-}
-
-function getTextEncoder(): TextEncoder {
-  if (typeof TextEncoder === 'undefined') {
-    throw new Error('TextEncoder is unavailable in this environment');
-  }
-  return new TextEncoder();
-}
-
-function pemToArrayBuffer(pem: string): ArrayBuffer {
-  const header = '-----BEGIN PRIVATE KEY-----';
-  const footer = '-----END PRIVATE KEY-----';
-  const start = pem.indexOf(header);
-  const end = pem.indexOf(footer, start + header.length);
-
-  if (start < 0 || end < 0) {
-    throw new Error('Invalid PKCS#8 private key format');
-  }
-
-  const base64Key = pem.slice(start + header.length, end).replace(/\s+/g, '');
-  const binary = base64.decode(base64Key);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return bytes.buffer;
-}
-
-async function importPrivateKey(): Promise<CryptoKey> {
-  const privateKeyPem = requireEnv('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', SERVICE_ACCOUNT_PRIVATE_KEY);
-  const keyData = pemToArrayBuffer(privateKeyPem);
-
-  return getCryptoSubtle().importKey(
-    'pkcs8',
-    keyData,
-    {
-      name: 'RSASSA-PKCS1-v1_5',
-      hash: 'SHA-256',
-    },
-    false,
-    ['sign']
-  );
-}
-
-function createJwtHeader(): string {
-  return encodeBase64UrlString(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-}
-
-function createJwtPayload(): string {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  return encodeBase64UrlString(
+function buildSignedJwt(email: string, privateKeyPem: string): string {
+  const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const now = Math.floor(Date.now() / 1000);
+  const claims = base64UrlEncode(
     JSON.stringify({
-      iss: requireEnv('GOOGLE_SERVICE_ACCOUNT_EMAIL', SERVICE_ACCOUNT_EMAIL),
-      scope: SCOPE,
-      aud: TOKEN_URI,
-      exp: nowSeconds + 3600,
-      iat: nowSeconds,
+      iss: email,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now,
     })
   );
+  const unsigned = `${header}.${claims}`;
+  const signature = signRS256(unsigned, privateKeyPem);
+  return `${unsigned}.${signature}`;
 }
 
-async function signJwt(unsignedToken: string): Promise<string> {
-  const key = await importPrivateKey();
-  const encoder = getTextEncoder();
-  const signature = await getCryptoSubtle().sign(
-    { name: 'RSASSA-PKCS1-v1_5' },
-    key,
-    encoder.encode(unsignedToken)
-  );
-  return encodeBase64Url(signature);
-}
+async function fetchNewToken(email: string, privateKey: string): Promise<string> {
+  const signedJwt = buildSignedJwt(email, privateKey);
 
-async function fetchServiceAccountToken(): Promise<string> {
-  const jwt = `${createJwtHeader()}.${createJwtPayload()}`;
-  const signedJwt = await signJwt(jwt);
-  const assertion = `${jwt}.${signedJwt}`;
-
-  const response = await fetch(TOKEN_URI, {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion,
-    }).toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:
+      'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer' +
+      `&assertion=${encodeURIComponent(signedJwt)}`,
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Google token request failed (${response.status}): ${text}`);
+    const body = await response.text();
+    throw new Error(`Token exchange failed HTTP ${response.status}: ${body}`);
   }
 
-  const json = await response.json();
-  const accessToken = json.access_token as string | undefined;
-  const expiresIn = json.expires_in as number | undefined;
-
-  if (!accessToken || !expiresIn) {
-    throw new Error('Google token response is missing access_token or expires_in');
+  const data = await response.json();
+  if (!data.access_token) {
+    throw new Error('Token response missing access_token');
   }
 
-  const expiresAt = Date.now() + expiresIn * 1000;
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(ACCESS_TOKEN_EXPIRES_AT_KEY, `${expiresAt}`);
-
-  return accessToken;
-}
-
-async function getCachedToken(): Promise<string | null> {
-  const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
-  const expiresAtValue = await SecureStore.getItemAsync(ACCESS_TOKEN_EXPIRES_AT_KEY);
-
-  if (!token || !expiresAtValue) {
-    return null;
-  }
-
-  const expiresAt = parseInt(expiresAtValue, 10);
-  if (Number.isNaN(expiresAt) || Date.now() + 60000 >= expiresAt) {
-    return null;
-  }
-
-  return token;
-}
-
-export async function signIn(): Promise<void> {
-  requireEnv('GOOGLE_SERVICE_ACCOUNT_EMAIL', SERVICE_ACCOUNT_EMAIL);
-  requireEnv('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', SERVICE_ACCOUNT_PRIVATE_KEY);
-  await getValidToken();
+  return data.access_token as string;
 }
 
 export async function getValidToken(): Promise<string | null> {
-  const cached = await getCachedToken();
-  if (cached) {
-    return cached;
+  if (cachedToken && Date.now() < expiresAt - 60_000) {
+    return cachedToken;
   }
-  return fetchServiceAccountToken();
-}
 
-export async function signOut(): Promise<void> {
-  await Promise.all([
-    SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.deleteItemAsync(ACCESS_TOKEN_EXPIRES_AT_KEY),
-  ]);
+  if (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY) {
+    console.error('[google.ts] Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY in .env');
+    return null;
+  }
+
+  const privateKey = SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+  try {
+    const token = await fetchNewToken(SERVICE_ACCOUNT_EMAIL, privateKey);
+    cachedToken = token;
+    expiresAt = Date.now() + 3_500_000;
+    console.log(`[google.ts] Token obtained for ${SERVICE_ACCOUNT_EMAIL}`);
+    return cachedToken;
+  } catch (error) {
+    console.error('[google.ts] Token fetch failed:', error);
+    cachedToken = null;
+    expiresAt = 0;
+    return null;
+  }
 }
 
 export function getSheetsId(): string {
-  return requireEnv('EXPO_PUBLIC_SHEETS_ID', SHEETS_ID);
+  return SHEETS_ID;
 }
 
 export function getSheetsTab(): string {
-  return requireEnv('EXPO_PUBLIC_SHEETS_TAB', SHEETS_TAB);
+  return SHEETS_TAB;
 }
 
 export function getEventName(): string {
-  return requireEnv('EXPO_PUBLIC_EVENT_NAME', EVENT_NAME);
+  return EVENT_NAME;
 }

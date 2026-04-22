@@ -1,4 +1,7 @@
+import { install } from 'react-native-quick-crypto';
 import { registerRootComponent } from 'expo';
+
+install();
 
 import App from './App';
 

@@ -44,7 +44,7 @@ export async function runVerificationChecks(): Promise<VerificationCheck[]> {
     tempTaskId = await enqueueTask('mark_registered', {
       participantId: 'verify-check',
       sheetsRow: 0,
-      registeredAt: Date.now(),
+      verifiedAt: new Date(Date.now()).toISOString(),
       registeredBy: 'verify',
     });
     const claimed = await claimNextTask();
@@ -60,10 +60,10 @@ export async function runVerificationChecks(): Promise<VerificationCheck[]> {
   // 4. Column map detection logic
   try {
     const colMap = detectColMap([
-      ['ID', 'Name', 'Table Number', 'Hotel Room Number', 'Registered', 'Registered At', 'Registered By'],
+      ['ID', 'Name', 'Table Number', 'Hotel Room Number', 'Registered', 'Verified At', 'Printed At', 'Registered By'],
     ]);
 
-    if (colMap.ID !== 0 || colMap.Name !== 1 || colMap['Registered By'] !== 6) {
+    if (colMap.ID !== 0 || colMap.Name !== 1 || colMap['Registered By'] !== 7) {
       throw new Error('Column map indices do not match expected values');
     }
 

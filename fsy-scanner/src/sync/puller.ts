@@ -1,8 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 import { ColMapError } from './sheetsApi';
 
-const REQUIRED_HEADERS = ['ID', 'Name', 'Table Number', 'Hotel Room Number'];
-const REQUIRED_WRITE_HEADERS = ['Registered', 'Registered At', 'Registered By'];
+const REQUIRED_HEADERS = ['ID', 'Name', 'Table Number', 'Hotel Room Number', 'Registered', 'Verified At', 'Printed At', 'Registered By'];
+const OPTIONAL_HEADERS = ['Stake', 'Ward', 'Gender', 'Medical/Food Info', 'Note', 'T-Shirt Size', 'Status', 'QR Code'];
 
 type DB = any;
 
@@ -49,11 +49,6 @@ export function detectColMap(rows: unknown[][]): Record<string, number> {
     throw new ColMapError(`Missing required headers: ${missingRequired.join(', ')}`);
   }
 
-  const missingWriteHeaders = REQUIRED_WRITE_HEADERS.filter((header) => !(header in colMap));
-  if (missingWriteHeaders.length > 0) {
-    throw new ColMapError(`Missing required sheet columns before sync: ${missingWriteHeaders.join(', ')}`);
-  }
-
   return colMap;
 }
 
@@ -76,23 +71,33 @@ export async function puller(): Promise<void> {
     throw new Error('Sheet ID and tab name are required for puller');
   }
 
-  if (!colMapJson) {
-    throw new Error('Column map is missing. Please save sheet configuration first.');
-  }
-
-  let colMap: Record<string, number>;
-  try {
-    colMap = JSON.parse(colMapJson);
-  } catch (err) {
-    throw new Error('Stored col_map is invalid JSON');
-  }
-
   const accessToken = await getValidToken();
   if (!accessToken) {
     throw new Error('Unable to acquire Google Sheets access token');
   }
 
   const rows = await fetchAllRows(accessToken, sheetId, tabName);
+
+  let colMap: Record<string, number> | null = null;
+  if (colMapJson) {
+    try {
+      colMap = JSON.parse(colMapJson);
+    } catch (err) {
+      console.warn('[puller] Stored col_map is invalid JSON, attempting auto-detect');
+    }
+  }
+
+  if (!colMap) {
+    colMap = detectColMap(rows);
+    await saveColMap(colMap);
+  }
+
+  function getCell(row: unknown[], header: string): string {
+    const index = colMap![header];
+    if (typeof index !== 'number') return '';
+    return String(row[index] ?? '').trim();
+  }
+
   if (rows.length <= 1) {
     await setSetting('last_pulled_at', `${Date.now()}`);
     return;
@@ -108,12 +113,20 @@ export async function puller(): Promise<void> {
 
     const participant = {
       id,
-      full_name: String(row[colMap['Name']] ?? '').trim(),
-      room_number: String(row[colMap['Hotel Room Number']] ?? '').trim() || null,
-      table_number: String(row[colMap['Table Number']] ?? '').trim() || null,
-      registered: String(row[colMap['Registered']] ?? '').toUpperCase() === 'Y' ? 1 : 0,
-      registered_at: String(row[colMap['Registered At']] ?? '').trim() ? Date.parse(String(row[colMap['Registered At']] ?? '')) : null,
-      registered_by: String(row[colMap['Registered By']] ?? '').trim() || null,
+      full_name: getCell(row, 'Name'),
+      stake: getCell(row, 'Stake') || null,
+      ward: getCell(row, 'Ward') || null,
+      gender: getCell(row, 'Gender') || null,
+      room_number: getCell(row, 'Hotel Room Number') || null,
+      table_number: getCell(row, 'Table Number') || null,
+      tshirt_size: getCell(row, 'T-Shirt Size') || null,
+      status: getCell(row, 'Status') || null,
+      medical_info: getCell(row, 'Medical/Food Info') || null,
+      note: getCell(row, 'Note') || null,
+      registered: getCell(row, 'Registered').toUpperCase() === 'Y' ? 1 : 0,
+      verified_at: getCell(row, 'Verified At') ? Date.parse(getCell(row, 'Verified At')) : null,
+      printed_at: getCell(row, 'Printed At') ? Date.parse(getCell(row, 'Printed At')) : null,
+      verified_by: getCell(row, 'Registered By') || null,
       sheets_row: rowNumber,
       raw_json: JSON.stringify(row),
       updated_at: Date.now(),

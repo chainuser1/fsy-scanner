@@ -103,9 +103,9 @@ export async function updateRegistrationRow(
   tabName: string,
   sheetsRow: number,
   colMap: Record<string, number>,
-  values: { registeredAt: string; registeredBy: string }
+  values: { registered?: boolean; verifiedAt?: string; printedAt?: string; registeredBy: string }
 ): Promise<void> {
-  const requiredColumns = ['Registered', 'Registered At', 'Registered By'];
+  const requiredColumns = ['Registered', 'Verified At', 'Printed At', 'Registered By'];
   const missingColumns = requiredColumns.filter((column) => !(column in colMap));
 
   if (missingColumns.length > 0) {
@@ -113,16 +113,35 @@ export async function updateRegistrationRow(
   }
 
   const registeredCol = colMap['Registered'];
-  const registeredAtCol = colMap['Registered At'];
+  const verifiedAtCol = colMap['Verified At'];
+  const printedAtCol = colMap['Printed At'];
   const registeredByCol = colMap['Registered By'];
 
-  const minCol = Math.min(registeredCol, registeredAtCol, registeredByCol);
-  const maxCol = Math.max(registeredCol, registeredAtCol, registeredByCol);
+  const columnValues: Array<{ index: number; value: string }> = [];
+  if (values.registered) {
+    columnValues.push({ index: registeredCol, value: 'Y' });
+  }
+  if (values.verifiedAt) {
+    columnValues.push({ index: verifiedAtCol, value: values.verifiedAt });
+  }
+  if (values.printedAt) {
+    columnValues.push({ index: printedAtCol, value: values.printedAt });
+  }
+  if (values.registeredBy) {
+    columnValues.push({ index: registeredByCol, value: values.registeredBy });
+  }
 
+  if (columnValues.length === 0) {
+    throw new Error('No registration columns provided for update');
+  }
+
+  const minCol = Math.min(...columnValues.map((item) => item.index));
+  const maxCol = Math.max(...columnValues.map((item) => item.index));
   const rowValues = new Array(maxCol - minCol + 1).fill('');
-  rowValues[registeredCol - minCol] = 'Y';
-  rowValues[registeredAtCol - minCol] = values.registeredAt;
-  rowValues[registeredByCol - minCol] = values.registeredBy;
+
+  for (const item of columnValues) {
+    rowValues[item.index - minCol] = item.value;
+  }
 
   const range = toSheetRange(tabName, minCol, maxCol, sheetsRow);
   const url = `${SHEETS_BASE_URL}/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;

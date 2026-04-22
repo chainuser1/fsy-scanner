@@ -2,11 +2,19 @@ export const PARTICIPANTS_DDL = `
 CREATE TABLE IF NOT EXISTS participants (
   id              TEXT PRIMARY KEY,
   full_name       TEXT NOT NULL,
+  stake           TEXT,
+  ward            TEXT,
+  gender          TEXT,
   room_number     TEXT,
   table_number    TEXT,
+  tshirt_size     TEXT,
+  status          TEXT,
+  medical_info    TEXT,
+  note            TEXT,
   registered      INTEGER DEFAULT 0,
-  registered_at   INTEGER,
-  registered_by   TEXT,
+  verified_at     INTEGER,
+  printed_at      INTEGER,
+  verified_by     TEXT,
   sheets_row      INTEGER NOT NULL,
   raw_json        TEXT,
   updated_at      INTEGER
@@ -22,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sync_tasks (
   attempts      INTEGER DEFAULT 0,
   last_error    TEXT,
   created_at    INTEGER,
+  updated_at    INTEGER,
   completed_at  INTEGER
 );
 `;

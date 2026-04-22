@@ -6,11 +6,13 @@ export function useSyncStatus() {
   const failedTaskCount = store((state: any) => state.failedTaskCount);
   const lastSync = store((state: any) => state.lastSyncedAt);
   const syncError = store((state: any) => state.syncError);
+  const isInitialLoading = store((state: any) => state.isInitialLoading);
 
   return {
     pendingCount,
     failedTaskCount,
     lastSync,
     syncError,
+    isInitialLoading,
   };
 }

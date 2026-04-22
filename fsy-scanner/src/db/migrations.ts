@@ -61,6 +61,23 @@ export async function runMigrations(dbParam?: DB): Promise<void> {
         await execSql(db, 'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', ['device_id', newId]);
       }
     }
+
+    // Migration v2: add new participant metadata columns for verified/printed timestamps
+    if (currentVersion < 2) {
+      await execSql(db, "ALTER TABLE participants ADD COLUMN stake TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN ward TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN gender TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN tshirt_size TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN status TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN medical_info TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN note TEXT");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN verified_at INTEGER");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN printed_at INTEGER");
+      await execSql(db, "ALTER TABLE participants ADD COLUMN verified_by TEXT");
+      await execSql(db, "ALTER TABLE sync_tasks ADD COLUMN updated_at INTEGER");
+
+      await execSql(db, 'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', ['db_version', '2']);
+    }
   } catch (err) {
     console.error('runMigrations error', err);
     throw err;

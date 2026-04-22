@@ -2,9 +2,10 @@ import * as Network from 'expo-network';
 import { puller } from './puller';
 import { pusher } from './pusher';
 import { resetInProgressTasks, getPendingCount } from '../db/syncQueue';
-import { getSetting } from '../db/appSettings';
+import { getSetting, setSetting } from '../db/appSettings';
 import { useAppStore } from '../store/useAppStore';
 import { AuthExpiredError, RateLimitError } from './sheetsApi';
+import { getSheetsId, getSheetsTab, getEventName } from '../auth/google';
 
 let intervalId: number | null = null;
 let currentIntervalMs = 15000;
@@ -80,10 +81,41 @@ async function runSyncTick(): Promise<void> {
   }
 }
 
+async function seedSettingsFromEnv(): Promise<void> {
+  const envKeys: Array<{ key: string; value: string }> = [
+    { key: 'sheets_id', value: getSheetsId() },
+    { key: 'sheets_tab', value: getSheetsTab() },
+    { key: 'event_name', value: getEventName() },
+  ];
+
+  for (const item of envKeys) {
+    if (!item.value) {
+      continue;
+    }
+
+    const existing = await getSetting(item.key);
+    if (!existing) {
+      await setSetting(item.key, item.value);
+    }
+  }
+}
+
 export async function startSyncEngine(): Promise<void> {
   await resetInProgressTasks();
   await updatePendingCount();
-  await runSyncTick();
+  await seedSettingsFromEnv();
+
+  const lastPulledAt = await getSetting('last_pulled_at');
+  const parsedLastPulledAt = lastPulledAt ? parseInt(lastPulledAt, 10) : NaN;
+  const isFirstRun = !lastPulledAt || Number.isNaN(parsedLastPulledAt) || parsedLastPulledAt === 0;
+  (useAppStore as any).getState().setInitialLoading(isFirstRun);
+
+  try {
+    await runSyncTick();
+  } finally {
+    (useAppStore as any).getState().setInitialLoading(false);
+  }
+
   const intervalSetting = await getSetting('sync_interval_ms');
   if (intervalSetting) {
     const parsed = parseInt(intervalSetting, 10);

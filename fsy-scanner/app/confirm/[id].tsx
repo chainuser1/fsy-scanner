@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Button, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { getParticipantById, markRegisteredLocally } from '../../src/db/participants';
+import { getParticipantById, markRegisteredLocally, markPrintedLocally } from '../../src/db/participants';
 import { enqueueTask } from '../../src/db/syncQueue';
 import { generateDeviceId } from '../../src/utils/deviceId';
 import { printReceipt } from '../../src/print/printer';
@@ -44,18 +44,29 @@ export default function Confirm() {
     setSaving(true);
     try {
       const deviceId = await generateDeviceId();
+      const verifiedAt = Date.now();
       await markRegisteredLocally(id, deviceId);
       await enqueueTask('mark_registered', {
         participantId: id,
         sheetsRow: participant.sheets_row,
-        registeredAt: Date.now(),
+        verifiedAt: new Date(verifiedAt).toISOString(),
         registeredBy: deviceId,
       });
 
       const eventName = getEventName();
-      printReceipt(participant, eventName).catch((error) => {
-        console.warn('Print failed', error);
-      });
+      printReceipt({ ...participant, verified_at: verifiedAt }, eventName)
+        .then(async () => {
+          await markPrintedLocally(id);
+          await enqueueTask('mark_printed', {
+            participantId: id,
+            sheetsRow: participant.sheets_row,
+            printedAt: new Date(Date.now()).toISOString(),
+            registeredBy: deviceId,
+          });
+        })
+        .catch((error) => {
+          console.warn('Print failed', error);
+        });
 
       setToast(`Checked in: ${participant.full_name}`);
       router.replace('/');
@@ -90,13 +101,54 @@ export default function Confirm() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Confirm Check-In</Text>
+      {participant.status ? (
+        <View style={styles.statusBadge}>
+          <Text style={styles.statusText}>{participant.status}</Text>
+        </View>
+      ) : null}
       <View style={styles.card}>
         <Text style={styles.label}>Name</Text>
         <Text style={styles.value}>{participant.full_name}</Text>
+        {participant.stake ? (
+          <>
+            <Text style={styles.label}>Stake</Text>
+            <Text style={styles.value}>{participant.stake}</Text>
+          </>
+        ) : null}
+        {participant.ward ? (
+          <>
+            <Text style={styles.label}>Ward</Text>
+            <Text style={styles.value}>{participant.ward}</Text>
+          </>
+        ) : null}
+        {participant.gender ? (
+          <>
+            <Text style={styles.label}>Gender</Text>
+            <Text style={styles.value}>{participant.gender}</Text>
+          </>
+        ) : null}
         <Text style={styles.label}>Room</Text>
         <Text style={styles.value}>{participant.room_number || '(not assigned)'}</Text>
         <Text style={styles.label}>Table</Text>
         <Text style={styles.value}>{participant.table_number || '(not assigned)'}</Text>
+        {participant.tshirt_size ? (
+          <>
+            <Text style={styles.label}>Shirt Size</Text>
+            <Text style={styles.value}>{participant.tshirt_size}</Text>
+          </>
+        ) : null}
+        {participant.medical_info ? (
+          <>
+            <Text style={styles.label}>Medical/Food Info</Text>
+            <Text style={styles.warningValue}>{participant.medical_info}</Text>
+          </>
+        ) : null}
+        {participant.note ? (
+          <>
+            <Text style={styles.label}>Note</Text>
+            <Text style={styles.value}>{participant.note}</Text>
+          </>
+        ) : null}
       </View>
 
       <Button title="Confirm Check-In" onPress={handleConfirm} disabled={saving} />
@@ -133,6 +185,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     backgroundColor: '#fafafa',
   },
+  statusBadge: {
+    backgroundColor: '#fde68a',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  statusText: {
+    color: '#92400e',
+    fontWeight: '700',
+  },
   label: {
     color: '#555',
     marginTop: 12,
@@ -141,6 +205,11 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 18,
     marginTop: 4,
+  },
+  warningValue: {
+    fontSize: 18,
+    marginTop: 4,
+    color: '#b91c1c',
   },
   spacer: {
     height: 14,

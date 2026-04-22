@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View, Button } from 'react-native';
 import { BarCodeScanner } from 'expo-barcode-scanner';
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
 import { format } from 'date-fns';
 import { useScanner } from '../../src/hooks/useScanner';
 import { useSyncStatus } from '../../src/hooks/useSyncStatus';
 import { getParticipantById } from '../../src/db/participants';
+import { startSyncEngine } from '../../src/sync/engine';
 
 export default function Scan() {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'warning' | 'error'>('success');
   const [toastKey, setToastKey] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const scanner = useScanner();
-  const { pendingCount, syncError } = useSyncStatus();
+  const { pendingCount, syncError, isInitialLoading } = useSyncStatus();
 
   useEffect(() => {
     const scannedId = scanner.scannedId;
@@ -31,8 +33,8 @@ export default function Scan() {
       }
 
       if (participant.registered === 1) {
-        const checkedIn = participant.registered_at
-          ? format(new Date(participant.registered_at), 'PPpp')
+        const checkedIn = participant.verified_at
+          ? format(new Date(participant.verified_at), 'PPpp')
           : 'unknown time';
         setToastType('warning');
         setToast(`Already checked in — ${participant.full_name} at ${checkedIn}`);
@@ -54,6 +56,33 @@ export default function Scan() {
     const timeout = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(timeout);
   }, [toast, toastKey]);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await startSyncEngine();
+    } catch (err) {
+      console.error('Retry failed:', err);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  if (isInitialLoading) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.loadingTitle}>Setting up for the first time...</Text>
+        <Text style={styles.loadingSubtitle}>Downloading participant list and configuring Sheets access.</Text>
+        <ActivityIndicator size="large" style={styles.loadingSpinner} />
+        {syncError ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{syncError}</Text>
+            <Button title={retrying ? 'Retrying...' : 'Retry'} onPress={handleRetry} disabled={retrying} />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
 
   if (scanner.hasPermission === false) {
     return (
@@ -119,6 +148,32 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 16,
     textAlign: 'center',
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  loadingSubtitle: {
+    fontSize: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+    color: '#666',
+    paddingHorizontal: 24,
+  },
+  loadingSpinner: {
+    marginBottom: 24,
+  },
+  errorContainer: {
+    width: '80%',
+    alignItems: 'center',
+    gap: 12,
+  },
+  errorText: {
+    color: '#f88',
+    textAlign: 'center',
+    marginBottom: 12,
   },
   topRightBadge: {
     position: 'absolute',
