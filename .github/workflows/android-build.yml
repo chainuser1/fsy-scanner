@@ -74,11 +74,6 @@ jobs:
           javac -version
           echo "JAVA_HOME=$JAVA_HOME"
 
-      - name: Force Gradle to use JDK 17
-        run: |
-          echo "org.gradle.java.home=$JAVA_HOME" >> fsy-scanner/android/gradle.properties
-        working-directory: .
-
       - name: Cache Node modules
         uses: actions/cache@v4
         with:
@@ -119,6 +114,11 @@ jobs:
 
       - name: Prebuild Android
         run: npx expo prebuild --platform android --no-install
+        working-directory: fsy-scanner
+
+      - name: Force Gradle to use JDK 17
+        run: |
+          echo "org.gradle.java.home=$JAVA_HOME" >> android/gradle.properties
         working-directory: fsy-scanner
 
       - name: Build Android release
