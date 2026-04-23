@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View, Button } from 'react-native';
-import { BarCodeScanner } from 'expo-barcode-scanner';
+import { CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { format } from 'date-fns';
 import { useScanner } from '../../src/hooks/useScanner';
@@ -94,15 +94,16 @@ export default function Scan() {
 
   return (
     <View style={styles.container}>
-      <BarCodeScanner
-        style={styles.camera}
-        onBarCodeScanned={scanner.isScanning ? scanner.onBarCodeScanned : undefined}
-        barCodeTypes={[BarCodeScanner.Constants.BarCodeType.qr]}
-      >
-        <View style={styles.overlay}>
-          <View style={styles.reticle} />
-        </View>
-      </BarCodeScanner>
+      <CameraView
+  style={styles.camera}
+  facing="back"
+  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+  onBarcodeScanned={scanner.isScanning ? scanner.onBarCodeScanned : undefined}
+>
+  <View style={styles.overlay}>
+    <View style={styles.reticle} />
+  </View>
+</CameraView>
 
       <View style={styles.topRightBadge}>
         <Text style={styles.badgeText}>Pending: {pendingCount}</Text>

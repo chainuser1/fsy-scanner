@@ -1,34 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Camera, PermissionStatus } from 'expo-camera';
-import { BarCodeScannerResult } from 'expo-barcode-scanner';
+import { useCameraPermissions } from 'expo-camera';
+
+interface BarcodeScanResult {
+  type: string;
+  data: string;
+}
 
 export function useScanner() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(true);
   const [scannedId, setScannedId] = useState<string | null>(null);
 
   useEffect(() => {
-    async function requestPermission() {
-      try {
-        const { status } = await Camera.requestCameraPermissionsAsync();
-        setHasPermission(status === PermissionStatus.GRANTED);
-      } catch (error) {
-        setHasPermission(false);
-      }
+    if (permission && !permission.granted && permission.canAskAgain) {
+      requestPermission();
     }
-
-    requestPermission();
-  }, []);
+  }, [permission, requestPermission]);
 
   const onBarCodeScanned = useCallback(
-    (result: BarCodeScannerResult) => {
-      if (!isScanning || !result.data) {
-        return;
-      }
-
+    (result: BarcodeScanResult) => {
+      if (!isScanning || !result.data) return;
       setIsScanning(false);
       setScannedId(result.data);
-
       setTimeout(() => {
         setIsScanning(true);
         setScannedId(null);
@@ -43,7 +36,7 @@ export function useScanner() {
   }, []);
 
   return {
-    hasPermission,
+    hasPermission: permission?.granted ?? false,
     isScanning,
     scannedId,
     onBarCodeScanned,

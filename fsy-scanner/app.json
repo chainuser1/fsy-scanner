@@ -17,8 +17,14 @@
     },
     "android": {
       "package": "com.fsy.tacandtol.fsyscanner",
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN"
+      ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/fsy_logo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -29,8 +35,12 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-barcode-scanner",
-      "expo-secure-store"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow FSY Scanner to access your camera to scan QR codes."
+        }
+      ]
     ]
   }
 }
