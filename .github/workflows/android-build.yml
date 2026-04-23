@@ -94,12 +94,6 @@ jobs:
           echo "SDK directory: $ANDROID_SDK_ROOT"
           ls -la "$ANDROID_SDK_ROOT"
 
-      - name: Create local.properties
-        run: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > fsy-scanner/android/local.properties
-          cat fsy-scanner/android/local.properties
-          echo "local.properties created successfully"
-
       - name: Install dependencies
         run: npm ci
         working-directory: fsy-scanner
@@ -123,6 +117,24 @@ jobs:
 
       - name: Prebuild Android
         run: npx expo prebuild --platform android --clean --no-install
+        working-directory: fsy-scanner
+
+      - name: Create local.properties
+        run: |
+          mkdir -p android
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+          cat android/local.properties
+          echo "local.properties created successfully"
+        working-directory: fsy-scanner
+
+      - name: Debug Android directory layout
+        run: |
+          echo "Listing fsy-scanner/android contents"
+          ls -la android
+          echo "Listing android/app contents"
+          ls -la android/app
+          echo "Listing android/app/build outputs"
+          ls -la android/app/build || true
         working-directory: fsy-scanner
 
       - name: Force Gradle to use JDK 17

@@ -1358,3 +1358,18 @@ None — all actions taken were aligned with the plan:
 
 **Confidence in next step:** **High** — If the `--clean` flag on `expo prebuild` generates the codegen files (which is its intended purpose), the CI build should succeed. If it doesn't, the CI logs will clearly show what's missing.
 
+## 1.18 — CI Android debug instrumentation
+**Date/Time:** 2026-04-23 UTC
+**Status:** ✅ Logged — added CI workflow debug output for Android project layout
+
+### What I Did
+- Updated `.github/workflows/android-build.yml` to add a debug step after `expo prebuild` and before Gradle.
+- The debug step prints `android/`, `android/app`, and `android/app/build` contents in CI.
+
+### Why
+- The previous CI failure was caused by `local.properties` creation against a path that did not yet exist in the generated Android tree.
+- This debug step will verify the actual generated layout in CI and confirm whether the `android` directory exists before Gradle executes.
+
+### Verification
+- The workflow file already includes the new step and the correct `working-directory: fsy-scanner` context.
+- This entry records the instrumentation so future log review can correlate CI output with the build step.
