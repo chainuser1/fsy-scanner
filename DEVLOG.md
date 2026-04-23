@@ -1373,3 +1373,65 @@ None — all actions taken were aligned with the plan:
 ### Verification
 - The workflow file already includes the new step and the correct `working-directory: fsy-scanner` context.
 - This entry records the instrumentation so future log review can correlate CI output with the build step.
+
+
+---
+
+## MANUAL FIX — Replace expo-barcode-scanner + Clean app.json
+**Date/Time:** 2026-04-23
+**Status:** ✅ Complete
+**Done by:** Jayson (Project Owner — manual fix, no AI coder)
+
+### What I Did
+- Uninstalled `expo-barcode-scanner` — deprecated package that caused
+  Kotlin compile crash (`compileDebugKotlin` failure) in GitHub Actions CI.
+- Fixed `src/hooks/useScanner.ts` — removed `BarCodeScannerResult` import
+  from `expo-barcode-scanner`, replaced with inline `BarcodeScanResult`
+  interface and `useCameraPermissions` from `expo-camera`.
+- Fixed `app/(tabs)/scan.tsx` — replaced `BarCodeScanner` component and
+  import with `CameraView` from `expo-camera`. Updated props:
+  `onBarCodeScanned` → `onBarcodeScanned`,
+  `barCodeTypes` → `barcodeScannerSettings.barcodeTypes`.
+- Cleaned `app.json` plugins array:
+  - Removed `expo-barcode-scanner` plugin (uninstalled)
+  - Removed `@finan-me/react-native-thermal-printer` plugin entry —
+    confirmed no `app.plugin.js` exists in the package, adding it
+    would crash prebuild
+  - Removed `expo-secure-store` plugin — package removed in Plan v1.3
+  - Kept `expo-sqlite` and `expo-camera` (with cameraPermission string)
+- Added Android Bluetooth permissions manually to `app.json` under
+  `android.permissions`:
+  - `android.permission.BLUETOOTH` (Android ≤ 11)
+  - `android.permission.BLUETOOTH_ADMIN` (Android ≤ 11)
+  - `android.permission.BLUETOOTH_CONNECT` (Android 12+)
+  - `android.permission.BLUETOOTH_SCAN` (Android 12+)
+
+### Why This Was Done Manually
+AI coder made repeated changes that compounded build issues. Project owner
+took over to apply targeted fixes only — no new dependencies, no
+architectural changes.
+
+### Verification Result
+- `grep -r "expo-barcode-scanner" src/ app/` → no results ✅
+- `npx tsc --noEmit` → zero errors ✅
+- `app.json` verified correct structure ✅
+- Committed and pushed to master → CI build triggered
+
+### Issues Encountered
+- `@finan-me/react-native-thermal-printer` has no Expo config plugin —
+  confirmed via `cat node_modules/@finan-me/.../app.plugin.js` returning
+  NO PLUGIN FOUND. Bluetooth permissions added manually instead.
+- `expo-secure-store` was still in plugins array despite being removed
+  from dependencies in Plan v1.3 — removed.
+
+### Corrections Made
+- Removed all invalid plugin entries from `app.json`
+- Replaced deprecated `expo-barcode-scanner` API with `expo-camera`
+  built-in barcode scanning throughout the codebase
+
+### Deviations from Plan
+- None — changes align with Plan v1.4+ which already specified
+  `expo-camera` for scanning. `expo-barcode-scanner` removal was
+  a build environment correction, not an architectural change.
+
+---
