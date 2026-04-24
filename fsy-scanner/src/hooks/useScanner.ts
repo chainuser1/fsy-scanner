@@ -1,34 +1,40 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useCameraPermissions } from 'expo-camera';
 
-interface BarcodeScanResult {
-  type: string;
+export interface BarcodeScanResult {
   data: string;
+  type: string;
 }
 
 export function useScanner() {
-  const [permission, requestPermission] = useCameraPermissions();
-  const [isScanning, setIsScanning] = useState(true);
   const [scannedId, setScannedId] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [isScanning, setIsScanning] = useState<boolean>(true);
 
-  useEffect(() => {
-    if (permission && !permission.granted && permission.canAskAgain) {
-      requestPermission();
+  const [permission, requestPermission] = useCameraPermissions();
+
+  const checkPermission = useCallback(async () => {
+    if (permission?.granted) {
+      setHasPermission(true);
+      return true;
     }
-  }, [permission, requestPermission]);
+    
+    const result = await requestPermission();
+    setHasPermission(result.granted);
+    return result.granted;
+  }, [permission]);
 
-  const onBarCodeScanned = useCallback(
-    (result: BarcodeScanResult) => {
-      if (!isScanning || !result.data) return;
-      setIsScanning(false);
-      setScannedId(result.data);
-      setTimeout(() => {
-        setIsScanning(true);
-        setScannedId(null);
-      }, 2000);
-    },
-    [isScanning]
-  );
+  const onBarCodeScanned = useCallback(({ data }: BarcodeScanResult) => {
+    if (!isScanning) return;
+
+    setScannedId(data);
+    setIsScanning(false);
+
+    // Pause scanning for 2 seconds to prevent double scans
+    setTimeout(() => {
+      setIsScanning(true);
+    }, 2000);
+  }, [isScanning]);
 
   const resetScanner = useCallback(() => {
     setScannedId(null);
@@ -36,9 +42,10 @@ export function useScanner() {
   }, []);
 
   return {
-    hasPermission: permission?.granted ?? false,
-    isScanning,
     scannedId,
+    hasPermission,
+    isScanning,
+    checkPermission,
     onBarCodeScanned,
     resetScanner,
   };

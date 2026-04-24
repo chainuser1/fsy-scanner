@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TextInput, View, useColorScheme } from 'react-native';
 import { getAllParticipants, getRegisteredCount, searchParticipants } from '../../src/db/participants';
 
 export default function Participants() {
@@ -7,6 +7,15 @@ export default function Participants() {
   const [participants, setParticipants] = useState<any[]>([]);
   const [registeredCount, setRegisteredCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const colorScheme = useColorScheme();
+
+  // Define styles based on color scheme
+  const backgroundColor = colorScheme === 'dark' ? '#121212' : '#fff';
+  const textColor = colorScheme === 'dark' ? '#fff' : '#000';
+  const inputBackgroundColor = colorScheme === 'dark' ? '#1e1e1e' : '#fafafa';
+  const inputBorderColor = colorScheme === 'dark' ? '#333' : '#ddd';
+  const rowBackgroundColor = colorScheme === 'dark' ? '#1e1e1e' : '#fafafa';
+  const metaTextColor = colorScheme === 'dark' ? '#aaa' : '#666';
 
   useEffect(() => {
     async function loadParticipants() {
@@ -23,13 +32,52 @@ export default function Participants() {
     loadParticipants();
   }, [query]);
 
+  // Skeleton loader component
+  const SkeletonLoader = () => {
+    return (
+      <>
+        {[...Array(5)].map((_, index) => (
+          <View 
+            key={index} 
+            style={[
+              styles.row, 
+              { backgroundColor: colorScheme === 'dark' ? '#333' : '#f0f0f0' }
+            ]}
+          >
+            <View style={styles.skeletonContent}>
+              <View 
+                style={[
+                  styles.skeletonLine, 
+                  { backgroundColor: colorScheme === 'dark' ? '#444' : '#ddd' }
+                ]} 
+              />
+              <View 
+                style={[
+                  styles.skeletonLine, 
+                  { backgroundColor: colorScheme === 'dark' ? '#444' : '#ddd', width: '70%' }
+                ]} 
+              />
+              <View 
+                style={[
+                  styles.skeletonLine, 
+                  { backgroundColor: colorScheme === 'dark' ? '#444' : '#ddd', width: '50%' }
+                ]} 
+              />
+            </View>
+          </View>
+        ))}
+      </>
+    );
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Participants</Text>
-      <Text style={styles.summary}>Registered: {registeredCount}</Text>
+    <View style={[styles.container, { backgroundColor }]}>
+      <Text style={[styles.title, { color: textColor }]}>Participants</Text>
+      <Text style={[styles.summary, { color: textColor }]}>Registered: {registeredCount}</Text>
       <TextInput
-        style={styles.search}
-        placeholder="Search by name"
+        style={[styles.search, { backgroundColor: inputBackgroundColor, borderColor: inputBorderColor, color: textColor }]}
+        placeholder={colorScheme === 'dark' ? 'Search by name...' : 'Search by name'}
+        placeholderTextColor={colorScheme === 'dark' ? '#aaa' : '#888'}
         value={query}
         onChangeText={setQuery}
         autoCorrect={false}
@@ -37,17 +85,17 @@ export default function Participants() {
       />
 
       {loading ? (
-        <Text style={styles.loading}>Loading...</Text>
+        <SkeletonLoader />
       ) : (
         <FlatList
           data={participants}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <View style={styles.row}>
+            <View style={[styles.row, { backgroundColor: rowBackgroundColor }]}>
               <View style={styles.rowText}>
-                <Text style={styles.name}>{item.full_name}</Text>
-                <Text style={styles.meta}>Room: {item.room_number || '(not assigned)'}</Text>
-                <Text style={styles.meta}>Table: {item.table_number || '(not assigned)'}</Text>
+                <Text style={[styles.name, { color: textColor }]}>{item.full_name}</Text>
+                <Text style={[styles.meta, { color: metaTextColor }]}>Room: {item.room_number || '(not assigned)'}</Text>
+                <Text style={[styles.meta, { color: metaTextColor }]}>Table: {item.table_number || '(not assigned)'}</Text>
               </View>
               <View style={[styles.badge, item.registered === 1 ? styles.badgeRegistered : styles.badgePending]}>
                 <Text style={styles.badgeText}>{item.registered === 1 ? 'Registered' : 'Pending'}</Text>
@@ -55,7 +103,7 @@ export default function Participants() {
             </View>
           )}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>No participants found.</Text>}
+          ListEmptyComponent={<Text style={[styles.empty, { color: textColor }]}>No participants found.</Text>}
         />
       )}
     </View>
@@ -66,7 +114,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    backgroundColor: '#fff',
   },
   title: {
     fontSize: 24,
@@ -76,7 +123,6 @@ const styles = StyleSheet.create({
   summary: {
     fontSize: 16,
     marginBottom: 16,
-    color: '#555',
   },
   search: {
     borderWidth: 1,
@@ -89,7 +135,15 @@ const styles = StyleSheet.create({
   loading: {
     textAlign: 'center',
     marginTop: 20,
-    color: '#666',
+  },
+  skeletonContent: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  skeletonLine: {
+    height: 16,
+    borderRadius: 4,
+    marginBottom: 8,
   },
   list: {
     paddingBottom: 40,
@@ -103,7 +157,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
-    backgroundColor: '#fafafa',
   },
   rowText: {
     flex: 1,
@@ -114,7 +167,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   meta: {
-    color: '#666',
     marginTop: 4,
   },
   badge: {
@@ -135,7 +187,6 @@ const styles = StyleSheet.create({
   },
   empty: {
     textAlign: 'center',
-    color: '#666',
     marginTop: 20,
   },
 });

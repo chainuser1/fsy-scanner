@@ -7,6 +7,7 @@ export function useSyncStatus() {
   const lastSync = store((state: any) => state.lastSyncedAt);
   const syncError = store((state: any) => state.syncError);
   const isInitialLoading = store((state: any) => state.isInitialLoading);
+  const isOffline = store((state: any) => state.isOffline);
 
   return {
     pendingCount,
@@ -14,5 +15,6 @@ export function useSyncStatus() {
     lastSync,
     syncError,
     isInitialLoading,
+    isOffline,
   };
 }

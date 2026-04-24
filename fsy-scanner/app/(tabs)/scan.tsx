@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, Button } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, Button, useColorScheme } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { format } from 'date-fns';
@@ -15,7 +15,8 @@ export default function Scan() {
   const [toastKey, setToastKey] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const scanner = useScanner();
-  const { pendingCount, syncError, isInitialLoading } = useSyncStatus();
+  const { pendingCount, syncError, isInitialLoading, isOffline } = useSyncStatus();
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
     const scannedId = scanner.scannedId;
@@ -70,13 +71,13 @@ export default function Scan() {
 
   if (isInitialLoading) {
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.loadingTitle}>Setting up for the first time...</Text>
-        <Text style={styles.loadingSubtitle}>Downloading participant list and configuring Sheets access.</Text>
-        <ActivityIndicator size="large" style={styles.loadingSpinner} />
+      <View style={[styles.emptyContainer, { backgroundColor: colorScheme === 'dark' ? '#121212' : '#fff' }]}>
+        <Text style={[styles.loadingTitle, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>Setting up for the first time...</Text>
+        <Text style={[styles.loadingSubtitle, { color: colorScheme === 'dark' ? '#ccc' : '#666' }]}>Downloading participant list and configuring Sheets access.</Text>
+        <ActivityIndicator size="large" style={styles.loadingSpinner} color={colorScheme === 'dark' ? '#fff' : '#000'} />
         {syncError ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{syncError}</Text>
+            <Text style={[styles.errorText, { color: colorScheme === 'dark' ? '#f88' : '#f00' }]}>{syncError}</Text>
             <Button title={retrying ? 'Retrying...' : 'Retry'} onPress={handleRetry} disabled={retrying} />
           </View>
         ) : null}
@@ -86,14 +87,20 @@ export default function Scan() {
 
   if (scanner.hasPermission === false) {
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.message}>Camera permission is required for scanning.</Text>
+      <View style={[styles.emptyContainer, { backgroundColor: colorScheme === 'dark' ? '#121212' : '#fff' }]}>
+        <Text style={[styles.message, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>Camera permission is required for scanning.</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#000' : '#000' }]}>
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineText}>Offline - sync paused</Text>
+        </View>
+      )}
+      
       <CameraView
   style={styles.camera}
   facing="back"
@@ -217,5 +224,20 @@ const styles = StyleSheet.create({
   },
   toastError: {
     backgroundColor: 'rgba(192,0,0,0.9)',
+  },
+  offlineBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffcc00',
+    padding: 10,
+    zIndex: 10,
+    alignItems: 'center',
+  },
+  offlineText: {
+    color: '#000',
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });

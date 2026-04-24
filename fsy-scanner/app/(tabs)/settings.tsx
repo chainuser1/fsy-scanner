@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   View,
+  useColorScheme,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThermalPrinter } from '@finan-me/react-native-thermal-printer';
@@ -14,6 +15,7 @@ import { getSetting, setSetting } from '../../src/db/appSettings';
 import { detectColMap, saveColMap } from '../../src/sync/puller';
 import { fetchAllRows } from '../../src/sync/sheetsApi';
 import { getValidToken, getSheetsId, getSheetsTab, getEventName } from '../../src/auth/google';
+import { startSyncEngine } from '../../src/sync/engine';
 
 export default function Settings() {
   const router = useRouter();
@@ -27,6 +29,15 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const colorScheme = useColorScheme();
+
+  // Define styles based on color scheme
+  const backgroundColor = colorScheme === 'dark' ? '#121212' : '#fff';
+  const textColor = colorScheme === 'dark' ? '#fff' : '#000';
+  const inputBackgroundColor = colorScheme === 'dark' ? '#1e1e1e' : '#fafafa';
+  const inputBorderColor = colorScheme === 'dark' ? '#333' : '#ddd';
+  const buttonBackgroundColor = colorScheme === 'dark' ? '#1e1e1e' : '#f0f0f0';
 
   useEffect(() => {
     async function loadSettings() {
@@ -151,11 +162,33 @@ export default function Settings() {
     setMessage(`Selected printer ${name ?? address}`);
   }
 
+  async function handleManualSync() {
+    setSyncing(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await startSyncEngine();
+      setMessage('Sync completed successfully');
+    } catch (err: any) {
+      setError(err?.message ? String(err.message) : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Text style={styles.label}>Google Sheet ID</Text>
+    <ScrollView 
+      contentContainerStyle={[styles.container, { backgroundColor }]} 
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={[styles.label, { color: textColor }]}>Google Sheet ID</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: inputBackgroundColor, 
+          borderColor: inputBorderColor, 
+          color: textColor 
+        }]}
         value={sheetId}
         onChangeText={setSheetId}
         placeholder="Enter Sheet ID"
@@ -163,9 +196,13 @@ export default function Settings() {
         autoCorrect={false}
       />
 
-      <Text style={styles.label}>Tab Name</Text>
+      <Text style={[styles.label, { color: textColor }]}>Tab Name</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: inputBackgroundColor, 
+          borderColor: inputBorderColor, 
+          color: textColor 
+        }]}
         value={tabName}
         onChangeText={setTabName}
         placeholder="Enter Tab Name"
@@ -173,18 +210,26 @@ export default function Settings() {
         autoCorrect={false}
       />
 
-      <Text style={styles.label}>Event Name</Text>
+      <Text style={[styles.label, { color: textColor }]}>Event Name</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: inputBackgroundColor, 
+          borderColor: inputBorderColor, 
+          color: textColor 
+        }]}
         value={eventName}
         onChangeText={setEventName}
         placeholder="Enter Event Name"
         autoCapitalize="words"
       />
 
-      <Text style={styles.label}>Bluetooth Printer Address</Text>
+      <Text style={[styles.label, { color: textColor }]}>Bluetooth Printer Address</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: inputBackgroundColor, 
+          borderColor: inputBorderColor, 
+          color: textColor 
+        }]}
         value={printerAddress}
         onChangeText={setPrinterAddress}
         placeholder="Enter printer MAC / address"
@@ -193,7 +238,12 @@ export default function Settings() {
       />
 
       <View style={styles.buttonContainer}>
-        <Button title="Save Printer Address" onPress={handleSavePrinterAddress} disabled={loading} />
+        <Button 
+          title="Save Printer Address" 
+          onPress={handleSavePrinterAddress} 
+          disabled={loading} 
+          color={buttonBackgroundColor}
+        />
       </View>
 
       <View style={styles.buttonContainer}>
@@ -201,24 +251,26 @@ export default function Settings() {
           title={scanning ? 'Scanning for Printers...' : 'Scan Bluetooth Printers'}
           onPress={handleScanPrinters}
           disabled={loading || scanning}
+          color={buttonBackgroundColor}
         />
       </View>
 
       {scanResults ? (
         <View style={styles.columnList}>
-          <Text style={styles.sectionTitle}>Printer Scan Results</Text>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>Printer Scan Results</Text>
           {scanResults.paired.length > 0 ? (
             <View style={styles.columnList}>
-              <Text style={styles.sectionSubtitle}>Paired devices</Text>
+              <Text style={[styles.sectionSubtitle, { color: textColor }]}>Paired devices</Text>
               {scanResults.paired.map((device) => (
                 <View key={device.address} style={styles.scanRow}>
                   <View style={styles.scanTextContainer}>
-                    <Text style={styles.columnHeader}>{device.name || 'Unnamed device'}</Text>
-                    <Text style={styles.columnIndex}>{device.address}</Text>
+                    <Text style={[styles.columnHeader, { color: textColor }]}>{device.name || 'Unnamed device'}</Text>
+                    <Text style={[styles.columnIndex, { color: textColor }]}>{device.address}</Text>
                   </View>
                   <Button
                     title="Use"
                     onPress={() => handleSelectPrinter(device.address, device.name)}
+                    color="#007AFF"
                   />
                 </View>
               ))}
@@ -227,16 +279,17 @@ export default function Settings() {
 
           {scanResults.found.length > 0 ? (
             <View style={styles.columnList}>
-              <Text style={styles.sectionSubtitle}>Found devices</Text>
+              <Text style={[styles.sectionSubtitle, { color: textColor }]}>Found devices</Text>
               {scanResults.found.map((device) => (
                 <View key={device.address} style={styles.scanRow}>
                   <View style={styles.scanTextContainer}>
-                    <Text style={styles.columnHeader}>{device.name || 'Unnamed device'}</Text>
-                    <Text style={styles.columnIndex}>{device.address}</Text>
+                    <Text style={[styles.columnHeader, { color: textColor }]}>{device.name || 'Unnamed device'}</Text>
+                    <Text style={[styles.columnIndex, { color: textColor }]}>{device.address}</Text>
                   </View>
                   <Button
                     title="Use"
                     onPress={() => handleSelectPrinter(device.address, device.name)}
+                    color="#007AFF"
                   />
                 </View>
               ))}
@@ -248,27 +301,31 @@ export default function Settings() {
       <View style={styles.divider} />
 
       <View style={styles.buttonContainer}>
-        <Button title="Save & Detect Columns" onPress={handleSaveAndDetect} disabled={loading} />
+        <Button title="Save & Detect Columns" onPress={handleSaveAndDetect} disabled={loading} color={buttonBackgroundColor} />
       </View>
 
       <View style={styles.buttonContainer}>
-        <Button title="Run Runtime Verification" onPress={() => router.push('/verify')} disabled={loading} />
+        <Button title={syncing ? 'Syncing...' : 'Sync Now'} onPress={handleManualSync} disabled={loading || syncing} color={buttonBackgroundColor} />
       </View>
 
-      {loading && <ActivityIndicator style={styles.spinner} size="large" />}
+      <View style={styles.buttonContainer}>
+        <Button title="Run Runtime Verification" onPress={() => router.push('/verify')} disabled={loading} color={buttonBackgroundColor} />
+      </View>
 
-      {message ? <Text style={styles.success}>{message}</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {loading && <ActivityIndicator style={styles.spinner} size="large" color={colorScheme === 'dark' ? '#fff' : '#000'} />}
+
+      {message ? <Text style={[styles.success, { color: '#4CAF50' }]}>{message}</Text> : null}
+      {error ? <Text style={[styles.error, { color: '#F44336' }]}>{error}</Text> : null}
 
       {detectedColumns ? (
         <View style={styles.columnList}>
-          <Text style={styles.sectionTitle}>Detected Columns</Text>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>Detected Columns</Text>
           {Object.entries(detectedColumns)
             .sort(([, a], [, b]) => a - b)
             .map(([header, index]) => (
               <View key={header} style={styles.columnRow}>
-                <Text style={styles.columnHeader}>{header}</Text>
-                <Text style={styles.columnIndex}>{index}</Text>
+                <Text style={[styles.columnHeader, { color: textColor }]}>{header}</Text>
+                <Text style={[styles.columnIndex, { color: textColor }]}>{index}</Text>
               </View>
             ))}
         </View>
@@ -280,7 +337,6 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: {
     padding: 20,
-    backgroundColor: '#fff',
   },
   label: {
     fontSize: 16,
@@ -294,7 +350,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    backgroundColor: '#fafafa',
   },
   buttonContainer: {
     marginTop: 24,
@@ -304,12 +359,10 @@ const styles = StyleSheet.create({
   },
   success: {
     marginTop: 20,
-    color: 'green',
     fontWeight: '600',
   },
   error: {
     marginTop: 20,
-    color: 'red',
     fontWeight: '600',
   },
   columnList: {
@@ -351,10 +404,8 @@ const styles = StyleSheet.create({
   },
   columnHeader: {
     fontSize: 14,
-    color: '#333',
   },
   columnIndex: {
     fontSize: 14,
-    color: '#666',
   },
 });

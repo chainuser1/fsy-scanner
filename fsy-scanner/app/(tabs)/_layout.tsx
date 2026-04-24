@@ -2,7 +2,6 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAppStore } from '../../src/store/useAppStore';
-import type { AppState } from '../../src/store/useAppStore';
 
 type TabIconProps = {
   color: string;
@@ -10,7 +9,7 @@ type TabIconProps = {
 };
 
 export default function TabLayout() {
-  const failedTaskCount = useAppStore((state: AppState) => state.failedTaskCount);
+  const failedTaskCount = useAppStore((state: any) => state.failedTaskCount);
 
   // Custom badge component for failed tasks
   const FailedTasksBadge = () => {

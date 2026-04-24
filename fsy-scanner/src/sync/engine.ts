@@ -44,11 +44,13 @@ async function runSyncTick(): Promise<void> {
   const networkState = await Network.getNetworkStateAsync();
   if (!networkState.isConnected || networkState.isInternetReachable === false) {
     (useAppStore as any).getState().setSyncError('Offline - sync paused');
+    (useAppStore as any).getState().setIsOffline(true);
     await updatePendingCount();
     return;
   }
 
   (useAppStore as any).getState().setSyncError(null);
+  (useAppStore as any).getState().setIsOffline(false);
 
   try {
     const sheetId = await getSetting('sheets_id');
