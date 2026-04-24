@@ -1,7 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'app.dart';
+import 'db/database_helper.dart';
+import 'sync/sync_engine.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables
+  await dotenv.load(fileName: 'assets/.env');
+
+  // Run database migrations
+  await DatabaseHelper.runMigrations(await DatabaseHelper.database);
+
+  // Start sync engine
+  await SyncEngine.startup(); // Updated to call the new startup method
+
+  runApp(const FSYScannerApp());
 }
 
 class MyApp extends StatelessWidget {

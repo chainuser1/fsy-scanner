@@ -7,6 +7,7 @@ class DeviceId {
     if (_cachedId != null) {
       return _cachedId!;
     }
+ 
 
     // Generate a UUID as the device ID
     _cachedId = const Uuid().v4();

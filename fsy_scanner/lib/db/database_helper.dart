@@ -16,14 +16,15 @@ class DatabaseHelper {
     if (_database != null) {
       return _database!;
     }
+ 
 
     _database = await _initDatabase();
     return _database!;
   }
 
   static Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), _dbName);
-    return await openDatabase(
+    final path = join(await getDatabasesPath(), _dbName);
+    return openDatabase(
       path,
       version: 1,
       onCreate: (Database db, int version) async {
@@ -50,14 +51,14 @@ class DatabaseHelper {
   // Runs all pending migrations in order on every app launch
   static Future<void> runMigrations(Database db) async {
     // Check if device_id exists in app_settings
-    var deviceIdResult = await db.rawQuery(
+    final deviceIdResult = await db.rawQuery(
       'SELECT value FROM app_settings WHERE key = ?',
       ['device_id'],
     );
 
     if (deviceIdResult.isEmpty) {
       // Generate UUID v4 and save to app_settings key device_id
-      var uuid = const Uuid().v4();
+      final uuid = const Uuid().v4();
       await db.insert('app_settings', {
         'key': 'device_id',
         'value': uuid,
@@ -65,7 +66,7 @@ class DatabaseHelper {
     }
 
     // Set db_version = 1 if not already set
-    var versionResult = await db.rawQuery(
+    final versionResult = await db.rawQuery(
       'SELECT value FROM app_settings WHERE key = ?',
       ['db_version'],
     );

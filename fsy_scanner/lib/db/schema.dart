@@ -28,6 +28,7 @@ const String appSettingsDDL = '''
   )
 ''';
 
+
 class DatabaseHelper {
   static const String createSyncQueueTable = '''
     CREATE TABLE SyncQueue (
