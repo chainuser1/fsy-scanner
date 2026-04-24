@@ -1,46 +1,43 @@
-# Node
-node_modules/
-.env
-
-# Expo/React Native
-.expo/
-.expo-shared/
-dist/
+# Dart/Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
 build/
-web-build/
-*.log
+*.apk
+*.ipa
+*.appbundle
+coverage/
+.coverage/
 
-# macOS
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 
-# VS Code
-.vscode/
+# Environment
+.env
+.env.local
 
-# SQLite
-*.db
-*.sqlite
-*.sqlite3
-
-# System
+# OS
+.DS_Store
 Thumbs.db
 
-# Misc
-*.bak
-*.tmp
+# Dependencies
+/.flutter-plugins
+/.flutter-plugins-dependencies
 
-# Coverage
-coverage/
-
-# OS generated files
-Icon?
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Others
-.idea/
-*.iml
-
-*.md
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
