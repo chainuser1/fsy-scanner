@@ -12,7 +12,7 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
-cd "$PROJECT_DIR"
+cd "$(dirname "$0")/../fsy_scanner"
 
 echo "🔍 Starting Flutter CI build..."
 echo "📦 Build type: $BUILD_TYPE"

@@ -29,7 +29,7 @@ echo "✅ Keystore found"
 echo ""
 
 # Get version
-cd "$PROJECT_DIR"
+cd "$(dirname "$0")/../fsy_scanner"
 VERSION=$(grep "version:" pubspec.yaml | head -1 | cut -d':' -f2 | xargs)
 BUILD_NUMBER=$(echo $VERSION | cut -d'+' -f2)
 VERSION_NAME=$(echo $VERSION | cut -d'+' -f1)

@@ -1,45 +1,54 @@
 import 'package:sqflite/sqflite.dart';
+
 import '../models/participant.dart';
+import 'database_helper.dart';
 
 class ParticipantsDao {
-  final Database db;
+  final Database _db;
 
-  ParticipantsDao(this.db);
+  ParticipantsDao(this._db);
+
+  // Get a database instance
+  static Future<ParticipantsDao> getInstance() async {
+    final db = await DatabaseHelper.database;
+    return ParticipantsDao(db);
+  }
 
   // Insert or update participant. NEVER overwrite registered=1 with registered=0.
   Future<void> upsertParticipant(Participant p) async {
-    // First, try to update only if registered is 0 (to preserve registered status)
-    final result = await db.rawUpdate('''
-      UPDATE participants 
-      SET full_name = ?, stake = ?, ward = ?, gender = ?, room_number = ?, 
-          table_number = ?, tshirt_size = ?, medical_info = ?, note = ?, 
-          status = ?, verified_at = ?, printed_at = ?, registered_by = ?, 
-          sheets_row = ?, raw_json = ?, updated_at = ?, regId = ?, regTime = ?,
-          firstName = ?, lastName = ?, email = ?, phone = ?, checkInTime = ?,
-          isCheckedIn = ?, needsPrint = ?, syncStatus = ?, device_id = ?
-      WHERE id = ? AND registered = 0
-    ''', [
-      p.fullName, p.stake, p.ward, p.gender, p.roomNumber, 
-      p.tableNumber, p.tshirtSize, p.medicalInfo, p.note, 
-      p.status, p.verifiedAt, p.printedAt, p.registeredBy, 
-      p.sheetsRow, p.rawJson, p.updatedAt, p.regId, p.regTime,
-      p.firstName, p.lastName, p.email, p.phone, p.checkInTime,
-      p.isCheckedIn ? 1 : 0, p.needsPrint ? 1 : 0, p.syncStatus, p.deviceId, p.id
-    ]);
+    // First try to update only if registered is currently 0
+    final rowsUpdated = await _db.update(
+      'participants',
+      {
+        'full_name': p.fullName,
+        'stake': p.stake,
+        'ward': p.ward,
+        'gender': p.gender,
+        'room_number': p.roomNumber,
+        'table_number': p.tableNumber,
+        'tshirt_size': p.tshirtSize,
+        'medical_info': p.medicalInfo,
+        'note': p.note,
+        'status': p.status,
+        'registered': p.registered,
+        'verified_at': p.verifiedAt,
+        'printed_at': p.printedAt,
+        'registered_by': p.registeredBy,
+        'sheets_row': p.sheetsRow,
+        'raw_json': p.rawJson,
+        'updated_at': p.updatedAt,
+      },
+      where: 'id = ? AND registered = 0',  // Critical: guard against overwriting registered=1
+      whereArgs: [p.id],
+    );
 
-    // If no rows were updated (either participant doesn't exist or registered=1), insert or ignore
-    if (result == 0) {
-      await db.insert(
+    if (rowsUpdated == 0) {
+      // Either participant doesn't exist yet or registered=1, so insert OR IGNORE
+      await _db.insert(
         'participants',
         {
           'id': p.id,
-          'regId': p.regId,
-          'regTime': p.regTime,
           'full_name': p.fullName,
-          'firstName': p.firstName,
-          'lastName': p.lastName,
-          'email': p.email,
-          'phone': p.phone,
           'stake': p.stake,
           'ward': p.ward,
           'gender': p.gender,
@@ -49,92 +58,173 @@ class ParticipantsDao {
           'medical_info': p.medicalInfo,
           'note': p.note,
           'status': p.status,
-          'registered': p.registered ? 1 : 0,
+          'registered': p.registered,
           'verified_at': p.verifiedAt,
           'printed_at': p.printedAt,
-          'checkInTime': p.checkInTime,
-          'isCheckedIn': p.isCheckedIn ? 1 : 0,
-          'needsPrint': p.needsPrint ? 1 : 0,
-          'syncStatus': p.syncStatus,
           'registered_by': p.registeredBy,
-          'device_id': p.deviceId,
           'sheets_row': p.sheetsRow,
           'raw_json': p.rawJson,
           'updated_at': p.updatedAt,
         },
-        conflictAlgorithm: ConflictAlgorithm.replace,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
+  }
 
+  // Static helper to upsert a participant
+  static Future<void> upsert(Participant p) async {
+    final dao = await getInstance();
+    await dao.upsertParticipant(p);
   }
 
   // Look up participant by id. Returns null if not found.
   Future<Participant?> getParticipantById(String id) async {
-    final maps = await db.query(
+    final List<Map<String, Object?>> results = await _db.query(
       'participants',
       where: 'id = ?',
       whereArgs: [id],
     );
 
+    if (results.isEmpty) {
+      return null;
+    }
+
+    final row = results.first;
+    return Participant(
+      id: row['id'] as String,
+      fullName: row['full_name'] as String,
+      stake: row['stake'] as String?,
+      ward: row['ward'] as String?,
+      gender: row['gender'] as String?,
+      roomNumber: row['room_number'] as String?,
+      tableNumber: row['table_number'] as String?,
+      tshirtSize: row['tshirt_size'] as String?,
+      medicalInfo: row['medical_info'] as String?,
+      note: row['note'] as String?,
+      status: row['status'] as String?,
+      registered: row['registered'] as int,
+      verifiedAt: row['verified_at'] as int?,
+      printedAt: row['printed_at'] as int?,
+      registeredBy: row['registered_by'] as String?,
+      sheetsRow: row['sheets_row'] as int,
+      rawJson: row['raw_json'] as String?,
+      updatedAt: row['updated_at'] as int?,
+    );
+  }
+
+  // Get participant by registration number
+  static Future<Participant?> getByRegNumber(String regNumber) async {
+    final db = await DatabaseHelper.database;
+    final List<Map<String, Object?>> maps = await db.query(
+      'participants',
+      where: 'registration_number = ?',
+      whereArgs: [regNumber],
+    );
+    
     if (maps.isNotEmpty) {
       return Participant.fromJson(maps.first);
     }
+    
     return null;
   }
 
   // Mark participant as registered locally.
-  Future<void> markRegisteredLocally(String id, String deviceId) async {
-    await db.rawUpdate('''
-      UPDATE participants 
-      SET registered = 1, verified_at = ?, registered_by = ? 
-      WHERE id = ?
-    ''', [DateTime.now().millisecondsSinceEpoch, deviceId, id]);
+  Future<void> markRegisteredLocally(String id, String deviceId, int verifiedAt) async {
+    await _db.update(
+      'participants',
+      {
+        'registered': 1,
+        'verified_at': verifiedAt,
+        'registered_by': deviceId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // Mark participant as printed locally.
-  Future<void> markPrintedLocally(String id) async {
-    await db.rawUpdate('''
-      UPDATE participants 
-      SET printed_at = ? 
-      WHERE id = ?
-    ''', [DateTime.now().millisecondsSinceEpoch, id]);
+  Future<void> markPrintedLocally(String id, int printedAt) async {
+    await _db.update(
+      'participants',
+      {
+        'printed_at': printedAt,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // Return all participants ordered by full_name ASC.
   Future<List<Participant>> getAllParticipants() async {
-    final result = await db.query('participants', orderBy: 'full_name ASC');
-    return result.map((e) => Participant.fromJson(e)).toList();
+    final List<Map<String, Object?>> results = await _db.query(
+      'participants',
+      orderBy: 'full_name ASC',
+    );
+
+    return results.map((row) {
+      return Participant(
+        id: row['id'] as String,
+        fullName: row['full_name'] as String,
+        stake: row['stake'] as String?,
+        ward: row['ward'] as String?,
+        gender: row['gender'] as String?,
+        roomNumber: row['room_number'] as String?,
+        tableNumber: row['table_number'] as String?,
+        tshirtSize: row['tshirt_size'] as String?,
+        medicalInfo: row['medical_info'] as String?,
+        note: row['note'] as String?,
+        status: row['status'] as String?,
+        registered: row['registered'] as int,
+        verifiedAt: row['verified_at'] as int?,
+        printedAt: row['printed_at'] as int?,
+        registeredBy: row['registered_by'] as String?,
+        sheetsRow: row['sheets_row'] as int,
+        rawJson: row['raw_json'] as String?,
+        updatedAt: row['updated_at'] as int?,
+      );
+    }).toList();
   }
 
   // Search participants by name (case-insensitive). Returns up to 50 results.
   Future<List<Participant>> searchParticipants(String query) async {
-    final result = await db.query(
+    final List<Map<String, Object?>> results = await _db.query(
       'participants',
-      where: 'full_name LIKE ?',
-      whereArgs: ['%$query%'],
-      orderBy: 'full_name ASC',
+      where: 'LOWER(full_name) LIKE ?',
+      whereArgs: ['%${query.toLowerCase()}%'],
       limit: 50,
     );
-    return result.map((e) => Participant.fromJson(e)).toList();
+
+    return results.map((row) {
+      return Participant(
+        id: row['id'] as String,
+        fullName: row['full_name'] as String,
+        stake: row['stake'] as String?,
+        ward: row['ward'] as String?,
+        gender: row['gender'] as String?,
+        roomNumber: row['room_number'] as String?,
+        tableNumber: row['table_number'] as String?,
+        tshirtSize: row['tshirt_size'] as String?,
+        medicalInfo: row['medical_info'] as String?,
+        note: row['note'] as String?,
+        status: row['status'] as String?,
+        registered: row['registered'] as int,
+        verifiedAt: row['verified_at'] as int?,
+        printedAt: row['printed_at'] as int?,
+        registeredBy: row['registered_by'] as String?,
+        sheetsRow: row['sheets_row'] as int,
+        rawJson: row['raw_json'] as String?,
+        updatedAt: row['updated_at'] as int?,
+      );
+    }).toList();
   }
 
-  // Return count of registered participants.
-  Future<int> getRegisteredCount() async {
+  // Get count of registered participants
+  static Future<int> getRegisteredCount() async {
+    final db = await DatabaseHelper.database;
     final result = await db.rawQuery('SELECT COUNT(*) AS count FROM participants WHERE registered = 1');
-    return result.first['count'] as int;
-  }
-
-  // Replace all participants with the given list
-  Future<void> replaceParticipants(List<Participant> participants) async {
-    await db.transaction((txn) async {
-      await txn.delete('participants');
-      for (final p in participants) {
-        await txn.insert('participants', p.toJson()..remove('regId')..remove('regTime'));
-      }
-    });
-  }
-
-  Future<void> clearParticipants() async {
-    await db.delete('participants');
+    final count = result.first['count'] as int;
+    return count;
   }
 }

@@ -1,13 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_thermal_printer/utils/printer.dart';
+import 'package:sqflite/sqflite.dart';
 
+import '../db/database_helper.dart';
+import '../models/participant.dart';
+import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../sync/sync_engine.dart';
+import '../sync/sheets_api.dart';
+import '../auth/google_auth.dart';
 import '../utils/device_id.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -15,6 +22,13 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late StreamSubscription _syncStatusSubscription;
+  final _sheetIdController = TextEditingController();
+  final _tabNameController = TextEditingController();
+  final _eventNameController = TextEditingController();
+  
+  List<Printer> _discoveredPrinters = [];
+  bool _isScanningPrinters = false;
+  String? _selectedPrinterAddress;
 
   @override
   void initState() {
@@ -24,11 +38,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {});
       }
     });
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final db = await DatabaseHelper.database;
+    final settings = await db.query('app_settings');
+    
+    for (var setting in settings) {
+      final key = setting['key'] as String;
+      final value = setting['value'] as String?;
+      if (value == null) continue;
+      
+      if (key == 'sheets_id') _sheetIdController.text = value;
+      if (key == 'sheets_tab') _tabNameController.text = value;
+      if (key == 'event_name') _eventNameController.text = value;
+      if (key == 'printer_address') _selectedPrinterAddress = value;
+    }
+    setState(() {});
+  }
+
+  Future<void> _saveSheetSettings() async {
+    final db = await DatabaseHelper.database;
+    await db.insert('app_settings', {'key': 'sheets_id', 'value': _sheetIdController.text}, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('app_settings', {'key': 'sheets_tab', 'value': _tabNameController.text}, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('app_settings', {'key': 'event_name', 'value': _eventNameController.text}, conflictAlgorithm: ConflictAlgorithm.replace);
+    
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
+    
+    // Trigger column detection
+    try {
+      final token = await GoogleAuth.getValidToken();
+      if (token != null) {
+        await SheetsApi.detectColMap(db, token, _sheetIdController.text, _tabNameController.text);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Columns detected successfully'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Column detection failed: $e'), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _scanPrinters() async {
+    setState(() => _isScanningPrinters = true);
+    final printers = await PrinterService.scanPrinters();
+    setState(() {
+      _discoveredPrinters = printers;
+      _isScanningPrinters = false;
+    });
+  }
+
+  Future<void> _selectPrinter(Printer printer) async {
+    final db = await DatabaseHelper.database;
+    await db.insert('app_settings', {'key': 'printer_address', 'value': printer.address}, conflictAlgorithm: ConflictAlgorithm.replace);
+    setState(() => _selectedPrinterAddress = printer.address);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Printer ${printer.name} selected')));
+  }
+
+  Future<void> _testPrint() async {
+    final deviceId = await DeviceId.get();
+    // Use a mock participant for test print
+    final mockParticipant = Participant(
+      id: 'TEST-001',
+      fullName: 'Test Participant',
+      sheetsRow: 0,
+    );
+    final success = await PrinterService.printReceipt(mockParticipant, deviceId);
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Test print failed'), backgroundColor: Colors.red));
+    }
   }
 
   @override
   void dispose() {
     _syncStatusSubscription.cancel();
+    _sheetIdController.dispose();
+    _tabNameController.dispose();
+    _eventNameController.dispose();
     super.dispose();
   }
 
@@ -45,6 +130,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          // Sheet Config Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Sheet Configuration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  TextField(controller: _sheetIdController, decoration: const InputDecoration(labelText: 'Google Sheet ID')),
+                  TextField(controller: _tabNameController, decoration: const InputDecoration(labelText: 'Tab Name')),
+                  TextField(controller: _eventNameController, decoration: const InputDecoration(labelText: 'Event Name')),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _saveSheetSettings,
+                      child: const Text('Save & Detect Columns'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Printer Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Printer Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isScanningPrinters ? null : _scanPrinters,
+                          child: Text(_isScanningPrinters ? 'Scanning...' : 'Scan for Printers'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton(
+                        onPressed: _selectedPrinterAddress != null ? _testPrint : null,
+                        child: const Text('Test Print'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_discoveredPrinters.isNotEmpty)
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _discoveredPrinters.length,
+                      itemBuilder: (context, index) {
+                        final printer = _discoveredPrinters[index];
+                        final isSelected = _selectedPrinterAddress == printer.address;
+                        return ListTile(
+                          title: Text(printer.name ?? 'Unknown Printer'),
+                          subtitle: Text(printer.address ?? ''),
+                          trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.green) : null,
+                          onTap: () => _selectPrinter(printer),
+                        );
+                      },
+                    )
+                  else if (!_isScanningPrinters)
+                    const Text('No printers found. Make sure Bluetooth is on and printer is discoverable.'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -185,7 +345,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class SyncStatusHelper {
-  static bool _isSyncing = false;
+  static const bool _isSyncing = false;
 
   static bool get isSyncing => _isSyncing;
 }

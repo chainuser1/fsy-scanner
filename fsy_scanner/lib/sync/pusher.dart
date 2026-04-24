@@ -1,64 +1,91 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
+import '../auth/google_auth.dart';
+import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
-import '../models/participant.dart';
-import 'sheets_api.dart';  // Changed from SheetsApi to sheets_api
+import '../models/sync_task.dart';
+import 'sheets_api.dart';
 
-/// Push changes from local SQLite to Sheets
-Future<void> drainQueue(Database db, String token, String sheetId, String tabName) async {
-  while (true) {
-    // 1. claimNextTask() — returns one task or null
-    final task = await claimNextTask(db);
-    if (task == null) {
-      // 2. If null: return (queue empty)
-      return;
-    }
-
+class Pusher {
+  static Future<bool> pushPendingUpdates() async {
+    debugPrint('[Pusher] Starting pending updates...');
+    
     try {
-      // 3. Parse payload JSON is done in claimNextTask
-      final type = task['type'] as String;
-      final payload = task['payload'] as Map<String, dynamic>;
-      final taskId = task['id'] as int;
+      final token = await GoogleAuth.getValidToken();
+      if (token == null) return false;
 
-      // 4. If type = 'mark_registered':
-      if (type == 'mark_registered') {
-        // Write: Registered=Y, Verified At=ISO timestamp, Registered By=device_id
-        final regId = payload['regId'] as String;
-        final deviceId = payload['deviceId'] as String;
-        
-        await markRegistered(sheetId, tabName, regId, deviceId, token);  // Updated function name
-      } 
-      // If type = 'mark_printed':
-      else if (type == 'mark_printed') {
-        // Write: Printed At=ISO timestamp
-        final regId = payload['regId'] as String;
-        
-        await markPrinted(sheetId, tabName, regId, token);  // Updated function name
-      }
-      else if (type == 'upsert_participant') {
-        // Handle upserting a participant
-        final participant = Participant.fromJson(payload);
-        await upsertParticipant(participant, token);  // Updated function name
+      final db = await DatabaseHelper.database;
+      
+      // Get sheet config
+      final sheetIdResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
+      final sheetTabResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+      final colMapResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+
+      if (sheetIdResult.isEmpty || sheetTabResult.isEmpty || colMapResult.isEmpty) {
+        debugPrint('[Pusher] Missing sheet configuration');
+        return false;
       }
 
-      // 6. On HTTP 200: completeTask(), repeat from step 1
-      await completeTask(db, taskId);
+      final sheetId = sheetIdResult.first['value'] as String;
+      final tabName = sheetTabResult.first['value'] as String;
+      final colMap = Map<String, int>.from(jsonDecode(colMapResult.first['value'] as String));
+
+      while (true) {
+        final task = await SyncQueueDao.claimNextTask();
+        if (task == null) break;
+
+        final success = await _processTask(db, token, sheetId, tabName, colMap, task);
+        
+        if (success) {
+          await SyncQueueDao.markCompleted(task.id!);
+        } else {
+          await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
+          // If we failed, stop draining to avoid rate limits or repeated errors
+          return false;
+        }
+      }
+      
+      return true;
     } catch (e) {
-      final taskId = task['id'] as int;
-      final attempts = task['attempts'] as int;
-      
-      // 7. On SheetsRateLimitException: failTask(), throw upward for backoff
-      if (e.toString().contains('RateLimit')) {
-        await failTask(db, taskId, e.toString());
-        rethrow; // Re-throw to trigger backoff at higher level
+      debugPrint('[Pusher] Error pushing updates: $e');
+      return false;
+    }
+  }
+  
+  static Future<bool> _processTask(Database db, String token, String sheetId, String tabName, Map<String, int> colMap, SyncTask task) async {
+    try {
+      final Map<String, dynamic> payload = jsonDecode(task.payload);
+      final int sheetsRow = payload['sheetsRow'] ?? 0;
+      if (sheetsRow == 0) return false;
+
+      final Map<String, String> values = {};
+
+      if (task.type == 'mark_registered') {
+        values['Registered'] = 'Y';
+        values['Verified At'] = DateTime.fromMillisecondsSinceEpoch(payload['verifiedAt']).toIso8601String();
+        // Section 7.8 also mentions Registered By, but the sheet contract 4.1 doesn't have it as a column.
+        // I'll stick to what's in the contract 4.1 table.
+      } else if (task.type == 'mark_printed') {
+        values['Printed At'] = DateTime.fromMillisecondsSinceEpoch(payload['printedAt']).toIso8601String();
+      } else if (task.type == 'UPDATE') {
+        // Generic update from my previous fix
+        if (payload['registered'] == 1) values['Registered'] = 'Y';
+        if (payload['verified_at'] != null) {
+          values['Verified At'] = DateTime.fromMillisecondsSinceEpoch(payload['verified_at']).toIso8601String();
+        }
+        if (payload['printed_at'] != null) {
+          values['Printed At'] = DateTime.fromMillisecondsSinceEpoch(payload['printed_at']).toIso8601String();
+        }
       }
-      
-      // 8. On other error: failTask(), if attempts >= 10 notify AppState, continue to next task
-      await failTask(db, taskId, e.toString());
-      
-      if (attempts >= 10) {
-        print('Task $taskId failed after 10 attempts: $e');
-      }
-      // Continue to next task
+
+      if (values.isEmpty) return true;
+
+      await SheetsApi.updateRegistrationRow(token, sheetId, tabName, sheetsRow, colMap, values);
+      return true;
+    } catch (e) {
+      debugPrint('[Pusher] Error processing task ${task.id}: $e');
+      return false;
     }
   }
 }

@@ -3,12 +3,12 @@ name: CI / Android Build (Flutter)
 on:
   push:
     branches:
-      - master
+      - main
     tags:
       - 'v*'
   pull_request:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
           cache: true
 
@@ -54,7 +53,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
           cache: true
 

@@ -1,83 +1,105 @@
 import 'dart:convert';
-import 'package:sqflite/sqflite.dart';
 
-class SyncQueue {
-  final Database db;
+import '../models/sync_task.dart';
+import 'database_helper.dart';
 
-  SyncQueue(this.db);
-
-  Future<void> clearSyncQueue() async {
-    await db.delete('SyncQueue');
-  }
-}
-
-// Add new task. Returns new task id.
-Future<int> enqueueTask(Database db, String type, Map<String, dynamic> payload) async {
-  return await db.insert('sync_tasks', {
-    'type': type,
-    'payload': jsonEncode(payload),
-    'status': 'pending',
-    'attempts': 0,
-    'created_at': DateTime.now().millisecondsSinceEpoch,
-  });
-}
-
-// Fetch next pending task and set status to 'in_progress'. Returns null if empty.
-Future<Map<String, dynamic>?> claimNextTask(Database db) async {
-  final result = await db.rawQuery('''
-    SELECT * FROM sync_tasks 
-    WHERE status = 'pending' 
-    ORDER BY id ASC 
-    LIMIT 1
-  ''');
-
-  if (result.isEmpty) {
-    return null;
+class SyncQueueDao {
+  // Add new task. Returns new task id.
+  static Future<int> enqueueTask(String type, Map<String, dynamic> payload) async {
+    final db = await DatabaseHelper.database;
+    final taskId = await db.insert(
+      'sync_tasks',
+      {
+        'type': type,
+        'payload': jsonEncode(payload),
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      },
+    );
+    return taskId;
   }
 
-  final task = result.first;
-  await db.rawUpdate('''
-    UPDATE sync_tasks 
-    SET status = 'in_progress', attempts = attempts + 1 
-    WHERE id = ?
-  ''', [task['id']]);
+  // Fetch next pending task and set status to 'in_progress'. Returns null if empty.
+  static Future<SyncTask?> claimNextTask() async {
+    final db = await DatabaseHelper.database;
+    // Begin transaction to ensure atomicity
+    return db.transaction((txn) async {
+      // Find the first pending task
+      final List<Map<String, Object?>> results = await txn.query(
+        'sync_tasks',
+        where: 'status = ?',
+        whereArgs: ['pending'],
+        limit: 1,
+        orderBy: 'created_at ASC', // Process oldest first
+      );
 
-  // Parse the payload from JSON string back to a map
-  final payload = jsonDecode(task['payload'].toString());
-  
-  return {
-    'id': task['id'],
-    'type': task['type'].toString(),
-    'payload': payload,
-    'attempts': task['attempts'] as int,
-  };
-}
+      if (results.isEmpty) {
+        return null; // No pending tasks
+      }
 
-// Mark task complete and delete it.
-Future<void> completeTask(Database db, int id) async {
-  await db.delete('sync_tasks', where: 'id = ?', whereArgs: [id]);
-}
+      // Extract task
+      final task = SyncTask.fromJson(results.first);
 
-// Increment attempts, store error, reset to 'pending'.
-Future<void> failTask(Database db, int id, String error) async {
-  await db.rawUpdate('''
-    UPDATE sync_tasks 
-    SET status = 'pending', last_error = ? 
-    WHERE id = ?
-  ''', [error, id]);
-}
+      // Update its status to prevent others from claiming
+      await txn.update(
+        'sync_tasks',
+        {'status': 'in_progress'},
+        where: 'id = ?',
+        whereArgs: [task.id],
+      );
 
-// On app start: reset all 'in_progress' tasks to 'pending'.
-Future<void> resetInProgressTasks(Database db) async {
-  await db.rawUpdate("UPDATE sync_tasks SET status = 'pending' WHERE status = 'in_progress'");
-}
+      return task;
+    });
+  }
 
-// Return count of pending + in_progress tasks.
-Future<int> getPendingCount(Database db) async {
-  final result = await db.rawQuery('''
-    SELECT COUNT(*) AS count 
-    FROM sync_tasks 
-    WHERE status IN ('pending', 'in_progress')
-  ''');
-  return result.first['count'] as int;
+  // Mark task as completed
+  static Future<void> markCompleted(int taskId) async {
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'sync_tasks',
+      {'status': 'completed', 'completed_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [taskId],
+    );
+  }
+
+  // Mark task as failed
+  static Future<void> markFailed(int taskId, String error) async {
+    final db = await DatabaseHelper.database;
+    await db.rawUpdate(
+      'UPDATE sync_tasks SET status = ?, attempts = attempts + 1, last_error = ? WHERE id = ?',
+      ['pending', error, taskId],
+    );
+  }
+
+  // On app start: reset all 'in_progress' tasks to 'pending'.
+  static Future<void> resetInProgressTasks() async {
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'sync_tasks',
+      {'status': 'pending'},
+      where: 'status = ?',
+      whereArgs: ['in_progress'],
+    );
+  }
+
+  // Get pending tasks
+  static Future<List<SyncTask>> getPendingTasks() async {
+    final db = await DatabaseHelper.database;
+    final List<Map<String, Object?>> results = await db.query(
+      'sync_tasks',
+      where: 'status = ?',
+      whereArgs: ['pending'],
+      orderBy: 'created_at ASC',
+    );
+
+    return results.map(SyncTask.fromJson).toList();
+  }
+
+  // Get count of pending tasks
+  static Future<int> getPendingCount() async {
+    final db = await DatabaseHelper.database;
+    final result = await db.rawQuery('SELECT COUNT(*) AS count FROM sync_tasks WHERE status = ?', ['pending']);
+    final count = result.first['count'] as int;
+    return count;
+  }
 }
