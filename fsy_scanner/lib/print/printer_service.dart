@@ -1,13 +1,14 @@
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_thermal_printer/flutter_thermal_printer.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
 
+import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import 'receipt_builder.dart';
-import '../db/database_helper.dart';
 
 class PrinterService {
   static final _printerPlugin = FlutterThermalPrinter.instance;
@@ -102,3 +103,5 @@ class PrinterService {
     );
   }
 }
+
+

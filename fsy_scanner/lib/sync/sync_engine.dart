@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
+
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
@@ -54,7 +55,7 @@ class SyncEngine {
 
     // Initial sync after 3s
     await Future.delayed(const Duration(seconds: 3));
-    _syncLoop(); // Don't await the loop
+    unawaited(_syncLoop()); // Fire-and-forget sync loop
   }
 
   static Future<bool> performFullSync() async {

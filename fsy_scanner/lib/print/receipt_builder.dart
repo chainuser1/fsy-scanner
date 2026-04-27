@@ -39,3 +39,5 @@ class ReceiptBuilder {
     return buffer.toString();
   }
 }
+
+

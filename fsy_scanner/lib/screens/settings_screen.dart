@@ -1,16 +1,17 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
+import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
-import '../sync/sync_engine.dart';
 import '../sync/sheets_api.dart';
-import '../auth/google_auth.dart';
+import '../sync/sync_engine.dart';
 import '../utils/device_id.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final db = await DatabaseHelper.database;
     final settings = await db.query('app_settings');
     
-    for (var setting in settings) {
+    for (final setting in settings) {
       final key = setting['key'] as String;
       final value = setting['value'] as String?;
       if (value == null) continue;

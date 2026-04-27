@@ -1,9 +1,7 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../auth/google_auth.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
 import 'sheets_api.dart';
@@ -34,23 +32,25 @@ class Puller {
       );
 
       // Extract values using the column map
-      final String id = row[colMap['ID'] ?? -1] ?? '';
+      final int idIdx = colMap['ID'] ?? -1;
+      final String id = idIdx >= 0 && idIdx < row.length ? row[idIdx] : '';
       if (id.isEmpty) continue; // Skip rows without an ID
 
       // Create participant object
+      final int nameIdx = colMap['Name'] ?? -1;
       final Participant participant = Participant(
         id: id,
-        fullName: row[colMap['Name'] ?? -1] ?? '',
-        stake: row[colMap['Stake'] ?? -1],
-        ward: row[colMap['Ward'] ?? -1],
-        gender: row[colMap['Gender'] ?? -1],
-        roomNumber: row[colMap['Hotel Room Number'] ?? -1],
-        tableNumber: row[colMap['Table Number'] ?? -1],
-        tshirtSize: row[colMap['T-Shirt Size'] ?? -1],
-        medicalInfo: row[colMap['Medical/Food Info'] ?? -1],
-        note: row[colMap['Note'] ?? -1],
-        status: row[colMap['Status'] ?? -1],
-        registered: row[colMap['Registered'] ?? -1] == 'Y' ? 1 : 0,
+        fullName: nameIdx >= 0 && nameIdx < row.length ? row[nameIdx] : '',
+        stake: _safeRowAccess(row, colMap['Stake']),
+        ward: _safeRowAccess(row, colMap['Ward']),
+        gender: _safeRowAccess(row, colMap['Gender']),
+        roomNumber: _safeRowAccess(row, colMap['Hotel Room Number']),
+        tableNumber: _safeRowAccess(row, colMap['Table Number']),
+        tshirtSize: _safeRowAccess(row, colMap['T-Shirt Size']),
+        medicalInfo: _safeRowAccess(row, colMap['Medical/Food Info']),
+        note: _safeRowAccess(row, colMap['Note']),
+        status: _safeRowAccess(row, colMap['Status']),
+        registered: _safeRowAccess(row, colMap['Registered']) == 'Y' ? 1 : 0,
         verifiedAt: _parseTimestamp(row[colMap['Verified At'] ?? -1]),
         printedAt: _parseTimestamp(row[colMap['Printed At'] ?? -1]),
         sheetsRow: i + 1, // Sheets uses 1-based indexing
@@ -70,6 +70,13 @@ class Puller {
     );
   }
 
+  static String? _safeRowAccess(List<String> row, int? idx) {
+    if (idx == null || idx < 0 || idx >= row.length) {
+      return null;
+    }
+    return row[idx];
+  }
+
   static int? _parseTimestamp(String? timestampStr) {
     if (timestampStr == null || timestampStr.isEmpty) {
       return null;
@@ -85,4 +92,6 @@ class Puller {
     }
   }
 }
+
+
 

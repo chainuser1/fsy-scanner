@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -184,8 +186,8 @@ class ConfirmScreen extends StatelessWidget {
       participant.toJson()..['registered'] = 1..['verified_at'] = now..['registered_by'] = deviceId,
     );
 
-    // Print receipt (fire and forget)
-    PrinterService.printReceipt(participant, deviceId);
+    // Print receipt (fire and forget) - ignore unawaited result
+    unawaited(PrinterService.printReceipt(participant, deviceId));
 
     // Update app state
     final appState = Provider.of<AppState>(context, listen: false);
