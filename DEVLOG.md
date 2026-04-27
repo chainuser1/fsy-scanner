@@ -848,4 +848,33 @@ Ran `flutter analyze` to identify all code issues and systematically resolved al
 ### Deviations from Plan
 None - all changes were code quality and lint compliance improvements with zero logic changes.
 
+## 6.1 — Fast Auto Check-In (ScanScreen)
+**Date/Time:** 2026-04-28 10:00:00
+**Status:** ✅ Complete
+
+### What I Did
+Updated the main scanning flow to use a fast, operator-less check-in path for first-time registrations. `ScanScreen` now:
+- Looks up the scanned QR in SQLite
+- If participant is FOUND and `registered == 0`:
+  - Marks participant as registered locally (`participants.markRegisteredLocally`)
+  - Enqueues a `mark_registered` sync task with `sheetsRow` and `verifiedAt` (ms)
+  - Fires a print job (`PrinterService.printReceipt`) as a fire-and-forget operation
+  - Shows a brief success `SnackBar` and immediately resumes scanning
+- If participant is FOUND and `registered == 1`: shows a quick 'Already checked in' banner
+- If participant is NOT FOUND: shows an error banner and resumes scanning
+
+This preserves the `ConfirmScreen` for reprints and manual operations (staff-triggered), while eliminating the confirmation bottleneck in the high-throughput line.
+
+### How I Followed the Plan
+- Kept all local-first invariants (SQLite is source of truth)
+- Enqueued `mark_registered` as the sync task type (pusher expects `verifiedAt` in ms)
+- Printing remains fire-and-forget; print recording and `mark_printed` tasks unchanged
+
+### Verification Result
+- `flutter analyze` run after change: no new errors introduced (only info-level lint messages remain)
+
+### Next Steps
+- (Optional) Wire a short "fast mode" toggle in `SettingsScreen` to revert to confirmation flow if desired
+
+
 ```

@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
+import '../db/sync_queue_dao.dart';
+import '../print/printer_service.dart';
+import '../utils/device_id.dart';
 import '../providers/app_state.dart';
-import 'confirm_screen.dart';
 import 'participants_screen.dart';
 import 'settings_screen.dart';
 
@@ -127,21 +130,38 @@ class _ScanScreenState extends State<ScanScreen> {
                     }
                   }
                 } else {
-                  // Navigate to confirm screen
+                  // Fast path: auto-check-in and print (no confirmation)
+                  final deviceId = await DeviceId.get();
+                  final now = DateTime.now().millisecondsSinceEpoch;
+
+                  // Mark locally as registered
+                  await dao.markRegisteredLocally(participant.id, deviceId, now);
+
+                  // Enqueue a mark_registered task for the pusher
+                  await SyncQueueDao.enqueueTask('mark_registered', {
+                    'participantId': participant.id,
+                    'sheetsRow': participant.sheetsRow,
+                    'verifiedAt': now,
+                    'registeredBy': deviceId,
+                  });
+
+                  // Fire-and-forget print
+                  unawaited(PrinterService.printReceipt(participant, deviceId));
+
+                  // Show quick success feedback
                   if (mounted) {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ConfirmScreen(participant: participant),
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✓ ${participant.fullName} checked in'),
+                        backgroundColor: Colors.green,
+                        duration: const Duration(seconds: 1),
                       ),
                     );
-                    
-                    // Resume scanning after returning from confirm screen
-                    await Future.delayed(const Duration(milliseconds: 500));
-                    if (mounted) {
-                      controller.start();
-                    }
                   }
+
+                  // Short pause then resume scanning
+                  await Future.delayed(const Duration(milliseconds: 800));
+                  if (mounted) controller.start();
                 }
               }
             },

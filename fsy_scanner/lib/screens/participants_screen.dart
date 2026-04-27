@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
+import '../print/printer_service.dart';
+import '../utils/device_id.dart';
 
 import 'confirm_screen.dart';
 
@@ -114,9 +117,28 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: participant.registered == 1
-                              ? Icon(Icons.check_circle, color: Colors.green[600])
-                              : Icon(Icons.circle_outlined, color: Colors.grey[400]),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (participant.registered == 1)
+                                IconButton(
+                                  icon: const Icon(Icons.print, color: Colors.blue),
+                                  tooltip: 'Reprint receipt',
+                                  onPressed: () async {
+                                    final deviceId = await DeviceId.get();
+                                    unawaited(PrinterService.printReceipt(participant, deviceId));
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Printing receipt for ${participant.fullName}')),
+                                      );
+                                    }
+                                  },
+                                ),
+                              participant.registered == 1
+                                  ? Icon(Icons.check_circle, color: Colors.green[600])
+                                  : Icon(Icons.circle_outlined, color: Colors.grey[400]),
+                            ],
+                          ),
                           onTap: () async {
                             if (participant.registered == 0) {
                               await Navigator.push(
