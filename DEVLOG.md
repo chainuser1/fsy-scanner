@@ -13,6 +13,55 @@
 
 ---
 
+## 12.0 — Critical Implementation Gaps Identified
+**Date/Time:** 2026-04-28 07:41:19
+**Status:** 🟡 Analysis Complete
+
+### What I Did
+Performed comprehensive analysis of the codebase to identify critical implementation gaps that violate project specifications and could impact performance.
+
+### How I Followed the Plan
+- Analyzed database schema against performance specification requirements
+- Verified critical query indexes per local SQLite performance specification
+- Checked for technical debt and unused code artifacts
+- Validated sync engine compliance with bidirectional sync specifications
+
+### Verification Result
+Identified 3 critical gaps requiring immediate attention:
+
+#### Gap 1: Missing Database Indexes (Violates SQLite Query Performance Specification)
+- `participants` table missing index on `registered` field (used in `getRegisteredCount()`)
+- `participants` table missing index on `full_name` field (used in `searchParticipants()`)
+- `sync_tasks` table missing index on `status` field (used in `getPendingCount()`)
+- **Impact**: O(n) full table scans degrading performance during scanning operations
+
+#### Gap 2: Unused Schema Definition (Technical Debt)
+- `DatabaseHelper.createSyncQueueTable` constant exists but is never used
+- Actual sync queue table created via `syncTasksDDL` constant
+- **Impact**: Confusing codebase and violates dependency migration verification norms
+
+#### Gap 3: Printer Connection Validation Gap
+- `ScanScreen` attempts printing without checking `appState.printerConnected`
+- **Impact**: Print operations fail silently when printer disconnected
+
+### Issues Encountered
+- Schema definition in [lib/db/schema.dart](file:///home/lotus_clan/Documents/Projects/fsy_reg_app/fsy_scanner/lib/db/schema.dart) lacks performance-critical indexes
+- Printer validation missing in scan flow
+- Unused schema constant creates confusion
+
+### Corrections Needed
+1. Add required indexes to schema definition:
+   - `CREATE INDEX IF NOT EXISTS idx_participants_registered ON participants(registered)`
+   - `CREATE INDEX IF NOT EXISTS idx_participants_full_name ON participants(full_name)`
+   - `CREATE INDEX IF NOT EXISTS idx_sync_tasks_status ON sync_tasks(status)`
+2. Remove unused `createSyncQueueTable` constant from [schema.dart](file:///home/lotus_clan/Documents/Projects/fsy_reg_app/fsy_scanner/lib/db/schema.dart)
+3. Add printer connection validation in [scan_screen.dart](file:///home/lotus_clan/Documents/Projects/fsy_reg_app/fsy_scanner/lib/screens/scan_screen.dart) before attempting print
+
+### Deviations from Plan
+These gaps were not intentionally planned but emerged during analysis of the current implementation.
+
+---
+
 ## 4.0 — UI and Printing Module Implementation
 **Date/Time:** 2026-04-24 18:00:00
 **Status:** ✅ Complete
@@ -873,8 +922,172 @@ This preserves the `ConfirmScreen` for reprints and manual operations (staff-tri
 ### Verification Result
 - `flutter analyze` run after change: no new errors introduced (only info-level lint messages remain)
 
-### Next Steps
-- (Optional) Wire a short "fast mode" toggle in `SettingsScreen` to revert to confirmation flow if desired
+---
+
+## 13.0 — Comprehensive Codebase Gap Analysis
+**Date/Time:** 2026-04-28 12:30:00
+**Status:** 🟡 Analysis Complete — 13 Gaps Identified
+
+### What I Did
+Performed a comprehensive scan of the entire codebase to identify implementation gaps, missing features, technical debt, and potential production blockers. Analyzed all 30+ source files across database, sync, UI, printing, auth, and utility layers.
+
+### Gaps Identified (by severity)
+
+#### 🚨 CRITICAL GAPS (Production Blockers — 5-6 hours to fix)
+
+**Gap 1: Google Auth — Mock JWT Token Implementation**
+- **File:** `lib/auth/google_auth.dart` (lines 25-32)
+- **Issue:** Returns hardcoded mock token `'mock_access_token_for_compilation'` instead of signing real RS256 JWT
+- **Impact:** ALL Sheets API calls fail with 401/403 Unauthorized; no production sync possible
+- **Root Cause:** Auth mockup was left in place for compilation; never replaced with real JWT signing
+- **Fix:** Implement real JWT creation using `dart_jsonwebtoken` package (already in pubspec.yaml):
+  - Load PKCS#8 private key from environment
+  - Create JWT payload with OAuth claims (iss, scope, aud, exp, iat)
+  - Sign with RS256 algorithm
+  - Implement token refresh logic before expiry (default 1-hour expiry)
+- **Estimated Fix Time:** 2-3 hours
+
+**Gap 2: Rate Limiting Without Backoff**
+- **File:** `lib/sync/sheets_api.dart` (lines 50-60) & `lib/sync/pusher.dart` (lines 45-60)
+- **Issue:** `SheetsRateLimitException` thrown but never caught; no exponential backoff strategy implemented
+- **Impact:** During high-traffic events (100+ registrations), sync engine stops immediately on 429 error; sync tasks remain stuck in queue indefinitely
+- **Root Cause:** Exception handling assumes all failures are recoverable, but rate limiting requires specific backoff strategy
+- **Fix:** Implement exponential backoff in `SyncEngine`:
+  - First retry after 5 seconds
+  - Second retry after 10 seconds
+  - Continue doubling until max 120 seconds
+  - Re-queue task with updated `attempts` count on rate limit
+  - Reset backoff counter on success or different error type
+- **Estimated Fix Time:** 1-2 hours
+
+**Gap 3: Sync Task Cleanup Never Executes**
+- **File:** `lib/db/sync_queue_dao.dart` (lines 42-50, `markCompleted()` method)
+- **Issue:** Method updates `status` to `'completed'` but never `DELETE FROM sync_tasks`; completed tasks accumulate indefinitely
+- **Impact:** Database bloats over time (1000s of rows after months); query performance degrades; app becomes unusable
+- **Root Cause:** Cleanup logic was never implemented after success path
+- **Fix:** Update `markCompleted()` to DELETE the row after mark, or add a separate `deleteTask(int id)` method and call it from `SyncEngine` after processing
+- **Estimated Fix Time:** 30 minutes
+
+**Gap 4: Failed Task Errors Not Reported to UI**
+- **File:** `lib/sync/pusher.dart` (lines 50-60)
+- **Issue:** When task fails 10+ times, `AppState.failedTaskCount` is never updated; UI shows no indication of sync failures
+- **Impact:** Silent data loss; user unaware that participant info is not syncing to Sheets
+- **Root Cause:** Error reporting path incomplete
+- **Fix:** In `Pusher.push()`, add call to `AppState.setFailedTaskCount(failureCount)` when `task.attempts >= 10`
+- **Estimated Fix Time:** 1 hour
+
+**Gap 5: First-Run Column Map Detection Missing**
+- **File:** `lib/sync/sync_engine.dart` (lines 60-100) & `lib/screens/settings_screen.dart` (lines 55-80)
+- **Issue:** App assumes `col_map` already exists in `app_settings`; if it doesn't (fresh install), sync crashes on first pull
+- **Impact:** New installations fail on first sync run; no guidance for user to configure columns
+- **Root Cause:** First-run setup flow incomplete
+- **Fix:** Implement auto-detection in `SyncEngine.startup()`:
+  - Check if `col_map` is set; if not, call `SheetsApi.detectColumnMap()`
+  - Show `SettingsScreen` modal if detection fails or columns don't exist
+  - Require user to confirm required columns exist: 'Registered', 'Verified At', 'Printed At'
+- **Estimated Fix Time:** 1.5 hours
+
+#### ⚠️ HIGH-PRIORITY GAPS (Functional Issues — 2-3 hours)
+
+**Gap 6: Column Map Errors Swallowed (Puller)**
+- **File:** `lib/sync/puller.dart` (lines 15-30, `_parseColumnMap()`)
+- **Issue:** If `col_map` is corrupted/malformed JSON, try-catch silently catches and returns null with no error message
+- **Impact:** Hard to debug in production; user doesn't know why data isn't pulling
+- **Fix:** Add error logging in catch block; surface error to UI or console
+- **Estimated Fix Time:** 45 minutes
+
+**Gap 7: Timestamp Parsing Fails Silently**
+- **File:** `lib/sync/puller.dart` (lines 72-82, `_parseTimestamp()`)
+- **Issue:** Catch block returns null without logging which timestamps failed or why
+- **Impact:** No visibility into which rows have unparseable dates
+- **Fix:** Log caught exception with row context; optionally flag row for manual review
+- **Estimated Fix Time:** 15 minutes
+
+#### 🔨 MEDIUM-PRIORITY GAPS (Design/Technical Debt — 3+ hours)
+
+**Gap 8: Sync Task Type Inconsistency**
+- **File:** `lib/sync/pusher.dart` (lines 55-70) & `lib/print/printer_service.dart` (lines 75-90)
+- **Issue:** Code uses both `'UPDATE'` (legacy) and `'mark_registered'`/`'mark_printed'` (spec); both paths coexist
+- **Impact:** Confusing code paths; difficult to debug; risk of task type mismatches
+- **Fix:** Standardize on spec types only (`'mark_registered'`, `'mark_printed'`); remove all `'UPDATE'` references
+- **Estimated Fix Time:** 30 minutes
+
+**Gap 9: TimeUtils.dart is Empty**
+- **File:** `lib/utils/time_utils.dart`
+- **Issue:** File exists but contains no utilities; time logic duplicated across 3+ files
+- **Impact:** Code duplication; fragile if time logic needs changes; inconsistent timestamp handling
+- **Current Duplication:** ISO 8601 formatting in `ReceiptBuilder` and `Pusher`; timestamp parsing in `Puller`
+- **Fix:** Centralize in `TimeUtils`:
+  - `String formatISO8601(DateTime dt)` — convert DateTime to ISO string
+  - `DateTime? parseISO8601(String s)` — parse ISO string to DateTime
+  - `int getCurrentTimestampMs()` — current time in milliseconds
+  - Timezone handling (always UTC)
+- **Estimated Fix Time:** 1 hour
+
+**Gap 10: Device ID Not Persisted**
+- **File:** `lib/utils/device_id.dart` (lines 10-15)
+- **Issue:** UUID generated at startup and cached in memory; lost on app restart, gets new ID each time
+- **Impact:** Multi-device tracking breaks; sync history fragmented; device identification unreliable
+- **Fix:** Persist device ID in `app_settings` on first run; read from DB on subsequent starts
+- **Estimated Fix Time:** 30 minutes
+
+#### 🎨 LOW-PRIORITY GAPS (UX Polish — 4-6 hours)
+
+**Gap 11: No Offline Banner / Last Sync Display**
+- **Issue:** No indicator showing user if app is offline or when last sync occurred
+- **Fix:** Add banner at top of ScanScreen showing "OFFLINE" or "Last sync: 2m ago"
+- **Estimated Fix Time:** 1-2 hours
+
+**Gap 12: Settings Screen Input Validation**
+- **File:** `lib/screens/settings_screen.dart`
+- **Issue:** User can save blank sheet IDs, invalid tab names, malformed column maps without validation
+- **Impact:** Invalid settings silently fail during sync; confusing error messages
+- **Fix:** Add validators:
+  - Sheet ID must be non-empty 51-character string
+  - Tab name must be non-empty
+  - Column map must contain all required columns
+- **Estimated Fix Time:** 45 minutes
+
+**Gap 13: No Debug/Request Logging for Production**
+- **Issue:** API calls/responses only logged via `debugPrint()` (disabled in release builds); can't debug production issues
+- **Impact:** No visibility into failures in customer deployments
+- **Fix:** Implement firebase_crashlytics or similar for production logging (optional for MVP)
+- **Estimated Fix Time:** 2-3 hours (optional)
+
+### What's Working Well ✅
+- **Database Layer:** All 3 tables, DAOs, `registered == 1` guard implemented correctly
+- **Screen Flows:** Scan → Confirm → Print flow complete and tested
+- **Printing:** Bluetooth ESC/POS receipt printing functional
+- **State Management:** Provider state management correctly wired throughout
+- **Models:** Participant and SyncTask models fully specified
+- **Sync Loop:** SyncEngine runs on 15s interval with connectivity checks
+
+### Fix Priority Timeline
+
+**Phase 1 — CRITICAL (5-6 hours):** Unblocks production deployment
+1. Real JWT auth (2-3h)
+2. Rate limit backoff (1-2h)
+3. Task cleanup (0.5h)
+4. Error reporting to UI (1h)
+5. First-run col_map detection (1.5h)
+
+**Phase 2 — HIGH (2-3 hours):** Stability improvements
+- Remaining high-priority items (error handling refinements)
+
+**Phase 3 — OPTIONAL (5-7+ hours):** UX/debugging enhancements
+- TimeUtils, offline banner, input validation, logging
+
+**Total to Production:** ~8-10 hours to complete Phase 1 + Phase 2
+
+### How I Followed the Plan
+- Analyzed all critical paths specified in FSY_SCANNER_PLAN.md (Sections 3-7)
+- Checked database schema against performance requirements
+- Verified sync engine compliance with bidirectional sync spec
+- Validated auth flow against plan's OAuth/JWT requirements
+- Audited error handling against resilience specifications
+
+### Deviations from Plan
+None — gaps represent incomplete implementation of plan specifications, not deviations from the plan itself.
 
 
 ```
