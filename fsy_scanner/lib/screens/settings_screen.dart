@@ -57,23 +57,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final setting in settings) {
       final key = setting['key'] as String;
       final value = setting['value'] as String?;
-      if (value == null) {
-        continue;
-      }
+      if (value == null) continue;
 
-      if (key == 'sheets_id') {
-        _sheetIdController.text = value;
-      }
-      if (key == 'sheets_tab') {
-        _tabNameController.text = value;
-      }
-      if (key == 'event_name') {
-        _eventNameController.text = value;
-      }
-      if (key == 'printer_address') {
-        _selectedPrinterAddress = value;
-      }
+      if (key == 'sheets_id') _sheetIdController.text = value;
+      if (key == 'sheets_tab') _tabNameController.text = value;
+      if (key == 'event_name') _eventNameController.text = value;
+      if (key == 'printer_address') _selectedPrinterAddress = value;
     }
+
+    // Fallback to .env values if any field is still empty
+    if (_sheetIdController.text.isEmpty) {
+      _sheetIdController.text = dotenv.env['SHEETS_ID'] ?? '';
+    }
+    if (_tabNameController.text.isEmpty) {
+      _tabNameController.text = dotenv.env['SHEETS_TAB'] ?? '';
+    }
+    if (_eventNameController.text.isEmpty) {
+      _eventNameController.text = dotenv.env['EVENT_NAME'] ?? '';
+    }
+
     setState(() {});
   }
 
