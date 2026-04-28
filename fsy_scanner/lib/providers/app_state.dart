@@ -41,6 +41,9 @@ class AppState extends ChangeNotifier {
   bool get hapticEnabled => _hapticEnabled;
   bool get voiceEnabled => _voiceEnabled;
 
+  // ---------------------------------------------------------------------------
+  // Recent scans / undo
+  // ---------------------------------------------------------------------------
   void addRecentScan(Participant participant) {
     _recentScans.insert(
         0,
@@ -73,56 +76,49 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Setters
+  // ---------------------------------------------------------------------------
   void setPendingTaskCount(int count) {
     _pendingTaskCount = count;
     notifyListeners();
   }
-
   void setFailedTaskCount(int count) {
     _failedTaskCount = count;
     notifyListeners();
   }
-
   void setParticipantsCount(int count) {
     _participantsCount = count;
     notifyListeners();
   }
-
   void setInitialLoading(bool val) {
     _isInitialLoading = val;
     notifyListeners();
   }
-
   void setIsOnline(bool online) {
     _isOnline = online;
     notifyListeners();
   }
-
   void setSyncError(String? msg) {
     _syncError = msg;
     notifyListeners();
   }
-
   void setPrinterConnected(bool val) {
     _printerConnected = val;
     notifyListeners();
   }
-
   void setPrinterAddress(String? addr) {
     _printerAddress = addr;
     notifyListeners();
   }
-
   void setLastScanResult(String? result) {
     _lastScanResult = result;
     notifyListeners();
   }
-
   void incrementFailedTaskCount() {
     _failedTaskCount++;
     notifyListeners();
   }
-
   void setLastSyncedAt(DateTime time) {
     _lastSyncedAt = time;
     notifyListeners();
@@ -132,7 +128,6 @@ class AppState extends ChangeNotifier {
     _participantsCount = await ParticipantsDao.getRegisteredCount();
     notifyListeners();
   }
-
   Future<int> getRegisteredCount() async {
     try {
       return await ParticipantsDao.getRegisteredCount();
@@ -142,6 +137,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Preferences
+  // ---------------------------------------------------------------------------
   Future<void> loadPreferences() async {
     final db = await DatabaseHelper.database;
     final soundResult = await db
@@ -167,7 +165,6 @@ class AppState extends ChangeNotifier {
     _soundEnabled = enabled;
     notifyListeners();
   }
-
   Future<void> setHapticEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
@@ -176,54 +173,12 @@ class AppState extends ChangeNotifier {
     _hapticEnabled = enabled;
     notifyListeners();
   }
-
   Future<void> setVoiceEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
         'app_settings', {'key': 'voice_enabled', 'value': enabled.toString()},
         conflictAlgorithm: ConflictAlgorithm.replace);
     _voiceEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<List<Map<String, dynamic>>> getProfiles() async {
-    final db = await DatabaseHelper.database;
-    return db.query('event_profiles', orderBy: 'id ASC');
-  }
-
-  Future<void> saveProfile(
-      String name, String sheetsId, String sheetsTab, String eventName) async {
-    final db = await DatabaseHelper.database;
-    await db.insert('event_profiles', {
-      'name': name,
-      'sheets_id': sheetsId,
-      'sheets_tab': sheetsTab,
-      'event_name': eventName,
-    });
-    notifyListeners();
-  }
-
-  Future<void> loadProfile(int profileId) async {
-    final db = await DatabaseHelper.database;
-    final profiles = await db
-        .query('event_profiles', where: 'id = ?', whereArgs: [profileId]);
-    if (profiles.isEmpty) return;
-    final p = profiles.first;
-    await db.insert(
-        'app_settings', {'key': 'sheets_id', 'value': p['sheets_id'] as String},
-        conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.insert('app_settings',
-        {'key': 'sheets_tab', 'value': p['sheets_tab'] as String},
-        conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.insert('app_settings',
-        {'key': 'event_name', 'value': p['event_name'] as String},
-        conflictAlgorithm: ConflictAlgorithm.replace);
-    notifyListeners();
-  }
-
-  Future<void> deleteProfile(int profileId) async {
-    final db = await DatabaseHelper.database;
-    await db.delete('event_profiles', where: 'id = ?', whereArgs: [profileId]);
     notifyListeners();
   }
 
@@ -239,6 +194,9 @@ class AppState extends ChangeNotifier {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Helper class for recent undo
+// -----------------------------------------------------------------------------
 class RecentScan {
   final String participantId;
   final String name;
