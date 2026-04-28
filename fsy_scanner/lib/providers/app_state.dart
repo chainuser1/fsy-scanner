@@ -83,42 +83,52 @@ class AppState extends ChangeNotifier {
     _pendingTaskCount = count;
     notifyListeners();
   }
+
   void setFailedTaskCount(int count) {
     _failedTaskCount = count;
     notifyListeners();
   }
+
   void setParticipantsCount(int count) {
     _participantsCount = count;
     notifyListeners();
   }
+
   void setInitialLoading(bool val) {
     _isInitialLoading = val;
     notifyListeners();
   }
+
   void setIsOnline(bool online) {
     _isOnline = online;
     notifyListeners();
   }
+
   void setSyncError(String? msg) {
     _syncError = msg;
     notifyListeners();
   }
+
   void setPrinterConnected(bool val) {
     _printerConnected = val;
     notifyListeners();
   }
+
   void setPrinterAddress(String? addr) {
     _printerAddress = addr;
     notifyListeners();
   }
+
   void setLastScanResult(String? result) {
     _lastScanResult = result;
     notifyListeners();
   }
+
   void incrementFailedTaskCount() {
     _failedTaskCount++;
     notifyListeners();
   }
+
   void setLastSyncedAt(DateTime time) {
     _lastSyncedAt = time;
     notifyListeners();
@@ -128,6 +138,7 @@ class AppState extends ChangeNotifier {
     _participantsCount = await ParticipantsDao.getRegisteredCount();
     notifyListeners();
   }
+
   Future<int> getRegisteredCount() async {
     try {
       return await ParticipantsDao.getRegisteredCount();
@@ -165,6 +176,7 @@ class AppState extends ChangeNotifier {
     _soundEnabled = enabled;
     notifyListeners();
   }
+
   Future<void> setHapticEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
@@ -173,6 +185,7 @@ class AppState extends ChangeNotifier {
     _hapticEnabled = enabled;
     notifyListeners();
   }
+
   Future<void> setVoiceEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(

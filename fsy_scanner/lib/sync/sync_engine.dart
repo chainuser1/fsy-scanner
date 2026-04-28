@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -133,7 +132,8 @@ class SyncEngine {
       return pushSuccess;
     } on SheetsRateLimitException {
       _increaseBackoff();
-      LoggerUtil.warn('[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
+      LoggerUtil.warn(
+          '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       return false;
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Full sync error: $e', error: e);
@@ -175,7 +175,8 @@ class SyncEngine {
 
   static Future<void> _syncLoop(AppState appState) async {
     final initialConnectivity = await Connectivity().checkConnectivity();
-    appState.setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
+    appState
+        .setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
 
     while (true) {
       if (_isSyncing) {
@@ -184,7 +185,8 @@ class SyncEngine {
       }
 
       final connectivityResult = await Connectivity().checkConnectivity();
-      final isCurrentlyOnline = !connectivityResult.contains(ConnectivityResult.none);
+      final isCurrentlyOnline =
+          !connectivityResult.contains(ConnectivityResult.none);
 
       if (isCurrentlyOnline != appState.isOnline) {
         appState.setIsOnline(isCurrentlyOnline);
@@ -258,8 +260,9 @@ class SyncEngine {
 
   static int _currentIntervalMs() {
     final idleSeconds = DateTime.now().difference(_lastUserActivity).inSeconds;
-    final baseInterval =
-        idleSeconds > _idleThresholdSeconds ? _idleIntervalMs : _activeIntervalMs;
+    final baseInterval = idleSeconds > _idleThresholdSeconds
+        ? _idleIntervalMs
+        : _activeIntervalMs;
     return baseInterval * _rateLimitBackoffMultiplier;
   }
 
@@ -268,14 +271,15 @@ class SyncEngine {
   }
 
   static void _decreaseBackoff() {
-    _rateLimitBackoffMultiplier = (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
+    _rateLimitBackoffMultiplier =
+        (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
   }
 
   static Future<String?> _getSettingValue(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      final result =
-          await db.rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
+      final result = await db
+          .rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
       if (result.isNotEmpty) {
         return result.first['value'] as String?;
       }

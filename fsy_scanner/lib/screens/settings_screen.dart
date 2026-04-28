@@ -6,10 +6,8 @@ import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../app.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
-import '../db/participants_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
@@ -201,8 +199,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final db = await DatabaseHelper.database;
     // Remove current sheet settings so they are re-seeded from .env
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
 
     // Re-seed from .env
     final settingsToSeed = {
@@ -435,8 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Expanded(
                         child: ElevatedButton(
-                          onPressed:
-                              _isScanningPrinters ? null : _scanPrinters,
+                          onPressed: _isScanningPrinters ? null : _scanPrinters,
                           child: Text(_isScanningPrinters
                               ? 'Scanning...'
                               : 'Scan for Printers'),
@@ -444,9 +443,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(width: 16),
                       ElevatedButton(
-                        onPressed: _selectedPrinterAddress != null
-                            ? _testPrint
-                            : null,
+                        onPressed:
+                            _selectedPrinterAddress != null ? _testPrint : null,
                         child: const Text('Test Print'),
                       ),
                     ],
@@ -575,8 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed:
-                              _isSyncing ? null : _startPullOnlySync,
+                          onPressed: _isSyncing ? null : _startPullOnlySync,
                           child: const Text('Pull Data'),
                         ),
                       ),
@@ -599,8 +596,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(
-                      '${appState.participantsCount} participants checked in'),
+                  Text('${appState.participantsCount} participants checked in'),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -630,11 +626,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('App Info',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
-                  Text('Version: 2.0.0',
-                      style: TextStyle(color: Colors.grey)),
+                  Text('Version: 2.0.0', style: TextStyle(color: Colors.grey)),
                 ],
               ),
             ),

@@ -60,8 +60,7 @@ class Pusher {
             anySuccess = true;
             LoggerUtil.debug('[Pusher] Task ${task.id} completed');
           } else {
-            await SyncQueueDao.markFailed(
-                task.id!, 'Failed to update Sheets');
+            await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
             LoggerUtil.warn('[Pusher] Task ${task.id} failed');
 
             final failedTask = await SyncQueueDao.getTask(task.id!);
