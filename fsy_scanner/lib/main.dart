@@ -3,8 +3,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
+import 'db/database_helper.dart'; // <-- added
 import 'providers/app_state.dart';
-import 'screens/onboarding_screen.dart';
 import 'utils/logger.dart';
 
 void main() async {

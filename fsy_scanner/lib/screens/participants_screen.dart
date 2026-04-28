@@ -125,7 +125,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                   );
                 },
                 onSelected: (participant) {
-                  if (!participant.verifiedAt) {
+                  if (participant.verifiedAt == null) {
                     Navigator.push(
                       context,
                       MaterialPageRoute(

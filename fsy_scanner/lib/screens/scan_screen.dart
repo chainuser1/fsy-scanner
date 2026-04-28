@@ -108,7 +108,7 @@ class _ScanScreenState extends State<ScanScreen>
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppState>().loadSoundAndHapticPrefs();
+      context.read<AppState>().loadPreferences();
     });
     _resetPowerSaveTimer();
     _initTts();
@@ -317,8 +317,15 @@ class _ScanScreenState extends State<ScanScreen>
   Widget build(BuildContext context) {
     final appState = Provider.of<AppState>(context);
 
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _onWillPop();
+        if (shouldPop && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
       child: Scaffold(
         appBar: AppBar(
           title: Image.asset('assets/transparent_background_fsy_logo.png',
@@ -378,9 +385,10 @@ class _ScanScreenState extends State<ScanScreen>
                       child: Text(
                         '${appState.pendingTaskCount}',
                         style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
                       ),
                     ),
                   ],
@@ -422,9 +430,10 @@ class _ScanScreenState extends State<ScanScreen>
                     color: Colors.black54,
                     padding:
                         const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-                    child: Text(_syncStatusText,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 12)),
+                    child: Text(
+                      _syncStatusText,
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ),
                 Expanded(
                   child: Stack(
@@ -436,9 +445,7 @@ class _ScanScreenState extends State<ScanScreen>
                             if (_isCooldown || _showResultCard) return;
                             final String? barcode =
                                 capture.barcodes.first.rawValue;
-                            if (barcode == null || barcode.isEmpty) {
-                              return;
-                            }
+                            if (barcode == null || barcode.isEmpty) return;
 
                             _pulseReticle();
                             _isCooldown = true;
@@ -527,9 +534,7 @@ class _ScanScreenState extends State<ScanScreen>
 
                             await Future.delayed(const Duration(seconds: 2));
                             await _hideAnimatedResult();
-                            if (mounted && !_powerSaveMode) {
-                              controller.start();
-                            }
+                            if (mounted && !_powerSaveMode) controller.start();
                             await Future.delayed(
                                 const Duration(milliseconds: 300));
                             _isCooldown = false;
@@ -617,8 +622,7 @@ class _ScanScreenState extends State<ScanScreen>
                             child: Card(
                               elevation: 12,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24),
-                              ),
+                                  borderRadius: BorderRadius.circular(24)),
                               color: _resultSuccess
                                   ? FSYScannerApp.accentGreen.withAlpha(240)
                                   : Colors.red[400]!.withAlpha(240),
@@ -630,21 +634,20 @@ class _ScanScreenState extends State<ScanScreen>
                                   children: [
                                     if (_resultSuccess)
                                       Image.asset(
-                                        'assets/transparent_qr_code_logo_success.png',
-                                        height: 48,
-                                      )
+                                          'assets/transparent_qr_code_logo_success.png',
+                                          height: 48)
                                     else
                                       Image.asset(
-                                        'assets/transparent_qr_code_logo_error.png',
-                                        height: 48,
-                                      ),
+                                          'assets/transparent_qr_code_logo_error.png',
+                                          height: 48),
                                     const SizedBox(height: 12),
                                     Text(
                                       _resultName,
                                       style: const TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white),
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
                                       textAlign: TextAlign.center,
                                     ),
                                     if (_resultSuccess) ...[
@@ -769,9 +772,10 @@ class _ScanScreenState extends State<ScanScreen>
                       tooltip: appState.hapticEnabled
                           ? 'Disable vibration'
                           : 'Enable vibration',
-                      child: Icon(appState.hapticEnabled
-                          ? Icons.vibration
-                          : Icons.vibration_off),
+                      child: Icon(
+                        Icons.vibration,
+                        color: appState.hapticEnabled ? null : Colors.grey,
+                      ),
                     ),
                   ),
                 ],

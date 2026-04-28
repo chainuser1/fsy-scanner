@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
@@ -20,12 +21,11 @@ class AppState extends ChangeNotifier {
 
   bool _soundEnabled = true;
   bool _hapticEnabled = true;
-  bool _voiceEnabled = false; // off by default
+  bool _voiceEnabled = false;
 
-  // Recent scans for undo
   static const int maxRecentScans = 10;
-  final List<_RecentScan> _recentScans = [];
-  List<_RecentScan> get recentScans => List.unmodifiable(_recentScans);
+  final List<RecentScan> _recentScans = [];
+  List<RecentScan> get recentScans => List.unmodifiable(_recentScans);
 
   int get pendingTaskCount => _pendingTaskCount;
   int get failedTaskCount => _failedTaskCount;
@@ -44,7 +44,7 @@ class AppState extends ChangeNotifier {
   void addRecentScan(Participant participant) {
     _recentScans.insert(
         0,
-        _RecentScan(
+        RecentScan(
           participantId: participant.id,
           name: participant.fullName,
           timestamp: DateTime.now().millisecondsSinceEpoch,
@@ -186,7 +186,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Profile management (unchanged)
   Future<List<Map<String, dynamic>>> getProfiles() async {
     final db = await DatabaseHelper.database;
     return db.query('event_profiles', orderBy: 'id ASC');
@@ -240,12 +239,13 @@ class AppState extends ChangeNotifier {
   }
 }
 
-class _RecentScan {
+class RecentScan {
   final String participantId;
   final String name;
   final int timestamp;
-  _RecentScan(
-      {required this.participantId,
-      required this.name,
-      required this.timestamp});
+  RecentScan({
+    required this.participantId,
+    required this.name,
+    required this.timestamp,
+  });
 }

@@ -41,8 +41,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _syncStatusSubscription = SyncEngine.syncStatusStream.listen((data) {
-      if (mounted)
-        setState(() => _isSyncing = data['syncing'] as bool? ?? false);
+      if (mounted) {
+        setState(() {
+          _isSyncing = data['syncing'] as bool? ?? false;
+        });
+      }
     });
     _loadSettings();
   }
@@ -50,14 +53,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final db = await DatabaseHelper.database;
     final settings = await db.query('app_settings');
+
     for (final setting in settings) {
       final key = setting['key'] as String;
       final value = setting['value'] as String?;
-      if (value == null) continue;
-      if (key == 'sheets_id') _sheetIdController.text = value;
-      if (key == 'sheets_tab') _tabNameController.text = value;
-      if (key == 'event_name') _eventNameController.text = value;
-      if (key == 'printer_address') _selectedPrinterAddress = value;
+      if (value == null) {
+        continue;
+      }
+
+      if (key == 'sheets_id') {
+        _sheetIdController.text = value;
+      }
+      if (key == 'sheets_tab') {
+        _tabNameController.text = value;
+      }
+      if (key == 'event_name') {
+        _eventNameController.text = value;
+      }
+      if (key == 'printer_address') {
+        _selectedPrinterAddress = value;
+      }
     }
     setState(() {});
   }
@@ -66,15 +81,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveCurrentAsProfile() async {
     final name = _profileNameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Enter a profile name')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a profile name')),
+      );
       return;
     }
     final appState = context.read<AppState>();
-    await appState.saveProfile(name, _sheetIdController.text,
-        _tabNameController.text, _eventNameController.text);
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Profile "$name" saved')));
+    await appState.saveProfile(
+      name,
+      _sheetIdController.text,
+      _tabNameController.text,
+      _eventNameController.text,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Profile "$name" saved')),
+    );
     _profileNameController.clear();
     setState(() {});
   }
@@ -88,15 +109,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (token != null) {
         final db = await DatabaseHelper.database;
         await SheetsApi.detectColMap(
-            db, token, _sheetIdController.text, _tabNameController.text);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          db,
+          token,
+          _sheetIdController.text,
+          _tabNameController.text,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
             content: Text('Profile loaded and columns detected'),
-            backgroundColor: Colors.green));
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text('Column detection failed: $e'),
-          backgroundColor: Colors.red));
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -104,8 +135,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _checkPrinterStatus() async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db.query('app_settings',
-          where: 'key = ?', whereArgs: ['printer_address']);
+      final result = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['printer_address'],
+      );
       if (result.isEmpty) {
         setState(() => _printerStatus = 'No printer selected');
         return;
@@ -128,10 +162,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final participants = await dao.getAllParticipants();
       final buffer = StringBuffer();
       buffer.writeln(
-          'ID,Name,Stake,Ward,Room,Table,Shirt,Medical,Note,Verified At,Printed At,Device ID');
+        'ID,Name,Stake,Ward,Room,Table,Shirt,Medical,Note,Verified At,Printed At,Device ID',
+      );
       for (final p in participants) {
         buffer.writeln(
-            '${p.id},"${p.fullName}","${p.stake ?? ''}","${p.ward ?? ''}","${p.roomNumber ?? ''}","${p.tableNumber ?? ''}","${p.tshirtSize ?? ''}","${p.medicalInfo ?? ''}","${p.note ?? ''}",${p.verifiedAt ?? ''},${p.printedAt ?? ''},${p.registeredBy ?? ''}');
+          '${p.id},"${p.fullName}","${p.stake ?? ''}","${p.ward ?? ''}","${p.roomNumber ?? ''}","${p.tableNumber ?? ''}","${p.tshirtSize ?? ''}","${p.medicalInfo ?? ''}","${p.note ?? ''}",${p.verifiedAt ?? ''},${p.printedAt ?? ''},${p.registeredBy ?? ''}',
+        );
       }
       final dir = Directory('/storage/emulated/0/Download');
       if (!await dir.exists()) {
@@ -139,26 +175,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       final file = File('${dir.path}/fsy_participants.csv');
       await file.writeAsString(buffer.toString());
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Exported to ${file.path}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported to ${file.path}')),
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Export failed: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   // ─── Validation ────────────────────────────────────────────
   String? _validateSheetId(String? value) {
-    if (value == null || value.isEmpty) return 'Sheet ID cannot be empty';
-    if (value.length < 20) return 'Sheet ID appears to be too short';
-    if (!RegExp(r'^[-_A-Za-z0-9]+$').hasMatch(value))
+    if (value == null || value.isEmpty) {
+      return 'Sheet ID cannot be empty';
+    }
+    if (value.length < 20) {
+      return 'Sheet ID appears to be too short';
+    }
+    if (!RegExp(r'^[-_A-Za-z0-9]+$').hasMatch(value)) {
       return 'Invalid Sheet ID format';
+    }
     return null;
   }
 
   String? _validateTabName(String? value) {
-    if (value == null || value.isEmpty) return 'Tab name cannot be empty';
-    if (value.length > 100) return 'Tab name is too long';
+    if (value == null || value.isEmpty) {
+      return 'Tab name cannot be empty';
+    }
+    if (value.length > 100) {
+      return 'Tab name is too long';
+    }
     if (value.contains('/') ||
         value.contains(r'\') ||
         value.contains('*') ||
@@ -170,8 +220,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String? _validateEventName(String? value) {
-    if (value == null || value.isEmpty) return 'Event name cannot be empty';
-    if (value.length > 100) return 'Event name is too long';
+    if (value == null || value.isEmpty) {
+      return 'Event name cannot be empty';
+    }
+    if (value.length > 100) {
+      return 'Event name is too long';
+    }
     return null;
   }
 
@@ -181,54 +235,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final eventNameError = _validateEventName(_eventNameController.text);
 
     if (sheetIdError != null) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(sheetIdError), backgroundColor: Colors.red));
+          SnackBar(content: Text(sheetIdError), backgroundColor: Colors.red),
+        );
+      }
       return;
     }
     if (tabNameError != null) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(tabNameError), backgroundColor: Colors.red));
+          SnackBar(content: Text(tabNameError), backgroundColor: Colors.red),
+        );
+      }
       return;
     }
     if (eventNameError != null) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(eventNameError), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(eventNameError), backgroundColor: Colors.red),
+        );
+      }
       return;
     }
 
     final db = await DatabaseHelper.database;
     await db.insert(
-        'app_settings', {'key': 'sheets_id', 'value': _sheetIdController.text},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+      'app_settings',
+      {'key': 'sheets_id', 'value': _sheetIdController.text},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     await db.insert(
-        'app_settings', {'key': 'sheets_tab', 'value': _tabNameController.text},
-        conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.insert('app_settings',
-        {'key': 'event_name', 'value': _eventNameController.text},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+      'app_settings',
+      {'key': 'sheets_tab', 'value': _tabNameController.text},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': 'event_name', 'value': _eventNameController.text},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
 
-    if (mounted)
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Settings saved'), backgroundColor: Colors.green));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Settings saved'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
 
     try {
       final token = await GoogleAuth.getValidToken();
       if (token != null) {
         await SheetsApi.detectColMap(
-            db, token, _sheetIdController.text, _tabNameController.text);
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          db,
+          token,
+          _sheetIdController.text,
+          _tabNameController.text,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text('Columns detected successfully'),
-              backgroundColor: Colors.green));
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Column detection failed: $e'),
-            backgroundColor: Colors.red));
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -248,8 +331,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final entry in settingsToSeed.entries) {
       if (entry.value != null) {
         await db.insert(
-            'app_settings', {'key': entry.key, 'value': entry.value},
-            conflictAlgorithm: ConflictAlgorithm.ignore);
+          'app_settings',
+          {'key': entry.key, 'value': entry.value},
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
       }
     }
 
@@ -259,17 +344,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final token = await GoogleAuth.getValidToken();
       if (token != null && mounted) {
         await SheetsApi.detectColMap(
-            db, token, _sheetIdController.text, _tabNameController.text);
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          db,
+          token,
+          _sheetIdController.text,
+          _tabNameController.text,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text('Defaults restored and columns detected'),
-              backgroundColor: Colors.green));
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Restored defaults but column detection failed: $e'),
-            backgroundColor: Colors.red));
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -285,25 +382,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _selectPrinter(Printer printer) async {
     final db = await DatabaseHelper.database;
     await db.insert(
-        'app_settings', {'key': 'printer_address', 'value': printer.address},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+      'app_settings',
+      {'key': 'printer_address', 'value': printer.address},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     setState(() => _selectedPrinterAddress = printer.address);
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Printer ${printer.name} selected')));
+        SnackBar(content: Text('Printer ${printer.name} selected')),
+      );
+    }
   }
 
   Future<void> _testPrint() async {
     final deviceId = await DeviceId.get();
-    final mockParticipant =
-        Participant(id: 'TEST-001', fullName: 'Test Participant', sheetsRow: 0);
+    final mockParticipant = Participant(
+      id: 'TEST-001',
+      fullName: 'Test Participant',
+      sheetsRow: 0,
+    );
     final success =
         await PrinterService.printReceipt(mockParticipant, deviceId);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(success ? 'Test print sent' : 'Test print failed'),
-            backgroundColor: success ? Colors.green : Colors.red),
+          content: Text(success ? 'Test print sent' : 'Test print failed'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
       );
     }
   }
@@ -312,13 +417,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final count = PrinterService.failedJobCount;
     if (count == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No failed prints to retry')));
+        const SnackBar(content: Text('No failed prints to retry')),
+      );
       return;
     }
     final success = await PrinterService.retryFailedPrints();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Retried $count jobs, $success succeeded')));
+        SnackBar(content: Text('Retried $count jobs, $success succeeded')),
+      );
     }
   }
 
@@ -336,9 +443,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await _showConfirmationDialog(context);
     if (confirmed == true && mounted) {
       await appState.clearAllData();
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('All data cleared')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All data cleared')),
+        );
+      }
     }
   }
 
@@ -348,14 +457,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context) => AlertDialog(
             title: const Text('Confirm'),
             content: const Text(
-                'Are you sure you want to clear all participant data? This cannot be undone.'),
+              'Are you sure you want to clear all participant data? This cannot be undone.',
+            ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel')),
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
               TextButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Yes, Clear All')),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Yes, Clear All'),
+              ),
             ],
           ),
         ) ??
@@ -396,8 +508,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   FutureBuilder<List<Map<String, dynamic>>>(
                     future: profilesFuture,
                     builder: (context, snapshot) {
-                      if (!snapshot.hasData)
+                      if (!snapshot.hasData) {
                         return const CircularProgressIndicator();
+                      }
                       final profiles = snapshot.data!;
                       return Column(
                         children: [
@@ -409,30 +522,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                      icon: const Icon(Icons.check,
-                                          color: Colors.green),
-                                      tooltip: 'Load',
-                                      onPressed: () =>
-                                          _loadProfile(p['id'] as int)),
+                                    icon: const Icon(Icons.check,
+                                        color: Colors.green),
+                                    tooltip: 'Load',
+                                    onPressed: () =>
+                                        _loadProfile(p['id'] as int),
+                                  ),
                                   IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red),
-                                      onPressed: () => appState
-                                          .deleteProfile(p['id'] as int)),
+                                    icon: const Icon(Icons.delete,
+                                        color: Colors.red),
+                                    onPressed: () =>
+                                        appState.deleteProfile(p['id'] as int),
+                                  ),
                                 ],
                               ),
                             ),
                           const SizedBox(height: 8),
                           TextField(
-                              controller: _profileNameController,
-                              decoration: const InputDecoration(
-                                  labelText: 'Profile name',
-                                  border: OutlineInputBorder())),
+                            controller: _profileNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Profile name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
                           const SizedBox(height: 8),
                           ElevatedButton.icon(
-                              onPressed: _saveCurrentAsProfile,
-                              icon: const Icon(Icons.save),
-                              label: const Text('Save Current as Profile')),
+                            onPressed: _saveCurrentAsProfile,
+                            icon: const Icon(Icons.save),
+                            label: const Text('Save Current as Profile'),
+                          ),
                         ],
                       );
                     },
@@ -455,37 +573,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   TextField(
-                      controller: _sheetIdController,
-                      decoration: const InputDecoration(
-                          labelText: 'Google Sheet ID',
-                          hintText: 'Enter your Google Sheet ID',
-                          border: OutlineInputBorder())),
+                    controller: _sheetIdController,
+                    decoration: const InputDecoration(
+                      labelText: 'Google Sheet ID',
+                      hintText: 'Enter your Google Sheet ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   TextField(
-                      controller: _tabNameController,
-                      decoration: const InputDecoration(
-                          labelText: 'Tab Name',
-                          hintText: 'Enter the tab name',
-                          border: OutlineInputBorder())),
+                    controller: _tabNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Tab Name',
+                      hintText: 'Enter the tab name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   TextField(
-                      controller: _eventNameController,
-                      decoration: const InputDecoration(
-                          labelText: 'Event Name',
-                          hintText: 'Enter the event name',
-                          border: OutlineInputBorder())),
+                    controller: _eventNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Event Name',
+                      hintText: 'Enter the event name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
-                          child: ElevatedButton(
-                              onPressed: _saveSheetSettings,
-                              child: const Text('Save & Detect Columns'))),
+                        child: ElevatedButton(
+                          onPressed: _saveSheetSettings,
+                          child: const Text('Save & Detect Columns'),
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
-                          onPressed: _resetToDefaults,
-                          icon: const Icon(Icons.restore),
-                          label: const Text('Reset to default')),
+                        onPressed: _resetToDefaults,
+                        icon: const Icon(Icons.restore),
+                        label: const Text('Reset to default'),
+                      ),
                     ],
                   ),
                 ],
@@ -508,18 +635,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Row(
                     children: [
                       Expanded(
-                          child: ElevatedButton(
-                              onPressed:
-                                  _isScanningPrinters ? null : _scanPrinters,
-                              child: Text(_isScanningPrinters
-                                  ? 'Scanning...'
-                                  : 'Scan for Printers'))),
+                        child: ElevatedButton(
+                          onPressed: _isScanningPrinters ? null : _scanPrinters,
+                          child: Text(_isScanningPrinters
+                              ? 'Scanning...'
+                              : 'Scan for Printers'),
+                        ),
+                      ),
                       const SizedBox(width: 16),
                       ElevatedButton(
-                          onPressed: _selectedPrinterAddress != null
-                              ? _testPrint
-                              : null,
-                          child: const Text('Test Print')),
+                        onPressed:
+                            _selectedPrinterAddress != null ? _testPrint : null,
+                        child: const Text('Test Print'),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -547,8 +675,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text('Status: $_printerStatus'),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                      onPressed: _checkPrinterStatus,
-                      child: const Text('Check Printer Status')),
+                    onPressed: _checkPrinterStatus,
+                    child: const Text('Check Printer Status'),
+                  ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: _retryFailedPrints,
@@ -574,9 +703,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
-                      onPressed: _exportCSV,
-                      icon: const Icon(Icons.download),
-                      label: const Text('Export Participants CSV')),
+                    onPressed: _exportCSV,
+                    icon: const Icon(Icons.download),
+                    label: const Text('Export Participants CSV'),
+                  ),
                 ],
               ),
             ),
@@ -656,7 +786,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Consumer<AppState>(
                     builder: (context, state, _) {
                       final last = state.lastSyncedAt;
-                      if (last == null) return const Text('Never synced');
+                      if (last == null) {
+                        return const Text('Never synced');
+                      }
                       final secondsAgo =
                           DateTime.now().difference(last).inSeconds;
                       final display = secondsAgo < 60
@@ -672,14 +804,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Row(
                     children: [
                       Expanded(
-                          child: ElevatedButton(
-                              onPressed: _isSyncing ? null : _startFullSync,
-                              child: const Text('Full Sync'))),
+                        child: ElevatedButton(
+                          onPressed: _isSyncing ? null : _startFullSync,
+                          child: const Text('Full Sync'),
+                        ),
+                      ),
                       const SizedBox(width: 16),
                       Expanded(
-                          child: ElevatedButton(
-                              onPressed: _isSyncing ? null : _startPullOnlySync,
-                              child: const Text('Pull Data'))),
+                        child: ElevatedButton(
+                          onPressed: _isSyncing ? null : _startPullOnlySync,
+                          child: const Text('Pull Data'),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -707,8 +843,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: ElevatedButton(
                           onPressed: () => _clearAllData(context, appState),
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white),
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
                           child: const Text('Clear All Data'),
                         ),
                       ),
@@ -731,7 +868,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
-                  Text('Version: 2.0.0', style: TextStyle(color: Colors.grey)),
+                  Text('Version: 2.0.0',
+                      style: TextStyle(color: Colors.grey)),
                 ],
               ),
             ),
