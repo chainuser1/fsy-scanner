@@ -46,8 +46,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _playSound(String assetPath) async {
     final db = await DatabaseHelper.database;
-    final result = await db.query('app_settings',
-        where: 'key = ?', whereArgs: ['sound_enabled']);
+    final result = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
     final enabled = result.isEmpty || result.first['value'] != 'false';
     if (enabled) {
       await _audioPlayer.play(AssetSource(assetPath));
@@ -93,8 +93,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     ),
                   )
@@ -151,8 +150,8 @@ class _ScanScreenState extends State<ScanScreen> {
                   Icon(Icons.cloud_off, size: 18),
                   SizedBox(width: 8),
                   Text('OFFLINE',
-                      style: TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
@@ -222,8 +221,8 @@ class _ScanScreenState extends State<ScanScreen> {
                         if (!success && mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content:
-                                  Text('Print failed – check printer connection'),
+                              content: Text(
+                                  'Print failed – check printer connection'),
                               backgroundColor: Colors.orange,
                             ),
                           );
@@ -234,8 +233,8 @@ class _ScanScreenState extends State<ScanScreen> {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(
-                                '✓ ${participant.fullName} checked in'),
+                            content:
+                                Text('✓ ${participant.fullName} checked in'),
                             backgroundColor: FSYScannerApp.accentGreen,
                             duration: const Duration(seconds: 1),
                           ),
@@ -288,8 +287,7 @@ class _ScanScreenState extends State<ScanScreen> {
                                     textAlign: TextAlign.center),
                                 const SizedBox(height: 16),
                                 ElevatedButton(
-                                  onPressed: () =>
-                                      appState.setSyncError(null),
+                                  onPressed: () => appState.setSyncError(null),
                                   child: const Text('Retry'),
                                 ),
                               ],

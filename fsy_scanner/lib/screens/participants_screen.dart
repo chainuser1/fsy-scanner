@@ -58,8 +58,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         _filteredParticipants = _allParticipants;
       } else {
         _filteredParticipants = _allParticipants
-            .where((p) =>
-                p.fullName.toLowerCase().contains(query.toLowerCase()))
+            .where(
+                (p) => p.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList();
       }
     });
@@ -152,8 +152,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                               await Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => ConfirmScreen(
-                                      participant: participant),
+                                  builder: (context) =>
+                                      ConfirmScreen(participant: participant),
                                 ),
                               );
                               _loadParticipants();

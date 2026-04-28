@@ -31,7 +31,6 @@ class FSYScannerApp extends StatelessWidget {
           primary: primaryBlue,
           secondary: accentGreen,
           tertiary: accentGold,
-          brightness: Brightness.light,
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: primaryBlue,

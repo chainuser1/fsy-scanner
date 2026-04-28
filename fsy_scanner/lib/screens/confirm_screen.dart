@@ -218,9 +218,9 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:
-              Text('Registration confirmed', style: TextStyle(color: Colors.white)),
+        const SnackBar(
+          content: Text('Registration confirmed',
+              style: TextStyle(color: Colors.white)),
           backgroundColor: FSYScannerApp.accentGreen,
         ),
       );

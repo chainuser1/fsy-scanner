@@ -81,7 +81,8 @@ class ParticipantsDao {
     return Participant.fromDbRow(results.first);
   }
 
-  Future<void> markVerifiedLocally(String id, String deviceId, int verifiedAt) async {
+  Future<void> markVerifiedLocally(
+      String id, String deviceId, int verifiedAt) async {
     await _db.update(
       'participants',
       {
@@ -112,7 +113,7 @@ class ParticipantsDao {
       orderBy: 'full_name ASC',
     );
 
-    return results.map((row) => Participant.fromDbRow(row)).toList();
+    return results.map(Participant.fromDbRow).toList();
   }
 
   Future<List<Participant>> searchParticipants(String query) async {
@@ -123,7 +124,7 @@ class ParticipantsDao {
       limit: 50,
     );
 
-    return results.map((row) => Participant.fromDbRow(row)).toList();
+    return results.map(Participant.fromDbRow).toList();
   }
 
   static Future<int> getRegisteredCount() async {

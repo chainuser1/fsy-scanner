@@ -64,8 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<bool> _getSoundEnabled() async {
     final db = await DatabaseHelper.database;
-    final result = await db.query('app_settings',
-        where: 'key = ?', whereArgs: ['sound_enabled']);
+    final result = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
     if (result.isEmpty) return true;
     return result.first['value'] != 'false';
   }
@@ -172,8 +172,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _resetToDefaults() async {
     final db = await DatabaseHelper.database;
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
 
     final settingsToSeed = {
       'sheets_id': dotenv.env['SHEETS_ID'],
@@ -322,7 +324,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sheet Configuration',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _sheetIdController,
@@ -379,7 +382,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Printer Settings',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -435,7 +439,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Device Info',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   FutureBuilder<String>(
                     future: DeviceId.get(),
@@ -459,14 +464,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Notification Sounds',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   FutureBuilder<bool>(
                     future: _getSoundEnabled(),
                     builder: (context, snapshot) {
                       final enabled = snapshot.data ?? true;
                       return Switch(
                         value: enabled,
-                        onChanged: (value) => _setSoundEnabled(value),
+                        onChanged: _setSoundEnabled,
                       );
                     },
                   ),
@@ -482,7 +488,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sync Status',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text(_isSyncing ? 'Syncing...' : 'Ready'),
                   const SizedBox(height: 4),
@@ -490,7 +497,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context, state, _) {
                       final last = state.lastSyncedAt;
                       if (last == null) return const Text('Never synced');
-                      final secondsAgo = DateTime.now().difference(last).inSeconds;
+                      final secondsAgo =
+                          DateTime.now().difference(last).inSeconds;
                       final display = secondsAgo < 60
                           ? 'just now'
                           : secondsAgo < 120
@@ -530,7 +538,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Registration Data',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text('${appState.participantsCount} participants checked in'),
                   const SizedBox(height: 16),
@@ -553,17 +562,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Card(
+          const Card(
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('App Info',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
+                  Text('App Info',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8),
                   Text('Version: ${FSYScannerApp.appVersion}',
-                      style: const TextStyle(color: Colors.grey)),
+                      style: TextStyle(color: Colors.grey)),
                 ],
               ),
             ),
