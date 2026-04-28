@@ -35,7 +35,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Participant card
               Card(
                 elevation: 4,
                 child: Padding(
@@ -51,17 +50,20 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _buildInfoRow('Stake:', widget.participant.stake ?? '(not assigned)'),
-                      _buildInfoRow('Ward:', widget.participant.ward ?? '(not assigned)'),
-                      _buildInfoRow('Room:', widget.participant.roomNumber ?? '(not assigned)'),
-                      _buildInfoRow('Table:', widget.participant.tableNumber ?? '(not assigned)'),
-                      _buildInfoRow('Shirt:', widget.participant.tshirtSize ?? '(not assigned)'),
+                      _buildInfoRow('Stake:',
+                          widget.participant.stake ?? '(not assigned)'),
+                      _buildInfoRow(
+                          'Ward:', widget.participant.ward ?? '(not assigned)'),
+                      _buildInfoRow('Room:',
+                          widget.participant.roomNumber ?? '(not assigned)'),
+                      _buildInfoRow('Table:',
+                          widget.participant.tableNumber ?? '(not assigned)'),
+                      _buildInfoRow('Shirt:',
+                          widget.participant.tshirtSize ?? '(not assigned)'),
                     ],
                   ),
                 ),
               ),
-
-              // Medical info warning if not empty
               if (widget.participant.medicalInfo != null &&
                   widget.participant.medicalInfo!.isNotEmpty)
                 Card(
@@ -88,8 +90,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                     ),
                   ),
                 ),
-
-              // Note if not empty
               if (widget.participant.note != null &&
                   widget.participant.note!.isNotEmpty)
                 Card(
@@ -114,10 +114,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                     ),
                   ),
                 ),
-
               const SizedBox(height: 32),
-
-              // Buttons
               Row(
                 children: [
                   Expanded(
@@ -179,22 +176,18 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   Future<void> _confirmCheckIn(BuildContext context) async {
     if (!mounted) return;
 
-    // Get app state
     final appState = Provider.of<AppState>(context, listen: false);
-
-    // Mark participant as registered locally
     final db = await DatabaseHelper.database;
     final dao = ParticipantsDao(db);
     final deviceId = await DeviceId.get();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    await dao.markRegisteredLocally(
+    await dao.markVerifiedLocally(
       widget.participant.id,
       deviceId,
       now,
     );
 
-    // Enqueue sync task with CORRECT payload format (plan Section 3.2)
     await SyncQueueDao.enqueueTask(
       SyncQueueDao.typeMarkRegistered,
       {
@@ -205,17 +198,14 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       },
     );
 
-    // Print receipt (fire and forget — do NOT await)
     unawaited(PrinterService.printReceipt(widget.participant, deviceId));
 
-    // Update app state
     appState.setLastScanResult('success');
 
     if (mounted) {
       Navigator.pop(context);
     }
 
-    // Wait a frame then show snackbar
     await Future<void>.delayed(Duration.zero);
 
     if (mounted) {

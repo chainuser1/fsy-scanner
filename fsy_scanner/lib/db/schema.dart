@@ -5,7 +5,6 @@ const String participantsDDL = '''
     stake TEXT, ward TEXT, gender TEXT,
     room_number TEXT, table_number TEXT,
     tshirt_size TEXT, medical_info TEXT, note TEXT, status TEXT,
-    registered INTEGER DEFAULT 0,
     verified_at INTEGER, printed_at INTEGER,
     registered_by TEXT, sheets_row INTEGER NOT NULL,
     raw_json TEXT, updated_at INTEGER

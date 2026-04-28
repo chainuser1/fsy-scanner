@@ -24,13 +24,14 @@ class GoogleAuth {
     final rawKey = dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'];
 
     if (email == null || rawKey == null) {
-      LoggerUtil.error('[GoogleAuth] Missing service account credentials in .env');
+      LoggerUtil.error(
+          '[GoogleAuth] Missing service account credentials in .env');
       return null;
     }
 
     try {
       LoggerUtil.debug('[GoogleAuth] Creating JWT for $email');
-      
+
       // Replace literal \n with real newlines in private key
       final privateKeyPem = rawKey.replaceAll(r'\n', '\n');
 
@@ -62,7 +63,8 @@ class GoogleAuth {
       );
 
       if (response.statusCode != 200) {
-        LoggerUtil.error('[GoogleAuth] Token exchange failed: ${response.statusCode}');
+        LoggerUtil.error(
+            '[GoogleAuth] Token exchange failed: ${response.statusCode}');
         debugPrint('[GoogleAuth] Response: ${response.body}');
         return null;
       }
@@ -79,11 +81,12 @@ class GoogleAuth {
       // Cache token with 60-second early expiry
       _cachedToken = accessToken;
       _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60));
-      
+
       LoggerUtil.info('[GoogleAuth] Successfully obtained access token');
       return accessToken;
     } catch (e) {
-      LoggerUtil.error('[GoogleAuth] Error obtaining access token: $e', error: e);
+      LoggerUtil.error('[GoogleAuth] Error obtaining access token: $e',
+          error: e);
       _cachedToken = null;
       _tokenExpiry = null;
       return null;

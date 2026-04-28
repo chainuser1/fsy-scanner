@@ -31,7 +31,8 @@ class PrinterService {
   /// Print receipt for a participant. Fire-and-forget — never awaited by UI.
   /// On success: records printed_at in SQLite, enqueues mark_printed task.
   /// On failure: returns false, does NOT block registration flow.
-  static Future<bool> printReceipt(Participant participant, String deviceId) async {
+  static Future<bool> printReceipt(
+      Participant participant, String deviceId) async {
     try {
       debugPrint('[PrinterService] Starting print for ${participant.fullName}');
 
@@ -79,7 +80,8 @@ class PrinterService {
       }
 
       // Build receipt text and print
-      final receiptText = ReceiptBuilder.build(participant, eventName, deviceId);
+      final receiptText =
+          ReceiptBuilder.build(participant, eventName, deviceId);
       final bytes = utf8.encode(receiptText);
       await _printerPlugin.printData(targetPrinter, bytes);
       await _printerPlugin.disconnect(targetPrinter);
@@ -97,7 +99,8 @@ class PrinterService {
   }
 
   /// Handle post-print success operations asynchronously
-  static Future<void> _onPrintSuccess(Participant participant, int printedAt) async {
+  static Future<void> _onPrintSuccess(
+      Participant participant, int printedAt) async {
     try {
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);

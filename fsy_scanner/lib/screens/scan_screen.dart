@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -7,8 +9,9 @@ import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
 import '../print/printer_service.dart';
-import '../utils/device_id.dart';
 import '../providers/app_state.dart';
+import '../sync/sync_engine.dart';
+import '../utils/device_id.dart';
 import 'participants_screen.dart';
 import 'settings_screen.dart';
 
@@ -23,6 +26,27 @@ class _ScanScreenState extends State<ScanScreen> {
   MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  StreamSubscription<bool>? _syncSub;
+  bool _isSyncingNow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSub = SyncEngine.syncStatusStream.listen((syncing) {
+      if (mounted) setState(() => _isSyncingNow = syncing);
+    });
+  }
+
+  Future<void> _playSound(String url) async {
+    final db = await DatabaseHelper.database;
+    final result = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
+    final enabled = result.isEmpty || result.first['value'] != 'false';
+    if (enabled) {
+      await _audioPlayer.play(UrlSource(url));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +54,10 @@ class _ScanScreenState extends State<ScanScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('FSY Scanner'),
+        title: Image.asset(
+          'assets/transparent_background_fsy_logo.png',
+          height: 40,
+        ),
         backgroundColor: Colors.blue[600],
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -45,60 +72,86 @@ class _ScanScreenState extends State<ScanScreen> {
             icon: const Icon(Icons.people),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const ParticipantsScreen()),
+              MaterialPageRoute(
+                  builder: (context) => const ParticipantsScreen()),
             ),
           ),
-          // Pending sync task count badge
-          GestureDetector(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${appState.pendingTaskCount} tasks pending sync')),
-              );
-            },
-            child: Container(
-              margin: const EdgeInsets.only(right: 16),
-              child: CircleAvatar(
-                radius: 15,
-                backgroundColor: appState.syncError != null
-                    ? Colors.red[300]
-                    : Colors.orange[300],
-                child: Text(
-                  '${appState.pendingTaskCount}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
+          // Dynamic sync status indicator
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_isSyncingNow)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 4.0),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                  )
+                else
+                  const Icon(Icons.cloud_done, color: Colors.white70, size: 18),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          _isSyncingNow
+                              ? 'Sync in progress… ${appState.pendingTaskCount} pending'
+                              : '${appState.pendingTaskCount} tasks pending sync',
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isSyncingNow
+                          ? Colors.blue[300]
+                          : appState.syncError != null
+                              ? Colors.red[300]
+                              : Colors.orange[300],
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    child: Text(
+                      '${appState.pendingTaskCount}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
       ),
       body: Column(
         children: [
-          // Offline banner
           if (!appState.isOnline)
             Container(
               width: double.infinity,
               color: Colors.red[300],
               padding: const EdgeInsets.all(8.0),
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+                children: [
                   Icon(Icons.cloud_off, size: 18),
                   SizedBox(width: 8),
-                  Text(
-                    'OFFLINE',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text('OFFLINE',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
-          // Scanner content
           Expanded(
             child: Stack(
               children: [
@@ -106,87 +159,88 @@ class _ScanScreenState extends State<ScanScreen> {
                   controller: controller,
                   onDetect: (capture) async {
                     final String? barcode = capture.barcodes.first.rawValue;
+                    if (barcode == null || barcode.isEmpty) return;
 
-                    if (barcode != null && barcode.isNotEmpty) {
-                      // Pause scanning for 2 seconds
-                      controller.stop();
+                    controller.stop();
 
-                      // Look up participant in SQLite
-                      final db = await DatabaseHelper.database;
-                      final dao = ParticipantsDao(db);
-                      final participant = await dao.getParticipantById(barcode);
+                    final db = await DatabaseHelper.database;
+                    final dao = ParticipantsDao(db);
+                    final participant = await dao.getParticipantById(barcode);
 
-                      if (participant == null) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Participant not found'),
-                              backgroundColor: Colors.red,
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                          
-                          await Future.delayed(const Duration(seconds: 2));
-                          if (mounted) {
-                            controller.start();
-                          }
-                        }
-                      } else if (participant.registered == 1) {
-                        if (mounted) {
-                          String timeStr = '';
-                          if (participant.verifiedAt != null) {
-                            final dt = DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!);
-                            timeStr = '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-                          }
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Already checked in — ${participant.fullName} at $timeStr'),
-                              backgroundColor: Colors.orange,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                          
-                          await Future.delayed(const Duration(seconds: 2));
-                          if (mounted) {
-                            controller.start();
-                          }
-                        }
-                      } else {
-                        // Auto-check-in and print (fast path)
-                        final deviceId = await DeviceId.get();
-                        final now = DateTime.now().millisecondsSinceEpoch;
-
-                        // Mark locally as registered
-                        await dao.markRegisteredLocally(participant.id, deviceId, now);
-
-                        // Enqueue mark_registered task
-                        await SyncQueueDao.enqueueTask(SyncQueueDao.typeMarkRegistered, {
-                          'participantId': participant.id,
-                          'sheetsRow': participant.sheetsRow,
-                          'verifiedAt': now,
-                          'registeredBy': deviceId,
-                        });
-
-                        // Fire-and-forget print
-                        unawaited(PrinterService.printReceipt(participant, deviceId));
-
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('✓ ${participant.fullName} checked in'),
-                              backgroundColor: Colors.green,
-                              duration: const Duration(seconds: 1),
-                            ),
-                          );
-                        }
-
-                        await Future.delayed(const Duration(milliseconds: 800));
+                    if (participant == null) {
+                      _playSound(
+                          'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Participant not found'),
+                            backgroundColor: Colors.red,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                        await Future.delayed(const Duration(seconds: 2));
                         if (mounted) controller.start();
                       }
+                    } else if (participant.verifiedAt != null) {
+                      _playSound(
+                          'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
+                      if (mounted) {
+                        String timeStr = '';
+                        if (participant.verifiedAt != null) {
+                          final dt = DateTime.fromMillisecondsSinceEpoch(
+                              participant.verifiedAt!);
+                          timeStr =
+                              '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Already checked in — ${participant.fullName} at $timeStr'),
+                            backgroundColor: Colors.orange,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                        await Future.delayed(const Duration(seconds: 2));
+                        if (mounted) controller.start();
+                      }
+                    } else {
+                      // New check‑in
+                      final deviceId = await DeviceId.get();
+                      final now = DateTime.now().millisecondsSinceEpoch;
+
+                      await dao.markVerifiedLocally(
+                          participant.id, deviceId, now);
+                      SyncEngine.notifyUserActivity();
+
+                      await SyncQueueDao.enqueueTask(
+                          SyncQueueDao.typeMarkRegistered, {
+                        'participantId': participant.id,
+                        'sheetsRow': participant.sheetsRow,
+                        'verifiedAt': now,
+                        'registeredBy': deviceId,
+                      });
+
+                      unawaited(
+                          PrinterService.printReceipt(participant, deviceId));
+
+                      _playSound(
+                          'https://assets.mixkit.co/active_storage/sfx/2039/2039-preview.mp3');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content:
+                                Text('✓ ${participant.fullName} checked in'),
+                            backgroundColor: Colors.green,
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      }
+
+                      await Future.delayed(const Duration(milliseconds: 800));
+                      if (mounted) controller.start();
                     }
                   },
                 ),
-                // Centered scanning reticle
                 Center(
                   child: Container(
                     width: 260,
@@ -197,7 +251,6 @@ class _ScanScreenState extends State<ScanScreen> {
                     ),
                   ),
                 ),
-                // First-run loading overlay
                 if (appState.isInitialLoading)
                   Container(
                     color: Colors.black.withAlpha(204),
@@ -209,26 +262,26 @@ class _ScanScreenState extends State<ScanScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
-                                'Setting up for the first time...',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              Image.asset(
+                                'assets/fsy_logo.png',
+                                height: 80,
                               ),
+                              const Text('Setting up for the first time...',
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold)),
                               const SizedBox(height: 16),
                               const Text('Downloading participant list'),
                               const SizedBox(height: 24),
                               const CircularProgressIndicator(),
                               if (appState.syncError != null) ...[
                                 const SizedBox(height: 24),
-                                Text(
-                                  'Error: ${appState.syncError}',
-                                  style: const TextStyle(color: Colors.red),
-                                  textAlign: TextAlign.center,
-                                ),
+                                Text('Error: ${appState.syncError}',
+                                    style: const TextStyle(color: Colors.red),
+                                    textAlign: TextAlign.center),
                                 const SizedBox(height: 16),
                                 ElevatedButton(
-                                  onPressed: () {
-                                    appState.setSyncError(null);
-                                  },
+                                  onPressed: () => appState.setSyncError(null),
                                   child: const Text('Retry'),
                                 ),
                               ],
@@ -248,6 +301,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   @override
   void dispose() {
+    _syncSub?.cancel();
+    _audioPlayer.dispose();
     controller.dispose();
     super.dispose();
   }

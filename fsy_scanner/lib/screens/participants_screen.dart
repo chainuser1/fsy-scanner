@@ -57,7 +57,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         _filteredParticipants = _allParticipants;
       } else {
         _filteredParticipants = _allParticipants
-            .where((p) => p.fullName.toLowerCase().contains(query.toLowerCase()))
+            .where(
+                (p) => p.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList();
       }
     });
@@ -65,7 +66,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final registeredCount = _allParticipants.where((p) => p.registered == 1).length;
+    final verifiedCount =
+        _allParticipants.where((p) => p.verifiedAt != null).length;
 
     return Scaffold(
       appBar: AppBar(
@@ -75,7 +77,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       ),
       body: Column(
         children: [
-          // Search bar
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(
@@ -88,22 +89,17 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               onChanged: _filterParticipants,
             ),
           ),
-
-          // Counts
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
                 Text('Total: ${_allParticipants.length}'),
                 const SizedBox(width: 16),
-                Text('Registered: $registeredCount'),
+                Text('Checked in: $verifiedCount'),
               ],
             ),
           ),
-
           const SizedBox(height: 16),
-
-          // Participants list
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -111,6 +107,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                     itemCount: _filteredParticipants.length,
                     itemBuilder: (context, index) {
                       final participant = _filteredParticipants[index];
+                      final isVerified = participant.verifiedAt != null;
                       return Card(
                         child: ListTile(
                           title: Text(participant.fullName),
@@ -122,37 +119,50 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (participant.registered == 1)
+                              if (isVerified)
                                 IconButton(
-                                  icon: const Icon(Icons.print, color: Colors.blue),
+                                  icon: const Icon(Icons.print,
+                                      color: Colors.blue),
                                   tooltip: 'Reprint receipt',
                                   onPressed: () async {
                                     final deviceId = await DeviceId.get();
-                                    unawaited(PrinterService.printReceipt(participant, deviceId));
+                                    unawaited(PrinterService.printReceipt(
+                                        participant, deviceId));
                                     if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Printing receipt for ${participant.fullName}')),
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                            content: Text(
+                                                'Printing receipt for ${participant.fullName}')),
                                       );
                                     }
                                   },
                                 ),
-                              participant.registered == 1
-                                  ? Icon(Icons.check_circle, color: Colors.green[600])
-                                  : Icon(Icons.circle_outlined, color: Colors.grey[400]),
+                              Icon(
+                                isVerified
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                color: isVerified
+                                    ? Colors.green[600]
+                                    : Colors.grey[400],
+                              ),
                             ],
                           ),
                           onTap: () async {
-                            if (participant.registered == 0) {
+                            if (!isVerified) {
                               await Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => ConfirmScreen(participant: participant),
+                                  builder: (context) =>
+                                      ConfirmScreen(participant: participant),
                                 ),
                               );
                               _loadParticipants();
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('${participant.fullName} is already registered')),
+                                SnackBar(
+                                    content: Text(
+                                        '${participant.fullName} is already checked in')),
                               );
                             }
                           },

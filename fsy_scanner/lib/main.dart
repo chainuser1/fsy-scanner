@@ -8,13 +8,13 @@ import 'utils/logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize logging system
   LoggerUtil.init();
-  
+
   // Load environment variables
   await dotenv.load(fileName: 'assets/.env');
-  
+
   // Create single AppState instance
   final appState = AppState();
 

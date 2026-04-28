@@ -10,7 +10,6 @@ class Participant {
   final String? medicalInfo;
   final String? note;
   final String? status;
-  final int registered; // 0 = not checked in, 1 = checked in
   final int? verifiedAt;
   final int? printedAt;
   final String? registeredBy;
@@ -30,7 +29,6 @@ class Participant {
     this.medicalInfo,
     this.note,
     this.status,
-    this.registered = 0,
     this.verifiedAt,
     this.printedAt,
     this.registeredBy,
@@ -52,7 +50,6 @@ class Participant {
       'medical_info': medicalInfo,
       'note': note,
       'status': status,
-      'registered': registered,
       'verified_at': verifiedAt,
       'printed_at': printedAt,
       'registered_by': registeredBy,
@@ -75,7 +72,6 @@ class Participant {
       medicalInfo: json['medical_info'] as String?,
       note: json['note'] as String?,
       status: json['status'] as String?,
-      registered: json['registered'] as int? ?? 0,
       verifiedAt: json['verified_at'] as int?,
       printedAt: json['printed_at'] as int?,
       registeredBy: json['registered_by'] as String?,
@@ -85,7 +81,6 @@ class Participant {
     );
   }
 
-  // Create Participant from a SQLite database row
   factory Participant.fromDbRow(Map<String, Object?> row) {
     return Participant(
       id: row['id'] as String,
@@ -99,7 +94,6 @@ class Participant {
       medicalInfo: row['medical_info'] as String?,
       note: row['note'] as String?,
       status: row['status'] as String?,
-      registered: row['registered'] as int? ?? 0,
       verifiedAt: row['verified_at'] as int?,
       printedAt: row['printed_at'] as int?,
       registeredBy: row['registered_by'] as String?,

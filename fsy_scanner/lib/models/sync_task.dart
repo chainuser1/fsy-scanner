@@ -40,7 +40,8 @@ class SyncTask {
       status: json['status'] as String? ?? 'pending',
       attempts: json['attempts'] as int? ?? 0,
       lastError: json['last_error'] as String?,
-      createdAt: json['created_at'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+      createdAt:
+          json['created_at'] as int? ?? DateTime.now().millisecondsSinceEpoch,
       completedAt: json['completed_at'] as int?,
     );
   }

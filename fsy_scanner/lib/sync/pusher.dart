@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../auth/google_auth.dart';
@@ -15,7 +14,7 @@ class Pusher {
   /// Push all pending sync tasks to Google Sheets
   static Future<bool> pushPendingUpdates(AppState appState) async {
     LoggerUtil.debug('[Pusher] Starting pending updates...');
-    
+
     try {
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
@@ -24,16 +23,18 @@ class Pusher {
       }
 
       final db = await DatabaseHelper.database;
-      
-      // Get sheet config
-      final sheetIdResult = await db.query(
-        'app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-      final sheetTabResult = await db.query(
-        'app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-      final colMapResult = await db.query(
-        'app_settings', where: 'key = ?', whereArgs: ['col_map']);
 
-      if (sheetIdResult.isEmpty || sheetTabResult.isEmpty || colMapResult.isEmpty) {
+      // Get sheet config
+      final sheetIdResult = await db
+          .query('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
+      final sheetTabResult = await db
+          .query('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+      final colMapResult = await db
+          .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+
+      if (sheetIdResult.isEmpty ||
+          sheetTabResult.isEmpty ||
+          colMapResult.isEmpty) {
         LoggerUtil.warn('[Pusher] Missing sheet configuration');
         return false;
       }
@@ -41,7 +42,7 @@ class Pusher {
       final sheetId = sheetIdResult.first['value'] as String;
       final tabName = sheetTabResult.first['value'] as String;
       final colMap = Map<String, int>.from(
-        jsonDecode(colMapResult.first['value'] as String));
+          jsonDecode(colMapResult.first['value'] as String));
 
       while (true) {
         final task = await SyncQueueDao.claimNextTask();
@@ -51,26 +52,26 @@ class Pusher {
         }
 
         try {
-          final success = await _processTask(
-            db, token, sheetId, tabName, colMap, task);
-          
+          final success =
+              await _processTask(db, token, sheetId, tabName, colMap, task);
+
           if (success) {
             await SyncQueueDao.markCompleted(task.id!);
             LoggerUtil.debug('[Pusher] Task ${task.id} completed');
           } else {
             await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
             LoggerUtil.warn('[Pusher] Task ${task.id} failed');
-            
+
             // Check if task has reached max attempts
             final failedTask = await SyncQueueDao.getTask(task.id!);
             if (failedTask != null && failedTask.attempts >= 10) {
               appState.incrementFailedTaskCount();
               appState.setSyncError(
-                '${failedTask.attempts} tasks failed after 10 attempts');
+                  '${failedTask.attempts} tasks failed after 10 attempts');
               LoggerUtil.error(
-                '[Pusher] Task ${task.id} permanently failed after 10 attempts');
+                  '[Pusher] Task ${task.id} permanently failed after 10 attempts');
             }
-            
+
             return false;
           }
         } on SheetsRateLimitException {
@@ -79,7 +80,7 @@ class Pusher {
           rethrow;
         }
       }
-      
+
       return true;
     } on SheetsRateLimitException {
       rethrow;
@@ -88,7 +89,7 @@ class Pusher {
       return false;
     }
   }
-  
+
   /// Process a single sync task
   static Future<bool> _processTask(
     Database db,
@@ -100,21 +101,37 @@ class Pusher {
   ) async {
     try {
       final Map<String, dynamic> payload = jsonDecode(task.payload);
-      final int? sheetsRow = payload['sheetsRow'] as int?;
-      
-      if (sheetsRow == null || sheetsRow == 0) {
-        LoggerUtil.warn('[Pusher] Invalid sheetsRow in task ${task.id}');
+      final String participantId = payload['participantId'] as String? ?? '';
+      if (participantId.isEmpty) {
+        LoggerUtil.warn('[Pusher] No participantId in task ${task.id}');
+        return false;
+      }
+
+      // Find the current row of this participant in the sheet
+      final int? currentRow = await SheetsApi.findRowByValue(
+        accessToken: token,
+        sheetId: sheetId,
+        tabName: tabName,
+        colMap: colMap,
+        searchValue: participantId,
+      );
+      if (currentRow == null) {
+        LoggerUtil.warn(
+            '[Pusher] Participant $participantId not found in sheet');
         return false;
       }
 
       final Map<String, String> values = {};
 
       if (task.type == SyncQueueDao.typeMarkRegistered) {
-        values['Registered'] = 'Y';
         final verifiedAt = payload['verifiedAt'] as int?;
         if (verifiedAt != null) {
           values['Verified At'] =
               DateTime.fromMillisecondsSinceEpoch(verifiedAt).toIso8601String();
+        }
+        final registeredBy = payload['registeredBy'] as String?;
+        if (registeredBy != null) {
+          values['Device ID'] = registeredBy;
         }
       } else if (task.type == SyncQueueDao.typeMarkPrinted) {
         final printedAt = payload['printedAt'] as int?;
@@ -124,19 +141,24 @@ class Pusher {
         }
       }
 
-      if (values.isEmpty) {
-        LoggerUtil.warn('[Pusher] No values to update for task ${task.id}');
-        return true;
-      }
+      if (values.isEmpty) return true;
 
-      await SheetsApi.updateRegistrationRow(
-        token, sheetId, tabName, sheetsRow, colMap, values);
-      LoggerUtil.info('[Pusher] Updated row $sheetsRow for task ${task.id}');
+      await SheetsApi.updateCells(
+        accessToken: token,
+        sheetId: sheetId,
+        tabName: tabName,
+        row: currentRow,
+        colMap: colMap,
+        values: values,
+      );
+
+      LoggerUtil.info('[Pusher] Updated row $currentRow for $participantId');
       return true;
     } on SheetsRateLimitException {
       rethrow;
     } catch (e) {
-      LoggerUtil.error('[Pusher] Error processing task ${task.id}: $e', error: e);
+      LoggerUtil.error('[Pusher] Error processing task ${task.id}: $e',
+          error: e);
       return false;
     }
   }

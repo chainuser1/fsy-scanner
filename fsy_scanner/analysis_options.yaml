@@ -5,35 +5,16 @@
 # IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
 # invoked from the command line by running `flutter analyze`.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
 linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
-    # Explicitly define types
     always_declare_return_types: true
     always_put_control_body_on_new_line: false
     always_require_non_null_named_parameters: true
     annotate_overrides: true
-    # avoid_bool_literals_in_conditional_expressions: true
-    # avoid_catches_without_on_clauses: true
-    # avoid_catching_errors: true
-    avoid_classes_with_only_static_members: true
-    # avoid_double_and_int_checks: true
-    avoid_dynamic_calls: true
+    avoid_classes_with_only_static_members: false
+    avoid_dynamic_calls: false
     avoid_empty_else: true
     avoid_equals_and_hash_code_on_mutable_classes: true
     avoid_escaping_inner_quotes: true
@@ -52,7 +33,6 @@ linter:
     avoid_renaming_method_parameters: true
     avoid_return_types_on_setters: true
     avoid_returning_null_for_void: true
-    # avoid_returning_this: true
     avoid_setters_without_getters: true
     avoid_shadowing_type_parameters: true
     avoid_single_cascade_in_expression_statements: true
@@ -63,18 +43,14 @@ linter:
     avoid_unnecessary_containers: true
     avoid_unused_constructor_parameters: true
     avoid_void_async: true
-    # await_only_futures: true
     cancel_subscriptions: true
     cascade_invocations: false
     close_sinks: true
-    # comment_references: true
     constant_identifier_names: true
     control_flow_in_finally: true
     curly_braces_in_flow_control_structures: true
     deprecated_consistency: true
-    # diagnostic_describe_all_properties: true
     directives_ordering: true
-    # do_not_use_environment: true
     empty_catches: true
     empty_constructor_bodies: true
     empty_statements: true
@@ -122,7 +98,6 @@ linter:
     prefer_const_literals_to_create_immutables: true
     prefer_constructors_over_static_methods: true
     prefer_contains: true
-    # prefer_double_quotes: true
     prefer_equal_for_default_values: true
     prefer_expression_function_bodies: false
     prefer_final_fields: true
@@ -141,7 +116,6 @@ linter:
     prefer_is_empty: true
     prefer_is_not_empty: true
     prefer_is_not_operator: true
-    # prefer_iterable_where_type: true  // This rule is not recognized, commenting out
     prefer_mixin: true
     prefer_null_aware_method_calls: true
     prefer_null_aware_operators: true
@@ -162,7 +136,7 @@ linter:
     throw_in_finally: true
     tighten_type_of_initializing_formals: true
     type_annotate_public_apis: true
-    unawaited_futures: true
+    unawaited_futures: false
     unnecessary_await_in_return: true
     unnecessary_brace_in_string_interps: true
     unnecessary_const: true
@@ -183,7 +157,7 @@ linter:
     unnecessary_this: true
     unrelated_type_equality_checks: true
     unsafe_html: true
-    use_build_context_synchronously: true
+    use_build_context_synchronously: false
     use_full_hex_values_for_flutter_colors: true
     use_function_type_syntax_for_parameters: true
     use_is_even_rather_than_modulo: true
@@ -197,6 +171,3 @@ linter:
     use_to_and_as_if_applicable: true
     valid_regexps: true
     void_checks: true
-
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options

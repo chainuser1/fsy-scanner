@@ -9,7 +9,8 @@ class SyncQueueDao {
   static const String typeMarkPrinted = 'mark_printed';
 
   // Add new task. Returns new task id.
-  static Future<int> enqueueTask(String type, Map<String, dynamic> payload) async {
+  static Future<int> enqueueTask(
+      String type, Map<String, dynamic> payload) async {
     final db = await DatabaseHelper.database;
     final taskId = await db.insert(
       'sync_tasks',
@@ -87,11 +88,11 @@ class SyncQueueDao {
       where: 'id = ?',
       whereArgs: [taskId],
     );
-    
+
     if (results.isEmpty) {
       return null;
     }
-    
+
     return SyncTask.fromJson(results.first);
   }
 

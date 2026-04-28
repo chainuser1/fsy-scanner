@@ -26,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _sheetIdController = TextEditingController();
   final _tabNameController = TextEditingController();
   final _eventNameController = TextEditingController();
-  
+
   List<Printer> _discoveredPrinters = [];
   bool _isScanningPrinters = false;
   bool _isSyncing = false;
@@ -46,12 +46,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final db = await DatabaseHelper.database;
     final settings = await db.query('app_settings');
-    
+
     for (final setting in settings) {
       final key = setting['key'] as String;
       final value = setting['value'] as String?;
       if (value == null) continue;
-      
+
       if (key == 'sheets_id') _sheetIdController.text = value;
       if (key == 'sheets_tab') _tabNameController.text = value;
       if (key == 'event_name') _eventNameController.text = value;
@@ -60,18 +60,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {});
   }
 
+  Future<bool> _getSoundEnabled() async {
+    final db = await DatabaseHelper.database;
+    final result = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
+    if (result.isEmpty) return true;
+    return result.first['value'] != 'false';
+  }
+
+  Future<void> _setSoundEnabled(bool enabled) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+        'app_settings', {'key': 'sound_enabled', 'value': enabled.toString()},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    setState(() {});
+  }
+
   String? _validateSheetId(String? value) {
     if (value == null || value.isEmpty) return 'Sheet ID cannot be empty';
     if (value.length < 20) return 'Sheet ID appears to be too short';
-    if (!RegExp(r'^[-_A-Za-z0-9]+$').hasMatch(value)) return 'Invalid Sheet ID format';
+    if (!RegExp(r'^[-_A-Za-z0-9]+$').hasMatch(value)) {
+      return 'Invalid Sheet ID format';
+    }
     return null;
   }
 
   String? _validateTabName(String? value) {
     if (value == null || value.isEmpty) return 'Tab name cannot be empty';
     if (value.length > 100) return 'Tab name is too long';
-    if (value.contains('/') || value.contains('\\') || value.contains('*') ||
-        value.contains('[') || value.contains(']')) {
+    if (value.contains('/') ||
+        value.contains(r'\') ||
+        value.contains('*') ||
+        value.contains('[') ||
+        value.contains(']')) {
       return 'Tab name contains invalid characters';
     }
     return null;
@@ -87,57 +108,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final sheetIdError = _validateSheetId(_sheetIdController.text);
     final tabNameError = _validateTabName(_tabNameController.text);
     final eventNameError = _validateEventName(_eventNameController.text);
-    
+
     if (sheetIdError != null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(sheetIdError), backgroundColor: Colors.red));
+            SnackBar(content: Text(sheetIdError), backgroundColor: Colors.red));
       }
       return;
     }
     if (tabNameError != null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tabNameError), backgroundColor: Colors.red));
+            SnackBar(content: Text(tabNameError), backgroundColor: Colors.red));
       }
       return;
     }
     if (eventNameError != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(eventNameError), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(eventNameError), backgroundColor: Colors.red));
       }
       return;
     }
-    
+
     final db = await DatabaseHelper.database;
-    await db.insert('app_settings', {'key': 'sheets_id', 'value': _sheetIdController.text},
+    await db.insert(
+        'app_settings', {'key': 'sheets_id', 'value': _sheetIdController.text},
         conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.insert('app_settings', {'key': 'sheets_tab', 'value': _tabNameController.text},
+    await db.insert(
+        'app_settings', {'key': 'sheets_tab', 'value': _tabNameController.text},
         conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.insert('app_settings', {'key': 'event_name', 'value': _eventNameController.text},
+    await db.insert('app_settings',
+        {'key': 'event_name', 'value': _eventNameController.text},
         conflictAlgorithm: ConflictAlgorithm.replace);
-    
+
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings saved'), backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Settings saved'), backgroundColor: Colors.green));
     }
-    
-    // Trigger column detection
+
     try {
       final token = await GoogleAuth.getValidToken();
       if (token != null) {
         await SheetsApi.detectColMap(
-          db, token, _sheetIdController.text, _tabNameController.text);
+            db, token, _sheetIdController.text, _tabNameController.text);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Columns detected successfully'), backgroundColor: Colors.green));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Columns detected successfully'),
+              backgroundColor: Colors.green));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Column detection failed: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Column detection failed: $e'),
+            backgroundColor: Colors.red));
       }
     }
   }
@@ -153,12 +178,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _selectPrinter(Printer printer) async {
     final db = await DatabaseHelper.database;
-    await db.insert('app_settings', {'key': 'printer_address', 'value': printer.address},
+    await db.insert(
+        'app_settings', {'key': 'printer_address', 'value': printer.address},
         conflictAlgorithm: ConflictAlgorithm.replace);
     setState(() => _selectedPrinterAddress = printer.address);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Printer ${printer.name} selected')));
+          SnackBar(content: Text('Printer ${printer.name} selected')));
     }
   }
 
@@ -169,10 +195,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       fullName: 'Test Participant',
       sheetsRow: 0,
     );
-    final success = await PrinterService.printReceipt(mockParticipant, deviceId);
+    final success =
+        await PrinterService.printReceipt(mockParticipant, deviceId);
     if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Test print failed'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Test print failed'), backgroundColor: Colors.red));
     }
   }
 
@@ -191,8 +218,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true && mounted) {
       await appState.clearAllData();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All data cleared')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('All data cleared')));
       }
     }
   }
@@ -202,7 +229,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Confirm'),
-            content: const Text('Are you sure you want to clear all participant data? This cannot be undone.'),
+            content: const Text(
+                'Are you sure you want to clear all participant data? This cannot be undone.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -248,7 +276,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sheet Configuration',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _sheetIdController,
@@ -298,19 +327,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Printer Settings',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _isScanningPrinters ? null : _scanPrinters,
-                          child: Text(_isScanningPrinters ? 'Scanning...' : 'Scan for Printers'),
+                          child: Text(_isScanningPrinters
+                              ? 'Scanning...'
+                              : 'Scan for Printers'),
                         ),
                       ),
                       const SizedBox(width: 16),
                       ElevatedButton(
-                        onPressed: _selectedPrinterAddress != null ? _testPrint : null,
+                        onPressed:
+                            _selectedPrinterAddress != null ? _testPrint : null,
                         child: const Text('Test Print'),
                       ),
                     ],
@@ -323,19 +356,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       itemCount: _discoveredPrinters.length,
                       itemBuilder: (context, index) {
                         final printer = _discoveredPrinters[index];
-                        final isSelected = _selectedPrinterAddress == printer.address;
+                        final isSelected =
+                            _selectedPrinterAddress == printer.address;
                         return ListTile(
                           title: Text(printer.name ?? 'Unknown Printer'),
                           subtitle: Text(printer.address ?? ''),
                           trailing: isSelected
-                              ? const Icon(Icons.check_circle, color: Colors.green)
+                              ? const Icon(Icons.check_circle,
+                                  color: Colors.green)
                               : null,
                           onTap: () => _selectPrinter(printer),
                         );
                       },
                     )
                   else if (!_isScanningPrinters)
-                    const Text('No printers found. Make sure Bluetooth is on and printer is discoverable.'),
+                    const Text(
+                        'No printers found. Make sure Bluetooth is on and printer is discoverable.'),
                 ],
               ),
             ),
@@ -350,7 +386,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Device Info',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   FutureBuilder<String>(
                     future: DeviceId.get(),
@@ -368,6 +405,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
+          // Sound Settings Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Notification Sounds',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  FutureBuilder<bool>(
+                    future: _getSoundEnabled(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? true;
+                      return Switch(
+                        value: enabled,
+                        onChanged: (value) => _setSoundEnabled(value),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Sync Status Card
           Card(
             child: Padding(
@@ -376,9 +439,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sync Status',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text(_isSyncing ? 'Syncing...' : 'Ready'),
+                  const SizedBox(height: 4),
+                  Consumer<AppState>(
+                    builder: (context, state, _) {
+                      final last = state.lastSyncedAt;
+                      if (last == null) return const Text('Never synced');
+                      final secondsAgo =
+                          DateTime.now().difference(last).inSeconds;
+                      final display = secondsAgo < 60
+                          ? 'just now'
+                          : secondsAgo < 120
+                              ? '1 min ago'
+                              : '${secondsAgo ~/ 60} mins ago';
+                      return Text('Last sync: $display',
+                          style: const TextStyle(color: Colors.grey));
+                    },
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -411,9 +491,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Registration Data',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text('${appState.participantsCount} participants registered'),
+                  Text(
+                    '${appState.participantsCount} participants checked in',
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [

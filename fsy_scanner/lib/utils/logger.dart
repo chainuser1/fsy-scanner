@@ -52,7 +52,8 @@ class LoggerUtil {
     _logger.severe(message, error, stackTrace);
   }
 
-  static void networkRequest(String method, String url, {int? statusCode, Object? error}) {
+  static void networkRequest(String method, String url,
+      {int? statusCode, Object? error}) {
     final status = statusCode != null ? ' ($statusCode)' : '';
     final errorMsg = error != null ? ' Error: $error' : '';
     _logger.info('Network: $method $url$status$errorMsg');

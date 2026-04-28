@@ -4,11 +4,13 @@ import '../models/participant.dart';
 class ReceiptBuilder {
   static const int _receiptWidth = 32;
 
-  static String build(Participant participant, String eventName, String deviceId) {
+  static String build(
+      Participant participant, String eventName, String deviceId) {
     final now = DateTime.now();
     final formatter = DateFormat('dd MMM yyyy HH:mm');
     final timestamp = formatter.format(now);
-    final shortDeviceId = deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
+    final shortDeviceId =
+        deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
 
     final buffer = StringBuffer();
 
@@ -26,7 +28,8 @@ class ReceiptBuilder {
 
     buffer.writeln('=' * _receiptWidth);
 
-    if (participant.medicalInfo != null && participant.medicalInfo!.isNotEmpty) {
+    if (participant.medicalInfo != null &&
+        participant.medicalInfo!.isNotEmpty) {
       buffer.writeln('⚠ MEDICAL: ${participant.medicalInfo}');
       buffer.writeln('=' * _receiptWidth);
     }
