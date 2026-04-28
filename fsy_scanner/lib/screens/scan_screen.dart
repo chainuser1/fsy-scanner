@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
+import '../app.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
@@ -40,8 +41,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _playSound(String url) async {
     final db = await DatabaseHelper.database;
-    final result = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
+    final result = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['sound_enabled']);
     final enabled = result.isEmpty || result.first['value'] != 'false';
     if (enabled) {
       await _audioPlayer.play(UrlSource(url));
@@ -58,8 +59,6 @@ class _ScanScreenState extends State<ScanScreen> {
           'assets/transparent_background_fsy_logo.png',
           height: 40,
         ),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.settings),
           onPressed: () => Navigator.push(
@@ -76,7 +75,6 @@ class _ScanScreenState extends State<ScanScreen> {
                   builder: (context) => const ParticipantsScreen()),
             ),
           ),
-          // Dynamic sync status indicator
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
             child: Row(
@@ -90,7 +88,8 @@ class _ScanScreenState extends State<ScanScreen> {
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     ),
                   )
@@ -116,7 +115,7 @@ class _ScanScreenState extends State<ScanScreen> {
                           ? Colors.blue[300]
                           : appState.syncError != null
                               ? Colors.red[300]
-                              : Colors.orange[300],
+                              : FSYScannerApp.accentGold,
                     ),
                     padding: const EdgeInsets.all(6),
                     child: Text(
@@ -139,7 +138,7 @@ class _ScanScreenState extends State<ScanScreen> {
           if (!appState.isOnline)
             Container(
               width: double.infinity,
-              color: Colors.red[300],
+              color: FSYScannerApp.accentGold,
               padding: const EdgeInsets.all(8.0),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -147,8 +146,8 @@ class _ScanScreenState extends State<ScanScreen> {
                   Icon(Icons.cloud_off, size: 18),
                   SizedBox(width: 8),
                   Text('OFFLINE',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),
@@ -182,8 +181,8 @@ class _ScanScreenState extends State<ScanScreen> {
                         if (mounted) controller.start();
                       }
                     } else if (participant.verifiedAt != null) {
-                      _playSound(
-                          'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
+                      // _playSound(
+                      //     'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
                       if (mounted) {
                         String timeStr = '';
                         if (participant.verifiedAt != null) {
@@ -204,7 +203,6 @@ class _ScanScreenState extends State<ScanScreen> {
                         if (mounted) controller.start();
                       }
                     } else {
-                      // New check‑in
                       final deviceId = await DeviceId.get();
                       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -220,17 +218,17 @@ class _ScanScreenState extends State<ScanScreen> {
                         'registeredBy': deviceId,
                       });
 
-                      unawaited(
-                          PrinterService.printReceipt(participant, deviceId));
+                      unawaited(PrinterService.printReceipt(
+                          participant, deviceId));
 
                       _playSound(
                           'https://assets.mixkit.co/active_storage/sfx/2039/2039-preview.mp3');
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content:
-                                Text('✓ ${participant.fullName} checked in'),
-                            backgroundColor: Colors.green,
+                            content: Text(
+                                '✓ ${participant.fullName} checked in'),
+                            backgroundColor: FSYScannerApp.accentGreen,
                             duration: const Duration(seconds: 1),
                           ),
                         );
@@ -266,6 +264,7 @@ class _ScanScreenState extends State<ScanScreen> {
                                 'assets/fsy_logo.png',
                                 height: 80,
                               ),
+                              const SizedBox(height: 24),
                               const Text('Setting up for the first time...',
                                   style: TextStyle(
                                       fontSize: 18,
@@ -281,7 +280,8 @@ class _ScanScreenState extends State<ScanScreen> {
                                     textAlign: TextAlign.center),
                                 const SizedBox(height: 16),
                                 ElevatedButton(
-                                  onPressed: () => appState.setSyncError(null),
+                                  onPressed: () =>
+                                      appState.setSyncError(null),
                                   child: const Text('Retry'),
                                 ),
                               ],

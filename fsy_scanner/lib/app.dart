@@ -9,17 +9,38 @@ class FSYScannerApp extends StatelessWidget {
 
   const FSYScannerApp({super.key, required this.appState});
 
+  // FSY logo brand colors
+  static const Color primaryBlue = Color(0xFF045782);
+  static const Color accentGreen = Color(0xFFA3C997);
+  static const Color accentGold = Color(0xFFF7B550);
+
   @override
   Widget build(BuildContext context) {
-    // Start sync engine after first frame to ensure context is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SyncEngine.startup(appState);
     });
 
     return MaterialApp(
-      title: 'FSY Scanner',
+      title: 'FSY Scanner 2026',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primaryBlue,
+          primary: primaryBlue,
+          secondary: accentGreen,
+          tertiary: accentGold,
+          brightness: Brightness.light,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: primaryBlue,
+          foregroundColor: Colors.white,
+          elevation: 2,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: primaryBlue,
+            foregroundColor: Colors.white,
+          ),
+        ),
         useMaterial3: true,
       ),
       home: const ScanScreen(),

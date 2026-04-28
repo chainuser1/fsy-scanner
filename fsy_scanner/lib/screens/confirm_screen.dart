@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
@@ -26,8 +27,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Confirm Registration'),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -132,8 +131,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                     child: ElevatedButton(
                       onPressed: () => _confirmCheckIn(context),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
+                        backgroundColor: FSYScannerApp.accentGold,
+                        foregroundColor: Colors.black,
                       ),
                       child: const Text('Confirm Check-In'),
                     ),
@@ -210,9 +209,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Registration confirmed'),
-          backgroundColor: Colors.green,
+        SnackBar(
+          content: Text('Registration confirmed',
+              style: TextStyle(color: Colors.white)),
+          backgroundColor: FSYScannerApp.accentGreen,
         ),
       );
     }

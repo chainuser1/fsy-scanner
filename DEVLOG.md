@@ -1830,3 +1830,160 @@ Adaptive sync intervals: The plan specified a fixed 15‑second interval. Change
 Audio feedback: Not in the original plan; added for better operator experience during busy check-in.
 
 Device ID column: Not in the original plan; added per committee request for traceability.
+
+## 31.0 — UI Polish: Sync Indicators, Dynamic Counts, Logo Integration
+Date/Time: 2026-04-28 20:15:00
+Status: ✅ Complete
+
+What I Did
+Enhanced the user interface to provide real‑time feedback on background sync activity and auto‑update check‑in counts after convergence. Integrated FSY event branding logos.
+
+Changes:
+
+Dynamic sync badge on scan screen. Replaced the static pending‑task circle with a row containing:
+
+A spinning CircularProgressIndicator when the sync engine is active.
+
+A cloud_done icon when idle.
+
+The pending task count still visible, with the background color changing to blue during sync.
+
+“Last sync” indicator in Settings. Added a text line under “Sync Status” showing how long ago the last successful sync occurred (e.g., “just now”, “2 mins ago”).
+
+Automatic participant count refresh. After every successful pull (both in the periodic loop and manual sync), the app now calls appState.refreshParticipantsCount(), so the “XX participants checked in” label in Settings updates immediately without manual refresh.
+
+AppState.lastSyncedAt hookup. The sync engine now calls appState.setLastSyncedAt(DateTime.now()) after every completed sync cycle, populating the new “Last sync” display.
+
+FSY logo integration. Added fsy_logo.png and transparent_background_fsy_logo.png to assets/ and registered them in pubspec.yaml.
+
+The scan screen AppBar now shows the transparent FSY logo instead of the text title.
+
+The first‑run loading overlay shows the full event logo (Tacloban & Tolosa / FSY 2026) above the “Setting up…” message.
+
+Files modified:
+
+lib/screens/scan_screen.dart – animated sync indicator in AppBar; logo in AppBar and loading overlay.
+
+lib/screens/settings_screen.dart – “Last sync” text; dynamic count display.
+
+lib/sync/sync_engine.dart – added refreshParticipantsCount() and setLastSyncedAt() calls after each pull.
+
+lib/providers/app_state.dart – ensured lastSyncedAt getter/setter with notifyListeners().
+
+pubspec.yaml – added logo asset paths.
+
+How I Followed the Plan
+Maintained the offline‑first principle – all indicators are UI‑only and don't affect sync logic.
+
+Hard Constraint #9 (clean flutter analyze) – zero new issues.
+
+Verification Result
+flutter analyze passes with zero errors.
+
+Sync spinner appears during sync ticks and disappears when idle.
+
+“Last sync” updates in Settings after each pull.
+
+Participant count changes dynamically after a new check‑in or after pulling data from another device.
+
+Logo images display correctly without distortion.
+
+Issues Encountered
+None.
+
+Corrections Made
+None.
+
+Deviations from Plan
+Logo integration: Not in the original plan; added for event branding and a more polished user experience.
+
+Dynamic sync indicators: Not specified in the plan; added to give operators confidence that background sync is functioning without needing to check logs.
+
+## 32.0 — Branding & UI Theming: FSY Logo Integration, Custom Color Palette, Android Launcher Icon
+Date/Time: 2026-04-28 21:00:00
+Status: ✅ Complete
+
+What I Did
+Integrated FSY event branding throughout the app: replaced the default Flutter blue theme with the official logo colors, added the event logo to the scan screen and loading overlay, and set the Android launcher icon to the FSY logo.
+
+Changes:
+
+Custom color palette. Defined three brand colors in lib/app.dart:
+
+Primary blue: #045782
+
+Accent green: #A3C997
+
+Accent gold: #F7B550
+Created a custom ColorScheme using these colors as primary, secondary, and tertiary. Set the AppBar theme and ElevatedButton theme to use the primary blue.
+
+Removed all hardcoded Flutter blue. Every screen (scan_screen, confirm_screen, participants_screen, settings_screen) now uses the theme's colors or the FSYScannerApp constants. No more Colors.blue[600].
+
+Accent color usage.
+
+Offline banner: gold background (accentGold).
+
+Success snackbar (new check‑in): green background (accentGreen).
+
+"Confirm Check‑In" button: gold background with black text.
+
+Verified checkmark in participants list: green.
+
+Reprint icon: gold.
+
+Pending‑task badge (idle): gold background.
+
+Logo images.
+
+Added fsy_logo.png (full event logo) and transparent_background_fsy_logo.png to assets/.
+
+Registered both in pubspec.yaml.
+
+Scan screen AppBar now displays the transparent logo instead of the title text.
+
+First‑run loading overlay shows the full event logo above the status text.
+
+Android launcher icon. Added flutter_launcher_icons dev dependency. Configured it to generate Android icons from fsy_logo.png. Ran dart run flutter_launcher_icons to produce all mipmap sizes.
+
+Files modified:
+
+lib/app.dart – brand color constants, custom ThemeData, ColorScheme.
+
+lib/screens/scan_screen.dart – logo in AppBar and loading overlay; accent colors for snackbar, offline banner, pending badge.
+
+lib/screens/confirm_screen.dart – gold "Confirm Check‑In" button, green success snackbar.
+
+lib/screens/participants_screen.dart – green checkmark, gold print icon.
+
+lib/screens/settings_screen.dart – removed hardcoded blue; relies on theme.
+
+pubspec.yaml – added logo assets and flutter_launcher_icons config.
+
+How I Followed the Plan
+All color and logo changes are purely cosmetic – no logic or data flow was altered.
+
+Asset registration follows the plan's folder structure (Section 5).
+
+Hard Constraints #9 (clean flutter analyze) – zero issues.
+
+Verification Result
+flutter analyze passes with zero errors.
+
+App builds and installs; launcher icon shows the FSY logo.
+
+AppBar displays the transparent FSY logo.
+
+Loading overlay shows the full event logo.
+
+Success snackbar is green, offline banner is gold, confirm button is gold.
+
+All screens consistently use the brand palette.
+
+Issues Encountered
+None.
+
+Corrections Made
+None.
+
+Deviations from Plan
+Brand color palette and launcher icon: Not specified in the original plan; added to align the app visually with the FSY event identity.

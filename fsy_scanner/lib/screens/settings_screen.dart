@@ -5,6 +5,7 @@ import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../app.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../models/participant.dart';
@@ -62,8 +63,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<bool> _getSoundEnabled() async {
     final db = await DatabaseHelper.database;
-    final result = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
+    final result = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['sound_enabled']);
     if (result.isEmpty) return true;
     return result.first['value'] != 'false';
   }
@@ -262,13 +263,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // Sheet Config Section
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -276,8 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sheet Configuration',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _sheetIdController,
@@ -318,8 +315,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Printer Section
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -327,8 +322,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Printer Settings',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -377,8 +371,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Device Info Card
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -386,8 +378,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Device Info',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   FutureBuilder<String>(
                     future: DeviceId.get(),
@@ -404,8 +395,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Sound Settings Card
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -413,8 +402,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Notification Sounds',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   FutureBuilder<bool>(
                     future: _getSoundEnabled(),
                     builder: (context, snapshot) {
@@ -430,8 +418,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Sync Status Card
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -439,8 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Sync Status',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text(_isSyncing ? 'Syncing...' : 'Ready'),
                   const SizedBox(height: 4),
@@ -448,8 +433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context, state, _) {
                       final last = state.lastSyncedAt;
                       if (last == null) return const Text('Never synced');
-                      final secondsAgo =
-                          DateTime.now().difference(last).inSeconds;
+                      final secondsAgo = DateTime.now().difference(last).inSeconds;
                       final display = secondsAgo < 60
                           ? 'just now'
                           : secondsAgo < 120
@@ -482,8 +466,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Registration Data Card
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -491,12 +473,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Registration Data',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(
-                    '${appState.participantsCount} participants checked in',
-                  ),
+                  Text('${appState.participantsCount} participants checked in'),
                   const SizedBox(height: 16),
                   Row(
                     children: [

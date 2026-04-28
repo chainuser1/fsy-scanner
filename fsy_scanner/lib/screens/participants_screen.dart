@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../app.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
@@ -57,8 +58,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         _filteredParticipants = _allParticipants;
       } else {
         _filteredParticipants = _allParticipants
-            .where(
-                (p) => p.fullName.toLowerCase().contains(query.toLowerCase()))
+            .where((p) =>
+                p.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList();
       }
     });
@@ -72,8 +73,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Participants'),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
@@ -122,7 +121,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                               if (isVerified)
                                 IconButton(
                                   icon: const Icon(Icons.print,
-                                      color: Colors.blue),
+                                      color: FSYScannerApp.accentGold),
                                   tooltip: 'Reprint receipt',
                                   onPressed: () async {
                                     final deviceId = await DeviceId.get();
@@ -143,7 +142,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                                     ? Icons.check_circle
                                     : Icons.circle_outlined,
                                 color: isVerified
-                                    ? Colors.green[600]
+                                    ? FSYScannerApp.accentGreen
                                     : Colors.grey[400],
                               ),
                             ],
@@ -153,8 +152,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                               await Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) =>
-                                      ConfirmScreen(participant: participant),
+                                  builder: (context) => ConfirmScreen(
+                                      participant: participant),
                                 ),
                               );
                               _loadParticipants();
