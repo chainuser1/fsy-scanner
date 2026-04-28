@@ -62,7 +62,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
               ),
 
               // Medical info warning if not empty
-              if (widget.participant.medicalInfo != null && widget.participant.medicalInfo!.isNotEmpty)
+              if (widget.participant.medicalInfo != null &&
+                  widget.participant.medicalInfo!.isNotEmpty)
                 Card(
                   color: Colors.yellow[100],
                   child: Padding(
@@ -89,7 +90,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                 ),
 
               // Note if not empty
-              if (widget.participant.note != null && widget.participant.note!.isNotEmpty)
+              if (widget.participant.note != null &&
+                  widget.participant.note!.isNotEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -163,9 +165,11 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
               ),
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 16),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
         ],
       ),
@@ -174,44 +178,46 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
   Future<void> _confirmCheckIn(BuildContext context) async {
     if (!mounted) return;
-    
-    // Get app state first before any async operations
+
+    // Get app state
     final appState = Provider.of<AppState>(context, listen: false);
-    
+
     // Mark participant as registered locally
     final db = await DatabaseHelper.database;
     final dao = ParticipantsDao(db);
     final deviceId = await DeviceId.get();
     final now = DateTime.now().millisecondsSinceEpoch;
-    
+
     await dao.markRegisteredLocally(
       widget.participant.id,
       deviceId,
       now,
     );
 
-    // Enqueue sync task
+    // Enqueue sync task with CORRECT payload format (plan Section 3.2)
     await SyncQueueDao.enqueueTask(
       SyncQueueDao.typeMarkRegistered,
-      widget.participant.toJson()..['registered'] = 1..['verified_at'] = now..['registered_by'] = deviceId,
+      {
+        'participantId': widget.participant.id,
+        'sheetsRow': widget.participant.sheetsRow,
+        'verifiedAt': now,
+        'registeredBy': deviceId,
+      },
     );
 
-    // Print receipt (fire and forget) - ignore unawaited result
+    // Print receipt (fire and forget — do NOT await)
     unawaited(PrinterService.printReceipt(widget.participant, deviceId));
 
     // Update app state
     appState.setLastScanResult('success');
 
-    // Ensure we're still mounted before navigation and snackbar
     if (mounted) {
-      // Navigate back to scan screen
       Navigator.pop(context);
     }
-    
-    // Wait a frame to ensure navigation completes if mounted
+
+    // Wait a frame then show snackbar
     await Future<void>.delayed(Duration.zero);
-    
-    // Show success snackbar only if still mounted after navigation
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

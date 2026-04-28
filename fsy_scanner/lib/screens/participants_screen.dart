@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
@@ -14,7 +15,6 @@ class ParticipantsScreen extends StatefulWidget {
   @override
   State<ParticipantsScreen> createState() => _ParticipantsScreenState();
 }
-
 
 class _ParticipantsScreenState extends State<ParticipantsScreen> {
   final TextEditingController _searchController = TextEditingController();
@@ -33,7 +33,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);
       final participants = await dao.getAllParticipants();
-      
+
       setState(() {
         _allParticipants = participants;
         _filteredParticipants = participants;
@@ -43,28 +43,30 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading participants: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading participants: $e')),
+        );
+      }
     }
   }
 
   void _filterParticipants(String query) {
-    if (query.isEmpty) {
-      setState(() {
+    setState(() {
+      if (query.isEmpty) {
         _filteredParticipants = _allParticipants;
-      });
-    } else {
-      setState(() {
+      } else {
         _filteredParticipants = _allParticipants
             .where((p) => p.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList();
-      });
-    }
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final registeredCount = _allParticipants.where((p) => p.registered == 1).length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Participants'),
@@ -86,7 +88,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               onChanged: _filterParticipants,
             ),
           ),
-          
+
           // Counts
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -94,13 +96,13 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
               children: [
                 Text('Total: ${_allParticipants.length}'),
                 const SizedBox(width: 16),
-                Text('Registered: ${_allParticipants.where((p) => p.registered == 1).length}'),
+                Text('Registered: $registeredCount'),
               ],
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Participants list
           Expanded(
             child: _isLoading
@@ -147,7 +149,6 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                                   builder: (context) => ConfirmScreen(participant: participant),
                                 ),
                               );
-                              // Refresh count when back
                               _loadParticipants();
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(

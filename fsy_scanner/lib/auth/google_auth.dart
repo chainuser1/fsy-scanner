@@ -12,7 +12,7 @@ class GoogleAuth {
   static DateTime? _tokenExpiry;
 
   static Future<String?> getValidToken() async {
-    // Check if we have a valid cached token
+    // Check if we have a valid cached token (with 60-second buffer)
     if (_cachedToken != null && _tokenExpiry != null) {
       if (DateTime.now().isBefore(_tokenExpiry!)) {
         return _cachedToken;
@@ -21,28 +21,31 @@ class GoogleAuth {
 
     // Get credentials from environment
     final email = dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'];
-    final privateKeyPem = dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'];
+    final rawKey = dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'];
 
-    if (email == null || privateKeyPem == null) {
-      LoggerUtil.error('[GoogleAuth] Missing environment variables for service account');
+    if (email == null || rawKey == null) {
+      LoggerUtil.error('[GoogleAuth] Missing service account credentials in .env');
       return null;
     }
 
     try {
-      LoggerUtil.debug('[GoogleAuth] Creating JWT token for $email');
+      LoggerUtil.debug('[GoogleAuth] Creating JWT for $email');
       
-      // Create JWT with payload containing all necessary fields
+      // Replace literal \n with real newlines in private key
+      final privateKeyPem = rawKey.replaceAll(r'\n', '\n');
+
+      // Create JWT payload
       final now = DateTime.now();
       final jwt = JWT({
-        'iss': email, // Issuer (service account email)
-        'sub': email, // Subject (also service account email)
+        'iss': email,
+        'sub': email,
         'scope': 'https://www.googleapis.com/auth/spreadsheets',
-        'aud': 'https://oauth2.googleapis.com/token', // Audience
-        'iat': now.millisecondsSinceEpoch ~/ 1000, // Issued at time
-        'exp': now.add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000, // Expiration time (1 hour)
+        'aud': 'https://oauth2.googleapis.com/token',
+        'iat': now.millisecondsSinceEpoch ~/ 1000,
+        'exp': now.add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
       });
 
-      // Sign with RSA private key
+      // Sign with RS256
       final signedToken = jwt.sign(
         RSAPrivateKey(privateKeyPem),
         algorithm: JWTAlgorithm.RS256,
@@ -59,7 +62,7 @@ class GoogleAuth {
       );
 
       if (response.statusCode != 200) {
-        LoggerUtil.error('[GoogleAuth] Failed to exchange JWT for access token: ${response.statusCode}');
+        LoggerUtil.error('[GoogleAuth] Token exchange failed: ${response.statusCode}');
         debugPrint('[GoogleAuth] Response: ${response.body}');
         return null;
       }
@@ -73,14 +76,16 @@ class GoogleAuth {
         return null;
       }
 
-      // Cache the token
+      // Cache token with 60-second early expiry
       _cachedToken = accessToken;
-      _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60)); // Refresh 1 min early
+      _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60));
       
       LoggerUtil.info('[GoogleAuth] Successfully obtained access token');
       return accessToken;
     } catch (e) {
       LoggerUtil.error('[GoogleAuth] Error obtaining access token: $e', error: e);
+      _cachedToken = null;
+      _tokenExpiry = null;
       return null;
     }
   }

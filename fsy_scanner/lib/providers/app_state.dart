@@ -93,23 +93,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Add the missing getRegisteredCount method
   Future<int> getRegisteredCount() async {
     try {
       return await ParticipantsDao.getRegisteredCount();
     } catch (e) {
-      // Handle error appropriately
       LoggerUtil.error('Error getting registered count: $e', error: e);
       return 0;
     }
   }
 
+  /// Clear participant data and sync tasks, but PRESERVE app_settings
   Future<void> clearAllData() async {
-    // There is no clearParticipants method in our new class, so we'll implement it
     final db = await DatabaseHelper.database;
-    await db.delete('participants');  // Delete all participants
-    await db.delete('sync_tasks');     // Delete all sync tasks
+    await db.delete('participants');
+    await db.delete('sync_tasks');
+    // Do NOT delete from app_settings — preserves device_id, col_map, printer_address, etc.
     _participantsCount = 0;
+    _pendingTaskCount = 0;
+    _failedTaskCount = 0;
     notifyListeners();
   }
 }

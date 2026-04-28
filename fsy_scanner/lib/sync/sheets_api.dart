@@ -6,24 +6,69 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../models/participant.dart';
 import '../utils/logger.dart';
+
+/// Column name constants matching the plan's sheet contract (Section 4.1)
+class SheetColumns {
+  static const String id = 'ID';
+  static const String qrCode = 'QR Code';
+  static const String stake = 'Stake';
+  static const String ward = 'Ward';
+  static const String name = 'Name';
+  static const String gender = 'Gender';
+  static const String registered = 'Registered';
+  static const String signedBy = 'Signed by';
+  static const String status = 'Status';
+  static const String medicalInfo = 'Medical/Food Info';
+  static const String note = 'Note';
+  static const String tshirtSize = 'T-Shirt Size';
+  static const String tableNumber = 'Table Number';
+  static const String roomNumber = 'Hotel Room Number';
+  static const String verifiedAt = 'Verified At';
+  static const String printedAt = 'Printed At';
+  
+  /// All columns in sheet order
+  static const List<String> allColumns = [
+    id, qrCode, stake, ward, name, gender, registered, signedBy,
+    status, medicalInfo, note, tshirtSize, tableNumber, roomNumber,
+    verifiedAt, printedAt,
+  ];
+}
 
 class SheetsApi {
   static const String baseUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-  // Custom exception for rate limiting
+  /// Update registration row using colMap to write to correct columns
   static Future<void> updateRegistrationRow(
     String accessToken,
     String sheetId,
     String tabName,
-    int row,
+    int sheetsRow,
+    Map<String, int> colMap,
     Map<String, String> values,
   ) async {
-    final url = Uri.parse('$baseUrl/$sheetId/values/$tabName!A$row:C$row');
+    // Build a row array with empty strings for all columns,
+    // then fill in values at their correct column positions
+    final maxCol = colMap.values.reduce((a, b) => a > b ? a : b);
+    final rowValues = List<String>.filled(maxCol + 1, '');
+    
+    for (final entry in values.entries) {
+      final colIndex = colMap[entry.key];
+      if (colIndex != null) {
+        rowValues[colIndex] = entry.value;
+      }
+    }
+    
+    // Convert column indices to A1 notation range
+    final minColIndex = colMap.values.reduce((a, b) => a < b ? a : b);
+    final colLetter = _columnIndexToLetter(minColIndex);
+    final endColLetter = _columnIndexToLetter(maxCol);
+    final range = '$tabName!$colLetter$sheetsRow:$endColLetter$sheetsRow';
+    
+    final url = Uri.parse('$baseUrl/$sheetId/values/$range?valueInputOption=RAW');
     
     try {
-      LoggerUtil.debug('Starting update registration row request for row $row');
+      LoggerUtil.debug('[SheetsApi] Updating row $sheetsRow, range: $range');
       
       final response = await http.put(
         url,
@@ -32,54 +77,57 @@ class SheetsApi {
           HttpHeaders.contentTypeHeader: 'application/json',
         },
         body: jsonEncode({
-          'values': [values.values.toList()], // Ensure order: Registered, Verified At, Printed At
+          'values': [rowValues],
         }),
-      ).timeout(const Duration(seconds: 30)); // Adding 30-second timeout
+      ).timeout(const Duration(seconds: 30));
 
       LoggerUtil.networkRequest('PUT', url.toString(), statusCode: response.statusCode);
 
       if (response.statusCode == 429) {
-        LoggerUtil.warn('Rate limit exceeded when updating registration row');
+        LoggerUtil.warn('[SheetsApi] Rate limit exceeded');
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
-        LoggerUtil.error('Failed to update registration row: ${response.statusCode}', error: response.body);
-        throw Exception('Failed to update registration row: ${response.statusCode}');
+        LoggerUtil.error('[SheetsApi] Update failed: ${response.statusCode}', error: response.body);
+        throw SheetsException('Failed to update row: ${response.statusCode}');
       }
       
-      LoggerUtil.debug('Successfully updated registration row $row');
+      LoggerUtil.debug('[SheetsApi] Successfully updated row $sheetsRow');
     } on TimeoutException {
-      LoggerUtil.error('Timeout when updating registration row for row $row');
-      throw Exception('Request timeout when updating registration row');
+      LoggerUtil.error('[SheetsApi] Timeout updating row $sheetsRow');
+      throw SheetsException('Request timeout');
     } catch (e) {
-      LoggerUtil.error('Error updating registration row: $e', error: e);
+      if (e is SheetsException) rethrow;
+      LoggerUtil.error('[SheetsApi] Error updating row: $e', error: e);
       rethrow;
     }
   }
 
+  /// Fetch all rows from sheet (up to 1000 rows, 16 columns)
   static Future<List<List<dynamic>>?> fetchAllRows(
     String accessToken,
     String sheetId,
     String tabName,
   ) async {
-    final url = Uri.parse('$baseUrl/$sheetId/values/$tabName');
+    final range = '$tabName!A1:P1000';
+    final url = Uri.parse('$baseUrl/$sheetId/values/$range');
     
     try {
-      LoggerUtil.debug('Starting fetch all rows request for tab $tabName');
+      LoggerUtil.debug('[SheetsApi] Fetching rows: $range');
       
       final response = await http.get(
         url,
         headers: {
           HttpHeaders.authorizationHeader: 'Bearer $accessToken',
         },
-      ).timeout(const Duration(seconds: 30)); // Adding 30-second timeout
+      ).timeout(const Duration(seconds: 30));
 
       LoggerUtil.networkRequest('GET', url.toString(), statusCode: response.statusCode);
 
       if (response.statusCode == 429) {
-        LoggerUtil.warn('Rate limit exceeded when fetching all rows');
+        LoggerUtil.warn('[SheetsApi] Rate limit exceeded');
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
-        LoggerUtil.error('Failed to fetch all rows: ${response.statusCode}', error: response.body);
+        LoggerUtil.error('[SheetsApi] Fetch failed: ${response.statusCode}', error: response.body);
         return null;
       }
 
@@ -87,82 +135,87 @@ class SheetsApi {
       final values = data['values'] as List<dynamic>?;
       
       if (values == null) {
-        LoggerUtil.warn('No values returned when fetching all rows');
+        LoggerUtil.warn('[SheetsApi] No values returned');
         return null;
       }
 
-      // Convert to List<List<dynamic>>
-      final result = <List<dynamic>>[];
-      for (final row in values.cast<List<dynamic>>()) {
-        result.add(row);
-      }
-      
-      LoggerUtil.debug('Successfully fetched ${result.length} rows from tab $tabName');
+      final result = values.cast<List<dynamic>>().toList();
+      LoggerUtil.info('[SheetsApi] Fetched ${result.length} rows');
       return result;
     } on TimeoutException {
-      LoggerUtil.error('Timeout when fetching all rows for sheet $sheetId tab $tabName');
-      throw Exception('Request timeout when fetching all rows');
+      LoggerUtil.error('[SheetsApi] Timeout fetching rows');
+      throw SheetsException('Request timeout');
     } catch (e) {
-      LoggerUtil.error('Error fetching all rows: $e', error: e);
+      if (e is SheetsException) rethrow;
+      LoggerUtil.error('[SheetsApi] Error fetching rows: $e', error: e);
       rethrow;
     }
   }
 
-  static Future<void> detectColMap(
-    dynamic db, // Database type varies by platform
+  /// Detect column map from header row (row 1)
+  /// Returns map of header name → 0-based column index
+  /// Throws SheetsColMapException if required columns are missing
+  static Future<Map<String, int>> detectColMap(
+    Database db,
     String accessToken,
     String sheetId,
     String tabName,
   ) async {
-    final url = Uri.parse('$baseUrl/$sheetId/values/$tabName!1:1'); // Get first row (headers)
+    final range = '$tabName!1:1';
+    final url = Uri.parse('$baseUrl/$sheetId/values/$range');
     
     try {
-      LoggerUtil.debug('Starting column map detection for tab $tabName');
+      LoggerUtil.debug('[SheetsApi] Detecting column map...');
       
       final response = await http.get(
         url,
         headers: {
           HttpHeaders.authorizationHeader: 'Bearer $accessToken',
         },
-      ).timeout(const Duration(seconds: 30)); // Adding 30-second timeout
+      ).timeout(const Duration(seconds: 30));
 
       LoggerUtil.networkRequest('GET', url.toString(), statusCode: response.statusCode);
 
       if (response.statusCode == 429) {
-        LoggerUtil.warn('Rate limit exceeded when detecting column map');
+        LoggerUtil.warn('[SheetsApi] Rate limit exceeded');
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
-        LoggerUtil.error('Failed to fetch headers for column detection: ${response.statusCode}', error: response.body);
+        LoggerUtil.error('[SheetsApi] Header fetch failed: ${response.statusCode}');
         throw SheetsColMapException('Failed to fetch headers: ${response.statusCode}');
       }
 
       final data = jsonDecode(response.body);
-      final headerRow = data['values']?.first as List<dynamic>?;
-
-      if (headerRow == null) {
-        LoggerUtil.error('No header row returned for column detection');
-        throw SheetsColMapException('No header row found');
+      final values = data['values'] as List<dynamic>?;
+      
+      if (values == null || values.isEmpty) {
+        throw SheetsColMapException('No header row found in sheet');
       }
 
-      // Create mapping from header names to column indices
+      final headerRow = values.first as List<dynamic>;
+      
+      // Build column map: header name → 0-based index
       final colMap = <String, int>{};
       for (int i = 0; i < headerRow.length; i++) {
         final header = headerRow[i].toString().trim();
-        if (header.toLowerCase() == 'id') {
-          colMap['ID'] = i;
-        } else if (header.toLowerCase() == 'registered') {
-          colMap['Registered'] = i;
-        } else if (header.toLowerCase() == 'verified at') {
-          colMap['Verified At'] = i;
-        } else if (header.toLowerCase() == 'printed at') {
-          colMap['Printed At'] = i;
+        if (header.isNotEmpty) {
+          colMap[header] = i;
         }
       }
-
-      // Verify required columns exist
-      if (!colMap.containsKey('ID')) {
-        LoggerUtil.error('Required column "ID" not found in sheet');
-        throw SheetsColMapException('Required column "ID" not found in sheet');
+      
+      // Verify required write headers exist
+      const requiredHeaders = ['Registered', 'Verified At', 'Printed At'];
+      final missingHeaders = <String>[];
+      for (final required in requiredHeaders) {
+        if (!colMap.containsKey(required)) {
+          missingHeaders.add(required);
+        }
+      }
+      
+      if (missingHeaders.isNotEmpty) {
+        throw SheetsColMapException(
+          'Missing required columns: ${missingHeaders.join(', ')}. '
+          'Sheet headers: ${colMap.keys.join(', ')}'
+        );
       }
 
       // Save to app_settings
@@ -172,17 +225,25 @@ class SheetsApi {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       
-      LoggerUtil.info('Successfully detected and saved column map: $colMap');
-    } on TimeoutException {
-      LoggerUtil.error('Timeout when detecting column map for sheet $sheetId tab $tabName');
-      throw Exception('Request timeout when detecting column map');
+      LoggerUtil.info('[SheetsApi] Column map detected: $colMap');
+      return colMap;
+    } on SheetsException {
+      rethrow;
     } catch (e) {
-      LoggerUtil.error('Error detecting column map: $e', error: e);
-      if (e is SheetsException) {
-        rethrow;
-      }
+      LoggerUtil.error('[SheetsApi] Error detecting columns: $e', error: e);
       throw SheetsColMapException(e.toString());
     }
+  }
+  
+  /// Convert 0-based column index to A1 notation (0→A, 1→B, ..., 26→AA, etc.)
+  static String _columnIndexToLetter(int index) {
+    final letters = <String>[];
+    int n = index;
+    while (n >= 0) {
+      letters.insert(0, String.fromCharCode(65 + (n % 26)));
+      n = n ~/ 26 - 1;
+    }
+    return letters.join();
   }
 }
 

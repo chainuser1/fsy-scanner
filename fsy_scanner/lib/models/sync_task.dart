@@ -34,14 +34,14 @@ class SyncTask {
 
   factory SyncTask.fromJson(Map<String, dynamic> json) {
     return SyncTask(
-      id: json['id'],
-      type: json['type'] ?? '',
-      payload: json['payload'] ?? '',
-      status: json['status'] ?? 'pending',
-      attempts: json['attempts'] ?? 0,
-      lastError: json['last_error'],
-      createdAt: json['created_at'] ?? DateTime.now().millisecondsSinceEpoch,
-      completedAt: json['completed_at'],
+      id: json['id'] as int?,
+      type: json['type'] as String? ?? '',
+      payload: json['payload'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      attempts: json['attempts'] as int? ?? 0,
+      lastError: json['last_error'] as String?,
+      createdAt: json['created_at'] as int? ?? DateTime.now().millisecondsSinceEpoch,
+      completedAt: json['completed_at'] as int?,
     );
   }
 }

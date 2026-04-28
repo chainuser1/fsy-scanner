@@ -18,7 +18,6 @@ class ScanScreen extends StatefulWidget {
   @override
   State<ScanScreen> createState() => _ScanScreenState();
 }
- 
 
 class _ScanScreenState extends State<ScanScreen> {
   MobileScannerController controller = MobileScannerController(
@@ -60,7 +59,9 @@ class _ScanScreenState extends State<ScanScreen> {
               margin: const EdgeInsets.only(right: 16),
               child: CircleAvatar(
                 radius: 15,
-                backgroundColor: appState.syncError != null ? Colors.red[300] : Colors.orange[300],
+                backgroundColor: appState.syncError != null
+                    ? Colors.red[300]
+                    : Colors.orange[300],
                 child: Text(
                   '${appState.pendingTaskCount}',
                   style: const TextStyle(
@@ -74,12 +75,12 @@ class _ScanScreenState extends State<ScanScreen> {
           ),
         ],
       ),
-      // Adding offline banner at the top
-      body: Stack(
+      body: Column(
         children: [
           // Offline banner
           if (!appState.isOnline)
             Container(
+              width: double.infinity,
               color: Colors.red[300],
               padding: const EdgeInsets.all(8.0),
               child: Row(
@@ -97,9 +98,8 @@ class _ScanScreenState extends State<ScanScreen> {
                 ],
               ),
             ),
-          // Main scanner content
-          Positioned.fill(
-            top: !appState.isOnline ? 48 : 0, // Adjust position if offline banner is visible
+          // Scanner content
+          Expanded(
             child: Stack(
               children: [
                 MobileScanner(
@@ -117,7 +117,6 @@ class _ScanScreenState extends State<ScanScreen> {
                       final participant = await dao.getParticipantById(barcode);
 
                       if (participant == null) {
-                        // Participant not found
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -127,14 +126,12 @@ class _ScanScreenState extends State<ScanScreen> {
                             ),
                           );
                           
-                          // Resume scanning after 2 seconds
                           await Future.delayed(const Duration(seconds: 2));
                           if (mounted) {
                             controller.start();
                           }
                         }
                       } else if (participant.registered == 1) {
-                        // Already checked in
                         if (mounted) {
                           String timeStr = '';
                           if (participant.verifiedAt != null) {
@@ -145,25 +142,24 @@ class _ScanScreenState extends State<ScanScreen> {
                             SnackBar(
                               content: Text('Already checked in — ${participant.fullName} at $timeStr'),
                               backgroundColor: Colors.orange,
-                              duration: Duration(seconds: 2),
+                              duration: const Duration(seconds: 2),
                             ),
                           );
                           
-                          // Resume scanning after 2 seconds
                           await Future.delayed(const Duration(seconds: 2));
                           if (mounted) {
                             controller.start();
                           }
                         }
                       } else {
-                        // Fast path: auto-check-in and print (no confirmation)
+                        // Auto-check-in and print (fast path)
                         final deviceId = await DeviceId.get();
                         final now = DateTime.now().millisecondsSinceEpoch;
 
                         // Mark locally as registered
                         await dao.markRegisteredLocally(participant.id, deviceId, now);
 
-                        // Enqueue a mark_registered task for the pusher
+                        // Enqueue mark_registered task
                         await SyncQueueDao.enqueueTask(SyncQueueDao.typeMarkRegistered, {
                           'participantId': participant.id,
                           'sheetsRow': participant.sheetsRow,
@@ -174,7 +170,6 @@ class _ScanScreenState extends State<ScanScreen> {
                         // Fire-and-forget print
                         unawaited(PrinterService.printReceipt(participant, deviceId));
 
-                        // Show quick success feedback
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -185,14 +180,13 @@ class _ScanScreenState extends State<ScanScreen> {
                           );
                         }
 
-                        // Short pause then resume scanning
                         await Future.delayed(const Duration(milliseconds: 800));
                         if (mounted) controller.start();
                       }
                     }
                   },
                 ),
-                // Centered scanning reticle: 260×260 square overlay
+                // Centered scanning reticle
                 Center(
                   child: Container(
                     width: 260,
@@ -203,10 +197,10 @@ class _ScanScreenState extends State<ScanScreen> {
                     ),
                   ),
                 ),
-                // First-run loading state overlay
+                // First-run loading overlay
                 if (appState.isInitialLoading)
                   Container(
-                    color: Colors.black.withValues(alpha: 0.8),
+                    color: Colors.black.withAlpha(204),
                     child: Center(
                       child: Card(
                         margin: const EdgeInsets.symmetric(horizontal: 32),
@@ -234,7 +228,6 @@ class _ScanScreenState extends State<ScanScreen> {
                                 ElevatedButton(
                                   onPressed: () {
                                     appState.setSyncError(null);
-                                    // SyncEngine tick will retry
                                   },
                                   child: const Text('Retry'),
                                 ),

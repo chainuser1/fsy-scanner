@@ -8,7 +8,7 @@ class ParticipantsDao {
 
   ParticipantsDao(this._db);
 
-  // Get a database instance
+  // Get a database-connected DAO instance
   static Future<ParticipantsDao> getInstance() async {
     final db = await DatabaseHelper.database;
     return ParticipantsDao(db);
@@ -38,7 +38,7 @@ class ParticipantsDao {
         'raw_json': p.rawJson,
         'updated_at': p.updatedAt,
       },
-      where: 'id = ? AND registered = 0',  // Critical: guard against overwriting registered=1
+      where: 'id = ? AND registered = 0',
       whereArgs: [p.id],
     );
 
@@ -89,43 +89,7 @@ class ParticipantsDao {
       return null;
     }
 
-    final row = results.first;
-    return Participant(
-      id: row['id'] as String,
-      fullName: row['full_name'] as String,
-      stake: row['stake'] as String?,
-      ward: row['ward'] as String?,
-      gender: row['gender'] as String?,
-      roomNumber: row['room_number'] as String?,
-      tableNumber: row['table_number'] as String?,
-      tshirtSize: row['tshirt_size'] as String?,
-      medicalInfo: row['medical_info'] as String?,
-      note: row['note'] as String?,
-      status: row['status'] as String?,
-      registered: row['registered'] as int,
-      verifiedAt: row['verified_at'] as int?,
-      printedAt: row['printed_at'] as int?,
-      registeredBy: row['registered_by'] as String?,
-      sheetsRow: row['sheets_row'] as int,
-      rawJson: row['raw_json'] as String?,
-      updatedAt: row['updated_at'] as int?,
-    );
-  }
-
-  // Get participant by registration number
-  static Future<Participant?> getByRegNumber(String regNumber) async {
-    final db = await DatabaseHelper.database;
-    final List<Map<String, Object?>> maps = await db.query(
-      'participants',
-      where: 'registration_number = ?',
-      whereArgs: [regNumber],
-    );
-    
-    if (maps.isNotEmpty) {
-      return Participant.fromJson(maps.first);
-    }
-    
-    return null;
+    return Participant.fromDbRow(results.first);
   }
 
   // Mark participant as registered locally.
@@ -163,28 +127,7 @@ class ParticipantsDao {
       orderBy: 'full_name ASC',
     );
 
-    return results.map((row) {
-      return Participant(
-        id: row['id'] as String,
-        fullName: row['full_name'] as String,
-        stake: row['stake'] as String?,
-        ward: row['ward'] as String?,
-        gender: row['gender'] as String?,
-        roomNumber: row['room_number'] as String?,
-        tableNumber: row['table_number'] as String?,
-        tshirtSize: row['tshirt_size'] as String?,
-        medicalInfo: row['medical_info'] as String?,
-        note: row['note'] as String?,
-        status: row['status'] as String?,
-        registered: row['registered'] as int,
-        verifiedAt: row['verified_at'] as int?,
-        printedAt: row['printed_at'] as int?,
-        registeredBy: row['registered_by'] as String?,
-        sheetsRow: row['sheets_row'] as int,
-        rawJson: row['raw_json'] as String?,
-        updatedAt: row['updated_at'] as int?,
-      );
-    }).toList();
+    return results.map((row) => Participant.fromDbRow(row)).toList();
   }
 
   // Search participants by name (case-insensitive). Returns up to 50 results.
@@ -196,35 +139,15 @@ class ParticipantsDao {
       limit: 50,
     );
 
-    return results.map((row) {
-      return Participant(
-        id: row['id'] as String,
-        fullName: row['full_name'] as String,
-        stake: row['stake'] as String?,
-        ward: row['ward'] as String?,
-        gender: row['gender'] as String?,
-        roomNumber: row['room_number'] as String?,
-        tableNumber: row['table_number'] as String?,
-        tshirtSize: row['tshirt_size'] as String?,
-        medicalInfo: row['medical_info'] as String?,
-        note: row['note'] as String?,
-        status: row['status'] as String?,
-        registered: row['registered'] as int,
-        verifiedAt: row['verified_at'] as int?,
-        printedAt: row['printed_at'] as int?,
-        registeredBy: row['registered_by'] as String?,
-        sheetsRow: row['sheets_row'] as int,
-        rawJson: row['raw_json'] as String?,
-        updatedAt: row['updated_at'] as int?,
-      );
-    }).toList();
+    return results.map((row) => Participant.fromDbRow(row)).toList();
   }
 
   // Get count of registered participants
   static Future<int> getRegisteredCount() async {
     final db = await DatabaseHelper.database;
-    final result = await db.rawQuery('SELECT COUNT(*) AS count FROM participants WHERE registered = 1');
-    final count = result.first['count'] as int;
-    return count;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM participants WHERE registered = 1',
+    );
+    return result.first['count'] as int? ?? 0;
   }
 }

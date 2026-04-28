@@ -27,17 +27,3 @@ const String appSettingsDDL = '''
     key TEXT PRIMARY KEY, value TEXT
   )
 ''';
-
-
-class DatabaseHelper {
-  static const String createSyncQueueTable = '''
-    CREATE TABLE SyncQueue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      action TEXT NOT NULL,
-      tableName TEXT NOT NULL,
-      recordId TEXT,
-      data TEXT NOT NULL,
-      createdAt INTEGER NOT NULL
-    )
-  ''';
-}
