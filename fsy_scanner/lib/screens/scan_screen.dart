@@ -28,7 +28,7 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver{
   static const String _errorSoundPath = 'assets/sounds/error_sound.mp3';
   static const String _successSoundPath = 'assets/sounds/success_sound.mp3';
 
