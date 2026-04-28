@@ -44,16 +44,16 @@ dependencies:
   http: ^1.2.1
 
   # JWT signing for Service Account auth
-  dart_jsonwebtoken: ^2.8.2
+  dart_jsonwebtoken: ^3.4.1
 
   # Environment variables
-  flutter_dotenv: ^5.1.0
+  flutter_dotenv: ^6.0.1
 
   # QR scanning
-  mobile_scanner: ^5.2.3
+  mobile_scanner: ^7.2.0
 
   # Bluetooth ESC/POS printing
-  flutter_thermal_printer: ^1.1.0
+  flutter_thermal_printer: ^2.0.1
 
   # State management
   provider: ^6.1.2
@@ -62,10 +62,10 @@ dependencies:
   uuid: ^4.4.0
 
   # Date formatting
-  intl: ^0.19.0
+  intl: ^0.20.2
 
   # Network connectivity check
-  connectivity_plus: ^6.0.3
+  connectivity_plus: ^7.1.1
   
   # Logging
   logging: ^1.2.0
@@ -88,7 +88,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.1   
 
 # For information on the generic Dart part of this file, see the
