@@ -403,7 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _saveSheetSettings,
-                          child: const Text('Save & Detect'),
+                          child: const Text('Save'),
                         ),
                       ),
                       const SizedBox(width: 8),
