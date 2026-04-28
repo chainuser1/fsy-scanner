@@ -2054,3 +2054,94 @@ Stopped camera in dispose to release hardware resources.
 
 Deviations from Plan
 Animated result card and camera management entirely new – not in the original plan; added for a smoother, more branded user experience and better resource usage.
+## 38.0 — Operator Experience Upgrades: Flashlight, Wakelock, Onboarding, Print Retry, Sync Progress, and Voice Feedback
+Date/Time: 2026-04-29 16:00:00
+Status: ✅ Complete
+
+What I Did
+Implemented six high‑value, low‑complexity operator‑experience improvements requested by the user. These changes make the scanner more reliable in poor lighting, eliminate screen timeouts, introduce brand‑themed onboarding for first‑time volunteers, add a print retry queue, provide detailed sync progress feedback, and support voice announcements for hands‑free operation.
+
+Changes:
+
+Flashlight / Torch Toggle. Added a torch button in the scanner AppBar. Uses MobileScannerController.toggleTorch() to turn the device flashlight on/off. Torch state is tracked locally in the _ScanScreenState.
+
+Keep Screen Awake. Integrated the wakelock_plus plugin. The screen stays on whenever the scanner screen is active and automatically releases the wakelock when navigating away or backgrounding the app.
+
+Onboarding Walkthrough. Created a new OnboardingScreen with three swipeable pages explaining the scanners core functions (scan, feedback, offline sync). Uses the FSY brand colours and logo. Displayed on first launch only; completion flag stored in app_settings as onboarding_complete. Integrated into the app flow via main.dart and app.dart.
+
+Print Queue & Retry. PrinterService now maintains an in‑memory list of failed print jobs. On failure, the job is added to the queue. Added retryFailedPrints() method that attempts to reprint all queued jobs. Settings screen includes a "Retry Failed Prints" button showing the current queue count.
+
+Better Sync Progress Indicator. SyncEngine.syncStatusStream now emits a Map<String, dynamic> containing syncing, message, and progress instead of just a boolean. The scanner screen displays a LinearProgressIndicator and a status text (e.g., "Pushing…", "Pulling…", "Sync done") during sync cycles. Manual full/pull sync operations also emit progress messages.
+
+Voice Feedback (Text‑to‑Speech). Integrated flutter_tts plugin. After a successful check‑in, the app speaks the participants name (e.g., "Juan dela Cruz checked in"). Toggleable in Settings via a new "Voice Feedback (TTS)" switch. Preference persisted in app_settings as voice_enabled.
+
+Settings UI Expansion. Settings screen now includes:
+
+A "Feedback" card combining sound, vibration, and voice toggles.
+
+"Retry Failed Prints" button in the printer section.
+
+Consolidated all existing controls (profiles, sheet config, printer, export, sync, data, app info) under a single scrollable list.
+
+Files modified / created:
+
+lib/screens/onboarding_screen.dart – new file; three‑page branded walkthrough.
+
+lib/screens/scan_screen.dart – torch button, wakelock integration, voice feedback on success, sync progress bar and text, imports updated.
+
+lib/screens/settings_screen.dart – "Feedback" card with sound/haptic/voice toggles; "Retry Failed Prints" button; cosmetic layout updates.
+
+lib/sync/sync_engine.dart – stream now emits Map<String, dynamic> with progress data; all sync methods emit status messages.
+
+lib/print/printer_service.dart – added _FailedPrintJob class, _addFailedJob, retryFailedPrints, failedJobCount; failures add to queue.
+
+lib/providers/app_state.dart – added voiceEnabled with getter/setter and persistence; renamed loadSoundAndHapticPrefs to loadPreferences.
+
+lib/app.dart – accepts optional showOnboarding flag; routes to OnboardingScreen if true.
+
+lib/main.dart – checks onboarding_complete setting before launching FSYScannerApp.
+
+pubspec.yaml – added wakelock_plus and flutter_tts dependencies.
+
+How I Followed the Plan
+All features are additive and respect the offline‑first, local‑first architecture.
+
+Hard Constraint #9 (clean flutter analyze) satisfied – zero issues after fixing deprecated lint rules and import adjustments.
+
+No core sync or data logic was altered; only UI and service layers were extended.
+
+Verification Result
+flutter analyze passes with zero errors.
+
+Torch toggles correctly; flashlight state syncs with button icon.
+
+Screen does not dim or sleep while scanner is active.
+
+Onboarding shows on first launch; skip/next buttons work; flag persists correctly.
+
+Print failures are added to the retry queue; "Retry Failed Prints" re‑attempts them and shows result count.
+
+Sync progress bar and text appear during sync ticks and manual syncs.
+
+Voice speaks participant name on success (when enabled); respects the toggle instantly.
+
+Settings toggles for sound, haptic, and voice all persist correctly across restarts.
+
+Issues Encountered
+flutter_tts requires android.permission.INTERNET (already present) but also WAKE_LOCK for speaking while screen off – not needed since we keep screen on.
+
+wakelock_plus needs to be disabled in dispose to avoid holding wakelock after leaving the scanner.
+
+The sync progress Map type required updating all listeners; settings_screen.dart listener needed to be changed from bool to Map<String, dynamic>.
+
+Deprecated lint rules removed earlier to pass CI.
+
+Corrections Made
+Added WakelockPlus.disable() in dispose and didChangeAppLifecycleState.
+
+Updated settings_screen.dart stream listener to match new Map type.
+
+Renamed AppState.loadSoundAndHapticPrefs to loadPreferences for clarity.
+
+Deviations from Plan
+Onboarding, torch, wakelock, print retry, sync progress, voice feedback: Not in the original plan. Added as premium operator‑experience enhancements to improve usability, reliability, and feedback under real‑world event conditions.
