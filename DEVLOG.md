@@ -2145,3 +2145,50 @@ Renamed AppState.loadSoundAndHapticPrefs to loadPreferences for clarity.
 
 Deviations from Plan
 Onboarding, torch, wakelock, print retry, sync progress, voice feedback: Not in the original plan. Added as premium operator‑experience enhancements to improve usability, reliability, and feedback under real‑world event conditions.
+## 39.0 — Lint and Compilation Fixes for v2.0.0 Release
+Date/Time: 2026-04-29 17:15:00
+Status: ✅ Complete
+
+What I Did
+Resolved all compilation errors and most info‑level warnings introduced during the operator‑experience upgrades. Applied structured fixes across seven files to ensure a clean flutter analyze output with zero errors.
+
+Changes:
+
+main.dart – Added missing import '../db/database_helper.dart'; to resolve DatabaseHelper undefined identifier.
+
+app_state.dart – Made RecentScan a public top‑level class to fix library_private_types_in_public_api and non_type_as_type_argument errors. Added import 'package:sqflite/sqflite.dart'; for ConflictAlgorithm. Renamed loadSoundAndHapticPrefs to loadPreferences for consistency and fixed undefined method call.
+
+onboarding_screen.dart – Added import 'package:sqflite/sqflite.dart'; to provide ConflictAlgorithm reference.
+
+participants_screen.dart – Changed if (!participant.verifiedAt) to if (participant.verifiedAt == null) to satisfy non_bool_negation_expression rule.
+
+scan_screen.dart – Replaced deprecated WillPopScope with PopScope and onPopInvokedWithResult. Changed Icons.vibration_off (which does not exist) to Icons.vibration with a grey colour when disabled. Updated method call from loadSoundAndHapticPrefs to loadPreferences.
+
+settings_screen.dart – Added braces to all one‑line if statements throughout the file to satisfy curly_braces_in_flow_control_structures. Also wrapped if (mounted) checks consistently. No logic changes were made.
+
+Verification Result:
+
+flutter analyze shows 0 errors.
+
+Only info‑level advisories remain (avoid_slow_async_io for CSV export, eol_at_end_of_file warnings already fixed).
+
+App compiles and runs normally; all operator‑experience features (torch, wakelock, voice, onboarding, print retry, sync progress) function correctly.
+
+Issues Encountered:
+
+Icons.vibration_off is not a valid icon in Material Design; replaced with Icons.vibration.
+
+PopScope required restructured back‑navigation logic from the old WillPopScope pattern.
+
+Public RecentScan class had to be extracted from the private _RecentScan to satisfy Dart's library privacy rules.
+
+Corrections Made:
+
+Standardised method naming (loadPreferences).
+
+Applied curly brace style consistently across settings_screen.dart.
+
+Replaced deprecated widget with current Flutter 3.12+ API.
+
+Deviations from Plan
+None – these were standard code‑quality fixes required before tagging the production release.
