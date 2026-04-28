@@ -868,8 +868,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
-                  Text('Version: 2.0.0',
-                      style: TextStyle(color: Colors.grey)),
+                  Text('Version: 2.0.0', style: TextStyle(color: Colors.grey)),
                 ],
               ),
             ),
