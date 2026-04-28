@@ -2027,3 +2027,54 @@ None.
 
 ### Deviations from Plan
 Optimization applied beyond initial plan scope—improves code maintainability and production reliability without conflicting with FSY_SCANNER_PLAN.md specifications.
+
+## 33.0 — Source-of-Truth Alignment, Camera Preview Fix, Print Feedback, and Settings Recovery
+**Date/Time:** 2026-04-28 21:45:00
+**Status:** ✅ Complete
+
+### What I Did
+Addressed four critical usability issues and one architectural refinement.
+
+### Changes:
+
+**Sheet as the single source of truth.** Removed the AND verified_at IS NULL guard from [lib/db/participants_dao.dart](lib/db/participants_dao.dart). The puller now overwrites the local verified_at with whatever the sheet contains. Because the sync loop always pushes before pulling, any local scan is already on the sheet before the next pull. This allows an admin to clear the Verified At cell in the sheet and have that de-verification reflected on all devices after the next pull.
+
+**Camera preview no longer goes white.** Replaced controller.stop()/controller.start() with a simple _isCooldown boolean flag. The camera stays live, so the preview remains visible during the 2-second scan cooldown. Detections are ignored while the flag is true.
+
+**Print failure feedback.** Changed the fire-and-forget print call to use .then() callbacks. If a print fails, the user now sees a SnackBar ("Print failed – check printer connection") on both the scan screen and the confirm screen. The test print button in Settings now also shows success or failure.
+
+**Reset settings to .env defaults.** Added a "Reset to defaults" button in the Sheet Configuration card. It clears the stored sheets_id, sheets_tab, and event_name, re-seeds them from dotenv, reloads the UI fields, and re-runs column detection. This protects against accidental mis-configuration.
+
+### Files Modified:
+- [lib/db/participants_dao.dart](lib/db/participants_dao.dart) – removed AND verified_at IS NULL guard in upsertParticipant
+- [lib/screens/scan_screen.dart](lib/screens/scan_screen.dart) – cooldown flag instead of stopping camera; print failure feedback; removed unused controller.stop()/start() calls
+- [lib/screens/confirm_screen.dart](lib/screens/confirm_screen.dart) – print failure feedback via .then()
+- [lib/screens/settings_screen.dart](lib/screens/settings_screen.dart) – added _resetToDefaults(), UI button, import 'package:flutter_dotenv/flutter_dotenv.dart', and test print success message
+
+### How I Followed the Plan
+- Maintained the push-then-pull order to ensure no data loss when removing the local guard
+- Offline-first design preserved – the scanner still works without a printer or network
+- Hard Constraint #4 (never overwrite committee data) remains true – only verified_at and printed_at are synced; the Registered column is untouched
+- Hard Constraint #5 (print is fire-and-forget) preserved – the .then() callback is non-blocking
+
+### Verification Result
+- flutter analyze passes with zero errors
+- Clearing Verified At in Google Sheets and performing a pull resets the participant to "not checked-in" on the device
+- Camera preview stays live and visible during scan cooldown
+- Intentionally disconnecting the printer shows the SnackBar failure message
+- "Reset to defaults" restores the original .env values and successfully re-runs column detection
+
+### Issues Encountered
+None.
+
+### Corrections Made
+None.
+
+### Deviations from Plan
+**Removal of local upsert guard:** The plan originally specified a guard to prevent overwriting registered=1 with 0. Because we removed the registered flag and rely solely on verified_at, the guard is now unnecessary; the sheet is authoritative.
+
+**Camera cooldown via flag:** The plan specified pausing the scanner with controller.stop(). The flag approach avoids the white-screen UX problem while still preventing duplicate scans.
+
+**Print feedback:** Not originally specified; added to prevent silent print failures.
+
+**Settings reset:** Not in the original plan; added for operational resilience.
