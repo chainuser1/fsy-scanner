@@ -80,7 +80,7 @@ class PrinterService {
 
       // Enqueue mark_printed task
       await SyncQueueDao.enqueueTask(
-        'UPDATE',
+        SyncQueueDao.typeMarkPrinted,
         participant.toJson()..['printed_at'] = now,
       );
 
@@ -98,10 +98,8 @@ class PrinterService {
     await ParticipantsDao.upsert(participant);
     
     await SyncQueueDao.enqueueTask(
-      'UPDATE', 
+      SyncQueueDao.typeMarkPrinted, 
       participant.toJson()
     );
   }
 }
-
-

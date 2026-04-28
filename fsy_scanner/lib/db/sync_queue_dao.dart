@@ -4,6 +4,10 @@ import '../models/sync_task.dart';
 import 'database_helper.dart';
 
 class SyncQueueDao {
+  // Define constants for task types to ensure consistency
+  static const String typeMarkRegistered = 'mark_registered';
+  static const String typeMarkPrinted = 'mark_printed';
+
   // Add new task. Returns new task id.
   static Future<int> enqueueTask(String type, Map<String, dynamic> payload) async {
     final db = await DatabaseHelper.database;

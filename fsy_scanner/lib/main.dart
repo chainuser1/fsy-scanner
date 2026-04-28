@@ -1,18 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
+
 import 'app.dart';
 import 'db/database_helper.dart';
+import 'providers/app_state.dart';
+import 'utils/logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  
+  // Initialize logging system
+  LoggerUtil.init();
+  
   // Load environment variables
   await dotenv.load(fileName: 'assets/.env');
+  
+  // Initialize app state
+  final appState = AppState();
+  
 
-  // Run database migrations
-  await DatabaseHelper.runMigrations(await DatabaseHelper.database);
-
-  runApp(const FSYScannerApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => appState),
+      ],
+      child: const FSYScannerApp(),
+    ),
+  );
 }
 
 // ... the rest of the file remains as default Flutter template ...

@@ -11,11 +11,16 @@ import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../utils/device_id.dart';
 
-class ConfirmScreen extends StatelessWidget {
+class ConfirmScreen extends StatefulWidget {
   final Participant participant;
 
   const ConfirmScreen({super.key, required this.participant});
 
+  @override
+  State<ConfirmScreen> createState() => _ConfirmScreenState();
+}
+
+class _ConfirmScreenState extends State<ConfirmScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,25 +44,25 @@ class ConfirmScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        participant.fullName,
+                        widget.participant.fullName,
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _buildInfoRow('Stake:', participant.stake ?? '(not assigned)'),
-                      _buildInfoRow('Ward:', participant.ward ?? '(not assigned)'),
-                      _buildInfoRow('Room:', participant.roomNumber ?? '(not assigned)'),
-                      _buildInfoRow('Table:', participant.tableNumber ?? '(not assigned)'),
-                      _buildInfoRow('Shirt:', participant.tshirtSize ?? '(not assigned)'),
+                      _buildInfoRow('Stake:', widget.participant.stake ?? '(not assigned)'),
+                      _buildInfoRow('Ward:', widget.participant.ward ?? '(not assigned)'),
+                      _buildInfoRow('Room:', widget.participant.roomNumber ?? '(not assigned)'),
+                      _buildInfoRow('Table:', widget.participant.tableNumber ?? '(not assigned)'),
+                      _buildInfoRow('Shirt:', widget.participant.tshirtSize ?? '(not assigned)'),
                     ],
                   ),
                 ),
               ),
 
               // Medical info warning if not empty
-              if (participant.medicalInfo != null && participant.medicalInfo!.isNotEmpty)
+              if (widget.participant.medicalInfo != null && widget.participant.medicalInfo!.isNotEmpty)
                 Card(
                   color: Colors.yellow[100],
                   child: Padding(
@@ -75,7 +80,7 @@ class ConfirmScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          participant.medicalInfo!,
+                          widget.participant.medicalInfo!,
                           style: const TextStyle(fontSize: 16),
                         ),
                       ],
@@ -84,7 +89,7 @@ class ConfirmScreen extends StatelessWidget {
                 ),
 
               // Note if not empty
-              if (participant.note != null && participant.note!.isNotEmpty)
+              if (widget.participant.note != null && widget.participant.note!.isNotEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -100,7 +105,7 @@ class ConfirmScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          participant.note!,
+                          widget.participant.note!,
                           style: const TextStyle(fontSize: 16),
                         ),
                       ],
@@ -168,6 +173,11 @@ class ConfirmScreen extends StatelessWidget {
   }
 
   Future<void> _confirmCheckIn(BuildContext context) async {
+    if (!mounted) return;
+    
+    // Get app state first before any async operations
+    final appState = Provider.of<AppState>(context, listen: false);
+    
     // Mark participant as registered locally
     final db = await DatabaseHelper.database;
     final dao = ParticipantsDao(db);
@@ -175,33 +185,40 @@ class ConfirmScreen extends StatelessWidget {
     final now = DateTime.now().millisecondsSinceEpoch;
     
     await dao.markRegisteredLocally(
-      participant.id,
+      widget.participant.id,
       deviceId,
       now,
     );
 
     // Enqueue sync task
     await SyncQueueDao.enqueueTask(
-      'UPDATE',
-      participant.toJson()..['registered'] = 1..['verified_at'] = now..['registered_by'] = deviceId,
+      SyncQueueDao.typeMarkRegistered,
+      widget.participant.toJson()..['registered'] = 1..['verified_at'] = now..['registered_by'] = deviceId,
     );
 
     // Print receipt (fire and forget) - ignore unawaited result
-    unawaited(PrinterService.printReceipt(participant, deviceId));
+    unawaited(PrinterService.printReceipt(widget.participant, deviceId));
 
     // Update app state
-    final appState = Provider.of<AppState>(context, listen: false);
     appState.setLastScanResult('success');
 
-    // Navigate back to scan screen
-    Navigator.pop(context);
-
-    // Show success snackbar
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Registration confirmed'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    // Ensure we're still mounted before navigation and snackbar
+    if (mounted) {
+      // Navigate back to scan screen
+      Navigator.pop(context);
+    }
+    
+    // Wait a frame to ensure navigation completes if mounted
+    await Future<void>.delayed(Duration.zero);
+    
+    // Show success snackbar only if still mounted after navigation
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Registration confirmed'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 }

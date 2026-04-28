@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
+import '../utils/logger.dart';
 
 class AppState extends ChangeNotifier {
   // Sync status
@@ -13,6 +14,9 @@ class AppState extends ChangeNotifier {
 
   // First-run loading
   bool _isInitialLoading = false;
+  
+  // Connectivity
+  bool _isOnline = true;
 
   // Printer
   bool _printerConnected = false;
@@ -28,6 +32,7 @@ class AppState extends ChangeNotifier {
   DateTime? get lastSyncedAt => _lastSyncedAt;
   String? get syncError => _syncError;
   bool get isInitialLoading => _isInitialLoading;
+  bool get isOnline => _isOnline;
   bool get printerConnected => _printerConnected;
   String? get printerAddress => _printerAddress;
   String? get lastScanResult => _lastScanResult;
@@ -50,6 +55,11 @@ class AppState extends ChangeNotifier {
 
   void setInitialLoading(bool val) {
     _isInitialLoading = val;
+    notifyListeners();
+  }
+  
+  void setIsOnline(bool online) {
+    _isOnline = online;
     notifyListeners();
   }
 
@@ -81,6 +91,17 @@ class AppState extends ChangeNotifier {
   Future<void> refreshParticipantsCount() async {
     _participantsCount = await ParticipantsDao.getRegisteredCount();
     notifyListeners();
+  }
+
+  // Add the missing getRegisteredCount method
+  Future<int> getRegisteredCount() async {
+    try {
+      return await ParticipantsDao.getRegisteredCount();
+    } catch (e) {
+      // Handle error appropriately
+      LoggerUtil.error('Error getting registered count: $e', error: e);
+      return 0;
+    }
   }
 
   Future<void> clearAllData() async {

@@ -66,6 +66,9 @@ dependencies:
 
   # Network connectivity check
   connectivity_plus: ^6.0.3
+  
+  # Logging
+  logging: ^1.2.0
 
 dev_dependencies:
   flutter_test:

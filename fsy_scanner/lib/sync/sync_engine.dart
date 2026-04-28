@@ -9,6 +9,7 @@ import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
 import '../providers/app_state.dart';
+import '../utils/logger.dart';
 import 'puller.dart';
 import 'pusher.dart';
 import 'sheets_api.dart';
@@ -28,7 +29,7 @@ class SyncEngine {
   }
 
   static Future<void> startup(AppState appState) async {
-    debugPrint('[SyncEngine] Initializing...');
+    LoggerUtil.info('[SyncEngine] Initializing...');
     // Note: dotenv.load() should be moved to main.dart per requirements
     // await dotenv.load(fileName: 'assets/.env');
 
@@ -64,12 +65,13 @@ class SyncEngine {
           if (sheetIdResult.isNotEmpty && sheetTabResult.isNotEmpty) {
             final sheetId = sheetIdResult.first['value'] as String;
             final sheetTab = sheetTabResult.first['value'] as String;
+            LoggerUtil.info('[SyncEngine] Detecting column map for sheet $sheetId tab $sheetTab');
             await SheetsApi.detectColMap(db, token, sheetId, sheetTab);
           } else {
-            debugPrint('[SyncEngine] Missing sheet configuration for column detection');
+            LoggerUtil.error('[SyncEngine] Missing sheet configuration for column detection');
           }
         } on SheetsColMapException catch (e) {
-          debugPrint('[SyncEngine] Column map detection failed: ${e.toString()}');
+          LoggerUtil.error('[SyncEngine] Column map detection failed: ${e.toString()}');
           appState.setSyncError('Column map detection failed: ${e.toString()}');
           return; // halt sync
         }
@@ -79,38 +81,50 @@ class SyncEngine {
     // Load interval from .env or default to 15s
     final configuredInterval = dotenv.env['SYNC_INTERVAL_MS'];
     _intervalMs = int.tryParse(configuredInterval ?? '') ?? 15000;
-    debugPrint('[SyncEngine] Interval set to $_intervalMs ms');
+    LoggerUtil.info('[SyncEngine] Interval set to $_intervalMs ms');
 
     // Initial sync after 3s
     await Future.delayed(const Duration(seconds: 3));
     unawaited(_syncLoop(appState)); // Fire-and-forget sync loop
   }
 
+  // Add a dispose method to clean up the stream controller
+  static void dispose() {
+    _syncStatusController.close();
+  }
+
   static Future<bool> performFullSync(AppState appState) async {
     if (_isSyncing) return false;
     _setSyncing(true);
-    debugPrint('[SyncEngine] Performing full sync...');
+    LoggerUtil.info('[SyncEngine] Performing full sync...');
     try {
       final pushSuccess = await Pusher.pushPendingUpdates(appState);
       
       final token = await GoogleAuth.getValidToken();
-      if (token == null) return false;
+      if (token == null) {
+        LoggerUtil.warn('[SyncEngine] No auth token available for full sync');
+        return false;
+      }
       
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) return false;
+      if (sheetId == null || sheetName == null) {
+        LoggerUtil.warn('[SyncEngine] Missing sheet configuration for full sync');
+        return false;
+      }
 
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
       
+      LoggerUtil.info('[SyncEngine] Full sync completed successfully');
       return pushSuccess;
     } on SheetsRateLimitException {
       // Increase the backoff multiplier when encountering rate limits
       _increaseBackoff();
-      debugPrint('[SyncEngine] Rate limit encountered during full sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+      LoggerUtil.warn('[SyncEngine] Rate limit encountered during full sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
       return false;
     } catch (e) {
-      debugPrint('[SyncEngine] Error during full sync: $e');
+      LoggerUtil.error('[SyncEngine] Error during full sync: $e', error: e);
       return false;
     } finally {
       _setSyncing(false);
@@ -120,26 +134,32 @@ class SyncEngine {
   static Future<bool> performPullSync(AppState appState) async {
     if (_isSyncing) return false;
     _setSyncing(true);
-    debugPrint('[SyncEngine] Performing pull sync...');
+    LoggerUtil.info('[SyncEngine] Performing pull sync...');
     try {
       final token = await GoogleAuth.getValidToken();
-      if (token == null) return false;
+      if (token == null) {
+        LoggerUtil.warn('[SyncEngine] No auth token available for pull sync');
+        return false;
+      }
       
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) return false;
+      if (sheetId == null || sheetName == null) {
+        LoggerUtil.warn('[SyncEngine] Missing sheet configuration for pull sync');
+        return false;
+      }
 
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
-      debugPrint('[SyncEngine] Pull sync completed.');
+      LoggerUtil.info('[SyncEngine] Pull sync completed.');
       return true;
     } on SheetsRateLimitException {
       // Increase the backoff multiplier when encountering rate limits
       _increaseBackoff();
-      debugPrint('[SyncEngine] Rate limit encountered during pull sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+      LoggerUtil.warn('[SyncEngine] Rate limit encountered during pull sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
       return false;
     } catch (e) {
-      debugPrint('[SyncEngine] Error during pull sync: $e');
+      LoggerUtil.error('[SyncEngine] Error during pull sync: $e', error: e);
       return false;
     } finally {
       _setSyncing(false);
@@ -147,6 +167,10 @@ class SyncEngine {
   }
 
   static Future<void> _syncLoop(AppState appState) async {
+    // Initialize connectivity status
+    var lastConnectivityResult = await Connectivity().checkConnectivity();
+    appState.setIsOnline(!lastConnectivityResult.contains(ConnectivityResult.none));
+
     // Run sync loop indefinitely
     while (true) {
       if (_isSyncing) {
@@ -154,10 +178,26 @@ class SyncEngine {
         continue;
       }
 
-      // Wait for connectivity
+      // Check connectivity status
       final connectivityResult = await Connectivity().checkConnectivity();
+      final isCurrentlyOnline = !connectivityResult.contains(ConnectivityResult.none);
+      
+      // Update app state if connectivity status has changed
+      if (isCurrentlyOnline != appState.isOnline) {
+        appState.setIsOnline(isCurrentlyOnline);
+        if (isCurrentlyOnline) {
+          LoggerUtil.info('[SyncEngine] Connection restored, resuming sync operations');
+        } else {
+          LoggerUtil.warn('[SyncEngine] Connection lost, pausing sync operations');
+        }
+      }
+      
+      // Update last connectivity result
+      lastConnectivityResult = connectivityResult;
+
+      // Wait for connectivity
       if (connectivityResult.contains(ConnectivityResult.none)) {
-        debugPrint('[SyncEngine] No connectivity, waiting...');
+        LoggerUtil.debug('[SyncEngine] No connectivity, waiting...');
         await Future.delayed(const Duration(seconds: 10));
         continue;
       }
@@ -165,7 +205,7 @@ class SyncEngine {
       // Verify auth token works
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
-        debugPrint('[SyncEngine] No auth token, waiting...');
+        LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
         await Future.delayed(const Duration(seconds: 30));
         continue;
       }
@@ -174,9 +214,17 @@ class SyncEngine {
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
-        debugPrint('[SyncEngine] Missing sheet config, waiting...');
+        LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
         await Future.delayed(const Duration(seconds: 30));
         continue;
+      }
+
+      // NEW: Check if this is the initial load (last_pulled_at = 0) and set isInitialLoading accordingly
+      final lastPulledResult = await _getSettingValue('last_pulled_at');
+      final isFirstLoad = lastPulledResult == null || lastPulledResult == '0';
+      
+      if (isFirstLoad) {
+        appState.setInitialLoading(true);
       }
 
       try {
@@ -187,23 +235,36 @@ class SyncEngine {
         final db = await DatabaseHelper.database;
         await Puller.pull(db, token, sheetId, sheetName);
         
+        // If this was the first load, set initial loading to false
+        if (isFirstLoad) {
+          appState.setInitialLoading(false);
+        }
+        
         // If both succeeded, potentially decrease backoff (reset to normal)
         if (_rateLimitBackoffMultiplier > 1) {
           _decreaseBackoff();
-          debugPrint('[SyncEngine] Success after rate limit, decreasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+          LoggerUtil.info('[SyncEngine] Success after rate limit, decreasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
         }
       } on SheetsRateLimitException {
+        // If this was the first load and we encountered an error, set initial loading to false
+        if (isFirstLoad) {
+          appState.setInitialLoading(false);
+        }
         // Increase the backoff multiplier when encountering rate limits
         _increaseBackoff();
-        debugPrint('[SyncEngine] Rate limit encountered in loop, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+        LoggerUtil.warn('[SyncEngine] Rate limit encountered in loop, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
       } catch (e) {
-        debugPrint('[SyncEngine] Error during sync: $e');
+        // If this was the first load and we encountered an error, set initial loading to false
+        if (isFirstLoad) {
+          appState.setInitialLoading(false);
+        }
+        LoggerUtil.error('[SyncEngine] Error during sync: $e', error: e);
       }
 
       // Log results
       final pendingCount = await SyncQueueDao.getPendingCount();
       appState.setPendingTaskCount(pendingCount); // Update UI with pending count
-      debugPrint('[SyncEngine] Sync completed. Pending: $pendingCount');
+      LoggerUtil.debug('[SyncEngine] Sync completed. Pending: $pendingCount');
 
       // Wait for next sync
       await Future.delayed(Duration(milliseconds: _intervalMs * _rateLimitBackoffMultiplier));
@@ -242,7 +303,7 @@ class SyncEngine {
       }
       return null;
     } catch (e) {
-      debugPrint('[SyncEngine] Error retrieving setting $key: $e');
+      LoggerUtil.error('[SyncEngine] Error retrieving setting $key: $e', error: e);
       return null;
     }
   }

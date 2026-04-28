@@ -74,151 +74,180 @@ class _ScanScreenState extends State<ScanScreen> {
           ),
         ],
       ),
+      // Adding offline banner at the top
       body: Stack(
         children: [
-          MobileScanner(
-            controller: controller,
-            onDetect: (capture) async {
-              final String? barcode = capture.barcodes.first.rawValue;
-
-              if (barcode != null && barcode.isNotEmpty) {
-                // Pause scanning for 2 seconds
-                controller.stop();
-
-                // Look up participant in SQLite
-                final db = await DatabaseHelper.database;
-                final dao = ParticipantsDao(db);
-                final participant = await dao.getParticipantById(barcode);
-
-                if (participant == null) {
-                  // Participant not found
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Participant not found'),
-                        backgroundColor: Colors.red,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    
-                    // Resume scanning after 2 seconds
-                    await Future.delayed(const Duration(seconds: 2));
-                    if (mounted) {
-                      controller.start();
-                    }
-                  }
-                } else if (participant.registered == 1) {
-                  // Already checked in
-                  if (mounted) {
-                    String timeStr = '';
-                    if (participant.verifiedAt != null) {
-                      final dt = DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!);
-                      timeStr = '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Already checked in — ${participant.fullName} at $timeStr'),
-                        backgroundColor: Colors.orange,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    
-                    // Resume scanning after 2 seconds
-                    await Future.delayed(const Duration(seconds: 2));
-                    if (mounted) {
-                      controller.start();
-                    }
-                  }
-                } else {
-                  // Fast path: auto-check-in and print (no confirmation)
-                  final deviceId = await DeviceId.get();
-                  final now = DateTime.now().millisecondsSinceEpoch;
-
-                  // Mark locally as registered
-                  await dao.markRegisteredLocally(participant.id, deviceId, now);
-
-                  // Enqueue a mark_registered task for the pusher
-                  await SyncQueueDao.enqueueTask('mark_registered', {
-                    'participantId': participant.id,
-                    'sheetsRow': participant.sheetsRow,
-                    'verifiedAt': now,
-                    'registeredBy': deviceId,
-                  });
-
-                  // Fire-and-forget print
-                  unawaited(PrinterService.printReceipt(participant, deviceId));
-
-                  // Show quick success feedback
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✓ ${participant.fullName} checked in'),
-                        backgroundColor: Colors.green,
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  }
-
-                  // Short pause then resume scanning
-                  await Future.delayed(const Duration(milliseconds: 800));
-                  if (mounted) controller.start();
-                }
-              }
-            },
-          ),
-          // Centered scanning reticle: 260×260 square overlay
-          Center(
-            child: Container(
-              width: 260,
-              height: 260,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white, width: 2),
+          // Offline banner
+          if (!appState.isOnline)
+            Container(
+              color: Colors.red[300],
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.cloud_off, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'OFFLINE',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          // First-run loading state overlay
-          if (appState.isInitialLoading)
-            Container(
-              color: Colors.black.withValues(alpha: 0.8),
-              child: Center(
-                child: Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Setting up for the first time...',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('Downloading participant list'),
-                        const SizedBox(height: 24),
-                        const CircularProgressIndicator(),
-                        if (appState.syncError != null) ...[
-                          const SizedBox(height: 24),
-                          Text(
-                            'Error: ${appState.syncError}',
-                            style: const TextStyle(color: Colors.red),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: () {
-                              appState.setSyncError(null);
-                              // SyncEngine tick will retry
-                            },
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ],
+          // Main scanner content
+          Positioned.fill(
+            top: !appState.isOnline ? 48 : 0, // Adjust position if offline banner is visible
+            child: Stack(
+              children: [
+                MobileScanner(
+                  controller: controller,
+                  onDetect: (capture) async {
+                    final String? barcode = capture.barcodes.first.rawValue;
+
+                    if (barcode != null && barcode.isNotEmpty) {
+                      // Pause scanning for 2 seconds
+                      controller.stop();
+
+                      // Look up participant in SQLite
+                      final db = await DatabaseHelper.database;
+                      final dao = ParticipantsDao(db);
+                      final participant = await dao.getParticipantById(barcode);
+
+                      if (participant == null) {
+                        // Participant not found
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Participant not found'),
+                              backgroundColor: Colors.red,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                          
+                          // Resume scanning after 2 seconds
+                          await Future.delayed(const Duration(seconds: 2));
+                          if (mounted) {
+                            controller.start();
+                          }
+                        }
+                      } else if (participant.registered == 1) {
+                        // Already checked in
+                        if (mounted) {
+                          String timeStr = '';
+                          if (participant.verifiedAt != null) {
+                            final dt = DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!);
+                            timeStr = '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Already checked in — ${participant.fullName} at $timeStr'),
+                              backgroundColor: Colors.orange,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                          
+                          // Resume scanning after 2 seconds
+                          await Future.delayed(const Duration(seconds: 2));
+                          if (mounted) {
+                            controller.start();
+                          }
+                        }
+                      } else {
+                        // Fast path: auto-check-in and print (no confirmation)
+                        final deviceId = await DeviceId.get();
+                        final now = DateTime.now().millisecondsSinceEpoch;
+
+                        // Mark locally as registered
+                        await dao.markRegisteredLocally(participant.id, deviceId, now);
+
+                        // Enqueue a mark_registered task for the pusher
+                        await SyncQueueDao.enqueueTask(SyncQueueDao.typeMarkRegistered, {
+                          'participantId': participant.id,
+                          'sheetsRow': participant.sheetsRow,
+                          'verifiedAt': now,
+                          'registeredBy': deviceId,
+                        });
+
+                        // Fire-and-forget print
+                        unawaited(PrinterService.printReceipt(participant, deviceId));
+
+                        // Show quick success feedback
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('✓ ${participant.fullName} checked in'),
+                              backgroundColor: Colors.green,
+                              duration: const Duration(seconds: 1),
+                            ),
+                          );
+                        }
+
+                        // Short pause then resume scanning
+                        await Future.delayed(const Duration(milliseconds: 800));
+                        if (mounted) controller.start();
+                      }
+                    }
+                  },
+                ),
+                // Centered scanning reticle: 260×260 square overlay
+                Center(
+                  child: Container(
+                    width: 260,
+                    height: 260,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.white, width: 2),
                     ),
                   ),
                 ),
-              ),
+                // First-run loading state overlay
+                if (appState.isInitialLoading)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.8),
+                    child: Center(
+                      child: Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Setting up for the first time...',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text('Downloading participant list'),
+                              const SizedBox(height: 24),
+                              const CircularProgressIndicator(),
+                              if (appState.syncError != null) ...[
+                                const SizedBox(height: 24),
+                                Text(
+                                  'Error: ${appState.syncError}',
+                                  style: const TextStyle(color: Colors.red),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    appState.setSyncError(null);
+                                    // SyncEngine tick will retry
+                                  },
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
+          ),
         ],
       ),
     );
