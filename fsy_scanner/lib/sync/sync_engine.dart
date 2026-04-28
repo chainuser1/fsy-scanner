@@ -15,7 +15,7 @@ import 'sheets_api.dart';
 
 class SyncEngine {
   // Adaptive polling intervals
-  static const int _activeIntervalMs = 5000; // 5 seconds when actively scanning
+  static const int _activeIntervalMs = 2000; // 2 seconds when actively scanning
   static const int _idleIntervalMs = 300000; // 5 minutes when idle
   static const int _idleThresholdSeconds =
       300; // 5 minutes without activity = idle
