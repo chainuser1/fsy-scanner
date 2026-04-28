@@ -24,12 +24,17 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
+  // Audio asset paths
+  static const String _errorSoundPath = 'assets/sounds/error_sound.mp3';
+  static const String _successSoundPath = 'assets/sounds/success_sound.mp3';
+
   MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription<bool>? _syncSub;
   bool _isSyncingNow = false;
+  bool _isCooldown = false;
 
   @override
   void initState() {
@@ -39,13 +44,13 @@ class _ScanScreenState extends State<ScanScreen> {
     });
   }
 
-  Future<void> _playSound(String url) async {
+  Future<void> _playSound(String assetPath) async {
     final db = await DatabaseHelper.database;
     final result = await db.query('app_settings',
         where: 'key = ?', whereArgs: ['sound_enabled']);
     final enabled = result.isEmpty || result.first['value'] != 'false';
     if (enabled) {
-      await _audioPlayer.play(UrlSource(url));
+      await _audioPlayer.play(AssetSource(assetPath));
     }
   }
 
@@ -157,18 +162,18 @@ class _ScanScreenState extends State<ScanScreen> {
                 MobileScanner(
                   controller: controller,
                   onDetect: (capture) async {
+                    if (_isCooldown) return;
                     final String? barcode = capture.barcodes.first.rawValue;
                     if (barcode == null || barcode.isEmpty) return;
 
-                    controller.stop();
+                    _isCooldown = true;
 
                     final db = await DatabaseHelper.database;
                     final dao = ParticipantsDao(db);
                     final participant = await dao.getParticipantById(barcode);
 
                     if (participant == null) {
-                      _playSound(
-                          'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
+                      _playSound(_errorSoundPath);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -177,12 +182,8 @@ class _ScanScreenState extends State<ScanScreen> {
                             duration: Duration(seconds: 2),
                           ),
                         );
-                        await Future.delayed(const Duration(seconds: 2));
-                        if (mounted) controller.start();
                       }
                     } else if (participant.verifiedAt != null) {
-                      // _playSound(
-                      //     'https://assets.mixkit.co/active_storage/sfx/948/948-preview.mp3');
                       if (mounted) {
                         String timeStr = '';
                         if (participant.verifiedAt != null) {
@@ -199,8 +200,6 @@ class _ScanScreenState extends State<ScanScreen> {
                             duration: const Duration(seconds: 2),
                           ),
                         );
-                        await Future.delayed(const Duration(seconds: 2));
-                        if (mounted) controller.start();
                       }
                     } else {
                       final deviceId = await DeviceId.get();
@@ -218,11 +217,20 @@ class _ScanScreenState extends State<ScanScreen> {
                         'registeredBy': deviceId,
                       });
 
-                      unawaited(PrinterService.printReceipt(
-                          participant, deviceId));
+                      PrinterService.printReceipt(participant, deviceId)
+                          .then((success) {
+                        if (!success && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Print failed – check printer connection'),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                        }
+                      });
 
-                      _playSound(
-                          'https://assets.mixkit.co/active_storage/sfx/2039/2039-preview.mp3');
+                      _playSound(_successSoundPath);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -233,10 +241,10 @@ class _ScanScreenState extends State<ScanScreen> {
                           ),
                         );
                       }
-
-                      await Future.delayed(const Duration(milliseconds: 800));
-                      if (mounted) controller.start();
                     }
+
+                    await Future.delayed(const Duration(seconds: 2));
+                    _isCooldown = false;
                   },
                 ),
                 Center(

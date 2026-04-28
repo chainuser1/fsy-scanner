@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_thermal_printer/utils/printer.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -168,6 +169,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _resetToDefaults() async {
+    final db = await DatabaseHelper.database;
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+
+    final settingsToSeed = {
+      'sheets_id': dotenv.env['SHEETS_ID'],
+      'sheets_tab': dotenv.env['SHEETS_TAB'],
+      'event_name': dotenv.env['EVENT_NAME'],
+    };
+    for (final entry in settingsToSeed.entries) {
+      if (entry.value != null) {
+        await db.insert(
+          'app_settings',
+          {'key': entry.key, 'value': entry.value},
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+
+    await _loadSettings();
+
+    try {
+      final token = await GoogleAuth.getValidToken();
+      if (token != null && mounted) {
+        await SheetsApi.detectColMap(
+            db, token, _sheetIdController.text, _tabNameController.text);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Defaults restored and columns detected'),
+              backgroundColor: Colors.green));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Restored defaults but column detection failed: $e'),
+            backgroundColor: Colors.red));
+      }
+    }
+  }
+
   Future<void> _scanPrinters() async {
     setState(() => _isScanningPrinters = true);
     final printers = await PrinterService.scanPrinters();
@@ -198,9 +242,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     final success =
         await PrinterService.printReceipt(mockParticipant, deviceId);
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Test print failed'), backgroundColor: Colors.red));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'Test print sent' : 'Test print failed'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
     }
   }
 
@@ -303,12 +351,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _saveSheetSettings,
-                      child: const Text('Save & Detect Columns'),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _saveSheetSettings,
+                          child: const Text('Save & Detect Columns'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: _resetToDefaults,
+                        icon: const Icon(Icons.restore),
+                        label: const Text('Reset to defaults'),
+                      ),
+                    ],
                   ),
                 ],
               ),

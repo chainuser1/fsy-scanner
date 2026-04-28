@@ -13,7 +13,6 @@ class ParticipantsDao {
     return ParticipantsDao(db);
   }
 
-  // Insert or update participant. NEVER overwrite an already‑verified scan.
   Future<void> upsertParticipant(Participant p) async {
     final rowsUpdated = await _db.update(
       'participants',
@@ -35,7 +34,7 @@ class ParticipantsDao {
         'raw_json': p.rawJson,
         'updated_at': p.updatedAt,
       },
-      where: 'id = ? AND verified_at IS NULL',
+      where: 'id = ?',
       whereArgs: [p.id],
     );
 
@@ -82,9 +81,7 @@ class ParticipantsDao {
     return Participant.fromDbRow(results.first);
   }
 
-  // Mark participant as verified (scanned) locally.
-  Future<void> markVerifiedLocally(
-      String id, String deviceId, int verifiedAt) async {
+  Future<void> markVerifiedLocally(String id, String deviceId, int verifiedAt) async {
     await _db.update(
       'participants',
       {
@@ -97,7 +94,6 @@ class ParticipantsDao {
     );
   }
 
-  // Mark participant as printed locally.
   Future<void> markPrintedLocally(String id, int printedAt) async {
     await _db.update(
       'participants',
@@ -116,7 +112,7 @@ class ParticipantsDao {
       orderBy: 'full_name ASC',
     );
 
-    return results.map(Participant.fromDbRow).toList();
+    return results.map((row) => Participant.fromDbRow(row)).toList();
   }
 
   Future<List<Participant>> searchParticipants(String query) async {
@@ -127,7 +123,7 @@ class ParticipantsDao {
       limit: 50,
     );
 
-    return results.map(Participant.fromDbRow).toList();
+    return results.map((row) => Participant.fromDbRow(row)).toList();
   }
 
   static Future<int> getRegisteredCount() async {

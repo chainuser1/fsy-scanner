@@ -197,7 +197,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       },
     );
 
-    unawaited(PrinterService.printReceipt(widget.participant, deviceId));
+    PrinterService.printReceipt(widget.participant, deviceId).then((success) {
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Print failed – check printer connection'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    });
 
     appState.setLastScanResult('success');
 
@@ -210,8 +219,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Registration confirmed',
-              style: TextStyle(color: Colors.white)),
+          content:
+              Text('Registration confirmed', style: TextStyle(color: Colors.white)),
           backgroundColor: FSYScannerApp.accentGreen,
         ),
       );

@@ -1987,3 +1987,43 @@ None.
 
 Deviations from Plan
 Brand color palette and launcher icon: Not specified in the original plan; added to align the app visually with the FSY event identity.
+
+## 30.0 — Audio Optimization: Local Assets and Constants
+**Date/Time:** 2026-04-28 17:00:00
+**Status:** ✅ Complete
+
+### What I Did
+Optimized audio playback in [lib/screens/scan_screen.dart](lib/screens/scan_screen.dart) by:
+1. Migrating from web-based audio URLs to local asset files
+2. Extracting audio file paths into class-level constants
+3. Updating the `_playSound()` method to use `AssetSource` instead of `UrlSource`
+
+### Changes Made
+- Added two static constants to `_ScanScreenState`:
+  - `_errorSoundPath = 'assets/sounds/error_sound.mp3'`
+  - `_successSoundPath = 'assets/sounds/success_sound.mp3'`
+- Replaced hardcoded URL strings in `_playSound()` calls with the constants
+- Changed `_playSound()` method signature parameter from `url` to `assetPath` for clarity
+- Updated audio source from `UrlSource(url)` to `AssetSource(assetPath)` in the audioplayers library call
+
+### Benefits
+- **Faster playback**: Local assets play instantly without network latency
+- **Offline capability**: Sound effects work when device is offline
+- **Single source of truth**: Audio paths defined once, used everywhere—reduces maintenance burden and typos
+- **Cleaner code**: Constants are more readable and self-documenting than hardcoded URLs
+- **Better organization**: Related constants grouped together at the top of the class
+
+### Verification Result
+- Dart analysis passes with no new errors or warnings
+- Audio constants are properly referenced in both error and success sound scenarios
+- Code follows Dart style conventions with static const declarations
+- Asset paths match declarations in pubspec.yaml
+
+### Issues Encountered
+None.
+
+### Corrections Made
+None.
+
+### Deviations from Plan
+Optimization applied beyond initial plan scope—improves code maintainability and production reliability without conflicting with FSY_SCANNER_PLAN.md specifications.

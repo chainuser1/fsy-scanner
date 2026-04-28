@@ -94,8 +94,12 @@ flutter:
 
   assets:
     - assets/.env
+    # image assets
     - assets/fsy_logo.png
     - assets/transparent_background_fsy_logo.png
+    # audio assets error and success sounds
+    - assets/sounds/error_sound.mp3
+    - assets/sounds/success_sound.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
