@@ -31,6 +31,9 @@ Thumbs.db
 /.flutter-plugins
 /.flutter-plugins-dependencies
 
+# Documentation
+*.md
+
 # Miscellaneous
 *.class
 *.log
