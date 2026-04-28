@@ -6,6 +6,7 @@ plugins {
 }
 
 android {
+    compileSdk = 36
     namespace = "com.fsy.tacandtol.fsy_scanner"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
