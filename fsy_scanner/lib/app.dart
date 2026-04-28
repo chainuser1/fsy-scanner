@@ -9,6 +9,9 @@ class FSYScannerApp extends StatelessWidget {
 
   const FSYScannerApp({super.key, required this.appState});
 
+  // Version
+  static const String appVersion = '2.0.0';
+
   // FSY logo brand colors
   static const Color primaryBlue = Color(0xFF045782);
   static const Color accentGreen = Color(0xFFA3C997);
@@ -21,7 +24,7 @@ class FSYScannerApp extends StatelessWidget {
     });
 
     return MaterialApp(
-      title: 'FSY Scanner 2026',
+      title: 'FSY Scanner 2026 v2.0.0',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryBlue,

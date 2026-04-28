@@ -1,4 +1,5 @@
 name: CI / Android Build (Flutter)
+# Version: 2.0.0
 
 on:
   push:
@@ -28,6 +29,15 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+        working-directory: fsy_scanner
+
+      - name: Create placeholder .env for analyze
+        run: |
+          echo "GOOGLE_SERVICE_ACCOUNT_EMAIL=test@example.com" > assets/.env
+          echo "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=fake" >> assets/.env
+          echo "SHEETS_ID=fake" >> assets/.env
+          echo "SHEETS_TAB=fake" >> assets/.env
+          echo "EVENT_NAME=Test" >> assets/.env
         working-directory: fsy_scanner
 
       - name: Dart analyze (linting)
@@ -68,28 +78,20 @@ jobs:
 
       - name: Create .env file from secrets
         run: |
-          cat > assets/.env << EOF
-          GOOGLE_SERVICE_ACCOUNT_EMAIL=${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
-          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
-          SHEETS_ID=${{ secrets.SHEETS_ID }}
-          SHEETS_TAB=${{ secrets.SHEETS_TAB }}
-          EVENT_NAME=${{ secrets.EVENT_NAME }}
-          EOF
+          echo "GOOGLE_SERVICE_ACCOUNT_EMAIL=${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}" > assets/.env
+          echo "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}" >> assets/.env
+          echo "SHEETS_ID=${{ secrets.SHEETS_ID }}" >> assets/.env
+          echo "SHEETS_TAB=${{ secrets.SHEETS_TAB }}" >> assets/.env
+          echo "EVENT_NAME=${{ secrets.EVENT_NAME }}" >> assets/.env
           echo ".env created (values hidden)"
         working-directory: fsy_scanner
 
       - name: Build Android APK (debug)
-        run: |
-          flutter build apk \
-            --target-platform android-arm64 \
-            --debug
+        run: flutter build apk --target-platform android-arm64 --debug
         working-directory: fsy_scanner
 
       - name: Build Android APK (release)
-        run: |
-          flutter build apk \
-            --target-platform android-arm64 \
-            --release
+        run: flutter build apk --target-platform android-arm64 --release
         working-directory: fsy_scanner
 
       - name: Upload debug APK

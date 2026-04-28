@@ -552,6 +552,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('App Info',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('Version: ${FSYScannerApp.appVersion}',
+                      style: const TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
