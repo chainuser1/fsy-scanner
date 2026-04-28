@@ -97,6 +97,7 @@ flutter:
     # image assets
     - assets/fsy_logo.png
     - assets/transparent_background_fsy_logo.png
+    - assets/transparent_qr_code_logo.png
     # audio assets error and success sounds
     - assets/sounds/error_sound.mp3
     - assets/sounds/success_sound.mp3
