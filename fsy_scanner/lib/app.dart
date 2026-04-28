@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'providers/app_state.dart';
 import 'screens/scan_screen.dart';
+import 'sync/sync_engine.dart';
 
 class FSYScannerApp extends StatelessWidget {
   const FSYScannerApp({super.key});
@@ -10,7 +11,8 @@ class FSYScannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (context) => AppState(),
+      create: (context) => AppState()
+        ..startup(), // Initialize the app state and kick off sync engine
       child: MaterialApp(
         title: 'FSY Scanner',
         theme: ThemeData(
@@ -21,5 +23,12 @@ class FSYScannerApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
       ),
     );
+  }
+}
+
+extension AppStateExtension on AppState {
+  void startup() {
+    // Start the sync engine with this instance of AppState
+    SyncEngine.startup(this);
   }
 }

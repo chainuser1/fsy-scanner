@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'app.dart';
 import 'db/database_helper.dart';
-import 'sync/sync_engine.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,11 +12,11 @@ void main() async {
   // Run database migrations
   await DatabaseHelper.runMigrations(await DatabaseHelper.database);
 
-  // Start sync engine
-  await SyncEngine.startup(); // Updated to call the new startup method
-
   runApp(const FSYScannerApp());
 }
+
+// ... the rest of the file remains as default Flutter template ...
+// We'll keep the default counter app code for now but it won't be used since we're running FSYScannerApp
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

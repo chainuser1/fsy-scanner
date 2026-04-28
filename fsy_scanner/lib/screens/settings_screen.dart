@@ -304,11 +304,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _startFullSync() async {
-    await SyncEngine.performFullSync();
+    final appState = Provider.of<AppState>(context, listen: false);
+    await SyncEngine.performFullSync(appState);
   }
 
   Future<void> _startPullOnlySync() async {
-    await SyncEngine.performPullSync();
+    final appState = Provider.of<AppState>(context, listen: false);
+    await SyncEngine.performPullSync(appState);
   }
 
   Future<void> _clearAllData(BuildContext context, AppState appState) async {

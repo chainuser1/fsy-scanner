@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
 import '../models/sync_task.dart';
+import '../providers/app_state.dart';
 import 'sheets_api.dart';
 
 class Pusher {
-  static Future<bool> pushPendingUpdates() async {
+  static Future<bool> pushPendingUpdates(AppState appState) async {
     debugPrint('[Pusher] Starting pending updates...');
     
     try {
@@ -35,20 +37,45 @@ class Pusher {
         final task = await SyncQueueDao.claimNextTask();
         if (task == null) break;
 
-        final success = await _processTask(db, token, sheetId, tabName, colMap, task);
-        
-        if (success) {
-          await SyncQueueDao.markCompleted(task.id!);
-        } else {
-          await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
-          // If we failed, stop draining to avoid rate limits or repeated errors
-          return false;
+        try {
+          final success = await _processTask(db, token, sheetId, tabName, colMap, task);
+          
+          if (success) {
+            await SyncQueueDao.markCompleted(task.id!);
+            // Verify that markCompleted deletes the row
+            final completedTask = await SyncQueueDao.getTask(task.id!);
+            if (completedTask != null) {
+              debugPrint('[Pusher] Warning: Task ${task.id} not deleted after completion');
+            }
+          } else {
+            await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
+            
+            // Check if task has reached max attempts
+            final failedTask = await SyncQueueDao.getTask(task.id!);
+            if (failedTask != null && failedTask.attempts >= 10) {
+              // Increment the failed task count in AppState
+              appState.incrementFailedTaskCount();
+              // Set a sync error in AppState to show to the user
+              appState.setSyncError('${failedTask.attempts} tasks failed after 10 attempts');
+            }
+            
+            // If we failed, stop draining to avoid rate limits or repeated errors
+            return false;
+          }
+        } on SheetsRateLimitException {
+          // If we encounter rate limiting, mark the task as failed and rethrow
+          await SyncQueueDao.markFailed(task.id!, 'Rate limit encountered');
+          rethrow; // Rethrow to be caught by sync_engine.dart
         }
       }
       
       return true;
     } catch (e) {
       debugPrint('[Pusher] Error pushing updates: $e');
+      // If it's a rate limit exception, we should propagate it
+      if (e is SheetsRateLimitException) {
+        rethrow;
+      }
       return false;
     }
   }
@@ -68,21 +95,15 @@ class Pusher {
         // I'll stick to what's in the contract 4.1 table.
       } else if (task.type == 'mark_printed') {
         values['Printed At'] = DateTime.fromMillisecondsSinceEpoch(payload['printedAt']).toIso8601String();
-      } else if (task.type == 'UPDATE') {
-        // Generic update from my previous fix
-        if (payload['registered'] == 1) values['Registered'] = 'Y';
-        if (payload['verified_at'] != null) {
-          values['Verified At'] = DateTime.fromMillisecondsSinceEpoch(payload['verified_at']).toIso8601String();
-        }
-        if (payload['printed_at'] != null) {
-          values['Printed At'] = DateTime.fromMillisecondsSinceEpoch(payload['printed_at']).toIso8601String();
-        }
       }
 
       if (values.isEmpty) return true;
 
       await SheetsApi.updateRegistrationRow(token, sheetId, tabName, sheetsRow, colMap, values);
       return true;
+    } on SheetsRateLimitException {
+      // Re-throw rate limit exceptions so they can be handled upstream
+      rethrow;
     } catch (e) {
       debugPrint('[Pusher] Error processing task ${task.id}: $e');
       return false;

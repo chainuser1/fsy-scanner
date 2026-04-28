@@ -8,13 +8,16 @@ import 'package:sqflite/sqflite.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
+import '../providers/app_state.dart';
 import 'puller.dart';
 import 'pusher.dart';
+import 'sheets_api.dart';
 
 class SyncEngine {
-  static int _intervalMs = 30000;
+  static int _intervalMs = 15000; // Default to 15 seconds
   static bool _isSyncing = false;
   static final _syncStatusController = StreamController<bool>.broadcast();
+  static int _rateLimitBackoffMultiplier = 1; // Start with 1 (no multiplier)
 
   static bool get isSyncing => _isSyncing;
   static Stream<bool> get syncStatusStream => _syncStatusController.stream;
@@ -24,9 +27,10 @@ class SyncEngine {
     _syncStatusController.add(value);
   }
 
-  static Future<void> startup() async {
+  static Future<void> startup(AppState appState) async {
     debugPrint('[SyncEngine] Initializing...');
-    await dotenv.load(fileName: 'assets/.env');
+    // Note: dotenv.load() should be moved to main.dart per requirements
+    // await dotenv.load(fileName: 'assets/.env');
 
     final db = await DatabaseHelper.database;
     await SyncQueueDao.resetInProgressTasks();
@@ -48,6 +52,30 @@ class SyncEngine {
       }
     }
 
+    // NEW: Check for col_map and detect if missing - per plan Section 7.9 Step 3
+    final colMapResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+    if (colMapResult.isEmpty || colMapResult.first['value'] == null || colMapResult.first['value'] == '') {
+      final token = await GoogleAuth.getValidToken();
+      if (token != null) {
+        try {
+          final sheetIdResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
+          final sheetTabResult = await db.query('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+          
+          if (sheetIdResult.isNotEmpty && sheetTabResult.isNotEmpty) {
+            final sheetId = sheetIdResult.first['value'] as String;
+            final sheetTab = sheetTabResult.first['value'] as String;
+            await SheetsApi.detectColMap(db, token, sheetId, sheetTab);
+          } else {
+            debugPrint('[SyncEngine] Missing sheet configuration for column detection');
+          }
+        } on SheetsColMapException catch (e) {
+          debugPrint('[SyncEngine] Column map detection failed: ${e.toString()}');
+          appState.setSyncError('Column map detection failed: ${e.toString()}');
+          return; // halt sync
+        }
+      }
+    }
+
     // Load interval from .env or default to 15s
     final configuredInterval = dotenv.env['SYNC_INTERVAL_MS'];
     _intervalMs = int.tryParse(configuredInterval ?? '') ?? 15000;
@@ -55,15 +83,15 @@ class SyncEngine {
 
     // Initial sync after 3s
     await Future.delayed(const Duration(seconds: 3));
-    unawaited(_syncLoop()); // Fire-and-forget sync loop
+    unawaited(_syncLoop(appState)); // Fire-and-forget sync loop
   }
 
-  static Future<bool> performFullSync() async {
+  static Future<bool> performFullSync(AppState appState) async {
     if (_isSyncing) return false;
     _setSyncing(true);
     debugPrint('[SyncEngine] Performing full sync...');
     try {
-      final pushSuccess = await Pusher.pushPendingUpdates();
+      final pushSuccess = await Pusher.pushPendingUpdates(appState);
       
       final token = await GoogleAuth.getValidToken();
       if (token == null) return false;
@@ -76,6 +104,11 @@ class SyncEngine {
       await Puller.pull(db, token, sheetId, sheetName);
       
       return pushSuccess;
+    } on SheetsRateLimitException {
+      // Increase the backoff multiplier when encountering rate limits
+      _increaseBackoff();
+      debugPrint('[SyncEngine] Rate limit encountered during full sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+      return false;
     } catch (e) {
       debugPrint('[SyncEngine] Error during full sync: $e');
       return false;
@@ -84,7 +117,7 @@ class SyncEngine {
     }
   }
 
-  static Future<bool> performPullSync() async {
+  static Future<bool> performPullSync(AppState appState) async {
     if (_isSyncing) return false;
     _setSyncing(true);
     debugPrint('[SyncEngine] Performing pull sync...');
@@ -100,6 +133,11 @@ class SyncEngine {
       await Puller.pull(db, token, sheetId, sheetName);
       debugPrint('[SyncEngine] Pull sync completed.');
       return true;
+    } on SheetsRateLimitException {
+      // Increase the backoff multiplier when encountering rate limits
+      _increaseBackoff();
+      debugPrint('[SyncEngine] Rate limit encountered during pull sync, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+      return false;
     } catch (e) {
       debugPrint('[SyncEngine] Error during pull sync: $e');
       return false;
@@ -108,11 +146,11 @@ class SyncEngine {
     }
   }
 
-  static Future<void> _syncLoop() async {
+  static Future<void> _syncLoop(AppState appState) async {
     // Run sync loop indefinitely
     while (true) {
       if (_isSyncing) {
-        await Future.delayed(Duration(milliseconds: _intervalMs));
+        await Future.delayed(Duration(milliseconds: _intervalMs * _rateLimitBackoffMultiplier));
         continue;
       }
 
@@ -141,26 +179,50 @@ class SyncEngine {
         continue;
       }
 
-      // Perform sync
-      final pushSuccess = await Pusher.pushPendingUpdates();
-      
-      final db = await DatabaseHelper.database;
-      bool pullSuccess = false;
       try {
+        // Perform push sync first
+        await Pusher.pushPendingUpdates(appState);
+        
+        // Then perform pull sync
+        final db = await DatabaseHelper.database;
         await Puller.pull(db, token, sheetId, sheetName);
-        pullSuccess = true;
+        
+        // If both succeeded, potentially decrease backoff (reset to normal)
+        if (_rateLimitBackoffMultiplier > 1) {
+          _decreaseBackoff();
+          debugPrint('[SyncEngine] Success after rate limit, decreasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
+        }
+      } on SheetsRateLimitException {
+        // Increase the backoff multiplier when encountering rate limits
+        _increaseBackoff();
+        debugPrint('[SyncEngine] Rate limit encountered in loop, increasing backoff to ${_intervalMs * _rateLimitBackoffMultiplier} ms');
       } catch (e) {
-        debugPrint('[SyncEngine] Error during pull: $e');
+        debugPrint('[SyncEngine] Error during sync: $e');
       }
-      
-      final success = pushSuccess && pullSuccess;
 
       // Log results
       final pendingCount = await SyncQueueDao.getPendingCount();
-      debugPrint('[SyncEngine] Sync ${success ? 'success' : 'fail'}. Pending: $pendingCount');
+      appState.setPendingTaskCount(pendingCount); // Update UI with pending count
+      debugPrint('[SyncEngine] Sync completed. Pending: $pendingCount');
 
       // Wait for next sync
-      await Future.delayed(Duration(milliseconds: _intervalMs));
+      await Future.delayed(Duration(milliseconds: _intervalMs * _rateLimitBackoffMultiplier));
+    }
+  }
+
+  // Helper to increase backoff multiplier (with max)
+  static void _increaseBackoff() {
+    _rateLimitBackoffMultiplier = _rateLimitBackoffMultiplier * 2;
+    if (_rateLimitBackoffMultiplier > 8) { // Max 8x the original interval (2 minutes if default is 15s)
+      _rateLimitBackoffMultiplier = 8;
+    }
+  }
+
+  // Helper to decrease backoff multiplier
+  static void _decreaseBackoff() {
+    _rateLimitBackoffMultiplier = _rateLimitBackoffMultiplier ~/ 2;
+    if (_rateLimitBackoffMultiplier < 1) {
+      _rateLimitBackoffMultiplier = 1;
     }
   }
 

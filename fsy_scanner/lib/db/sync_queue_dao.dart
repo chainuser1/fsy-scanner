@@ -51,15 +51,10 @@ class SyncQueueDao {
     });
   }
 
-  // Mark task as completed
+  // Mark task as completed - just delete directly
   static Future<void> markCompleted(int taskId) async {
     final db = await DatabaseHelper.database;
-    await db.update(
-      'sync_tasks',
-      {'status': 'completed', 'completed_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ?',
-      whereArgs: [taskId],
-    );
+    await db.delete('sync_tasks', where: 'id = ?', whereArgs: [taskId]);
   }
 
   // Mark task as failed
@@ -82,6 +77,22 @@ class SyncQueueDao {
     );
   }
 
+  // Get task by ID
+  static Future<SyncTask?> getTask(int taskId) async {
+    final db = await DatabaseHelper.database;
+    final results = await db.query(
+      'sync_tasks',
+      where: 'id = ?',
+      whereArgs: [taskId],
+    );
+    
+    if (results.isEmpty) {
+      return null;
+    }
+    
+    return SyncTask.fromJson(results.first);
+  }
+
   // Get pending tasks
   static Future<List<SyncTask>> getPendingTasks() async {
     final db = await DatabaseHelper.database;
@@ -95,10 +106,10 @@ class SyncQueueDao {
     return results.map(SyncTask.fromJson).toList();
   }
 
-  // Get count of pending tasks
+  // Get count of pending tasks - count both 'pending' and 'in_progress' statuses
   static Future<int> getPendingCount() async {
     final db = await DatabaseHelper.database;
-    final result = await db.rawQuery('SELECT COUNT(*) AS count FROM sync_tasks WHERE status = ?', ['pending']);
+    final result = await db.rawQuery("SELECT COUNT(*) AS count FROM sync_tasks WHERE status IN ('pending', 'in_progress')");
     final count = result.first['count'] as int;
     return count;
   }
