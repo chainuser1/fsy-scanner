@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -115,17 +116,11 @@ class SyncEngine {
       _setSyncing(true, message: 'Pulling latest data...', progress: 0.5);
 
       final token = await GoogleAuth.getValidToken();
-      if (token == null) {
-        LoggerUtil.warn('[SyncEngine] No auth token');
-        return false;
-      }
+      if (token == null) return false;
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn('[SyncEngine] Missing sheet config');
-        return false;
-      }
+      if (sheetId == null || sheetName == null) return false;
 
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
@@ -138,8 +133,7 @@ class SyncEngine {
       return pushSuccess;
     } on SheetsRateLimitException {
       _increaseBackoff();
-      LoggerUtil.warn(
-          '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
+      LoggerUtil.warn('[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       return false;
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Full sync error: $e', error: e);
@@ -152,7 +146,7 @@ class SyncEngine {
   static Future<bool> performPullSync(AppState appState) async {
     notifyUserActivity();
     if (_isSyncing) return false;
-    _setSyncing(true, message: 'Pull sync started', progress: 0.0);
+    _setSyncing(true, message: 'Pull sync started');
     LoggerUtil.info('[SyncEngine] Performing pull sync...');
     try {
       final token = await GoogleAuth.getValidToken();
@@ -179,24 +173,9 @@ class SyncEngine {
     }
   }
 
-  static Future<void> pushImmediately(AppState appState) async {
-    notifyUserActivity();
-    if (_isSyncing) return;
-    LoggerUtil.debug('[SyncEngine] Push immediately requested');
-    try {
-      final token = await GoogleAuth.getValidToken();
-      if (token != null) {
-        await Pusher.pushPendingUpdates(appState);
-      }
-    } catch (e) {
-      LoggerUtil.error('[SyncEngine] Immediate push error: $e', error: e);
-    }
-  }
-
   static Future<void> _syncLoop(AppState appState) async {
     final initialConnectivity = await Connectivity().checkConnectivity();
-    appState
-        .setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
+    appState.setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
 
     while (true) {
       if (_isSyncing) {
@@ -205,29 +184,22 @@ class SyncEngine {
       }
 
       final connectivityResult = await Connectivity().checkConnectivity();
-      final isCurrentlyOnline =
-          !connectivityResult.contains(ConnectivityResult.none);
+      final isCurrentlyOnline = !connectivityResult.contains(ConnectivityResult.none);
 
       if (isCurrentlyOnline != appState.isOnline) {
         appState.setIsOnline(isCurrentlyOnline);
         if (isCurrentlyOnline) {
-          LoggerUtil.info('[SyncEngine] Connection restored');
           _lastUserActivity = DateTime.now();
-        } else {
-          LoggerUtil.warn('[SyncEngine] Connection lost');
         }
       }
 
       if (connectivityResult.contains(ConnectivityResult.none)) {
-        LoggerUtil.debug(
-            '[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...');
         await Future.delayed(const Duration(milliseconds: _offlineRetryMs));
         continue;
       }
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
-        LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
         await Future.delayed(const Duration(milliseconds: _noAuthRetryMs));
         continue;
       }
@@ -235,7 +207,6 @@ class SyncEngine {
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
         await Future.delayed(const Duration(milliseconds: _noConfigRetryMs));
         continue;
       }
@@ -266,14 +237,10 @@ class SyncEngine {
 
         if (_rateLimitBackoffMultiplier > 1) {
           _decreaseBackoff();
-          LoggerUtil.info(
-              '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
         }
       } on SheetsRateLimitException {
         if (isFirstLoad) appState.setInitialLoading(false);
         _increaseBackoff();
-        LoggerUtil.warn(
-            '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       } catch (e) {
         if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
@@ -283,19 +250,16 @@ class SyncEngine {
 
       final pendingCount = await SyncQueueDao.getPendingCount();
       appState.setPendingTaskCount(pendingCount);
-      LoggerUtil.debug('[SyncEngine] Sync done. Pending: $pendingCount');
 
       final waitMs = _currentIntervalMs();
-      LoggerUtil.debug('[SyncEngine] Next sync in ${waitMs}ms');
       await Future.delayed(Duration(milliseconds: waitMs));
     }
   }
 
   static int _currentIntervalMs() {
     final idleSeconds = DateTime.now().difference(_lastUserActivity).inSeconds;
-    final baseInterval = idleSeconds > _idleThresholdSeconds
-        ? _idleIntervalMs
-        : _activeIntervalMs;
+    final baseInterval =
+        idleSeconds > _idleThresholdSeconds ? _idleIntervalMs : _activeIntervalMs;
     return baseInterval * _rateLimitBackoffMultiplier;
   }
 
@@ -304,15 +268,14 @@ class SyncEngine {
   }
 
   static void _decreaseBackoff() {
-    _rateLimitBackoffMultiplier =
-        (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
+    _rateLimitBackoffMultiplier = (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
   }
 
   static Future<String?> _getSettingValue(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db
-          .rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
+      final result =
+          await db.rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
       if (result.isNotEmpty) {
         return result.first['value'] as String?;
       }

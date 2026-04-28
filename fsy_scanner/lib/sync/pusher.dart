@@ -11,6 +11,8 @@ import '../utils/logger.dart';
 import 'sheets_api.dart';
 
 class Pusher {
+  /// Push all pending sync tasks to Google Sheets.
+  /// Does **not** stop on a single failure – continues with remaining tasks.
   static Future<bool> pushPendingUpdates(AppState appState) async {
     LoggerUtil.debug('[Pusher] Starting pending updates...');
 
@@ -42,6 +44,9 @@ class Pusher {
       final colMap = Map<String, int>.from(
           jsonDecode(colMapResult.first['value'] as String));
 
+      bool anySuccess = false;
+      bool anyPermanentFailure = false;
+
       while (true) {
         final task = await SyncQueueDao.claimNextTask();
         if (task == null) break;
@@ -52,9 +57,11 @@ class Pusher {
 
           if (success) {
             await SyncQueueDao.markCompleted(task.id!);
+            anySuccess = true;
             LoggerUtil.debug('[Pusher] Task ${task.id} completed');
           } else {
-            await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
+            await SyncQueueDao.markFailed(
+                task.id!, 'Failed to update Sheets');
             LoggerUtil.warn('[Pusher] Task ${task.id} failed');
 
             final failedTask = await SyncQueueDao.getTask(task.id!);
@@ -64,17 +71,20 @@ class Pusher {
                   '${failedTask.attempts} tasks failed after 10 attempts');
               LoggerUtil.error(
                   '[Pusher] Task ${task.id} permanently failed after 10 attempts');
+              anyPermanentFailure = true;
+              // Don't stop; still try other tasks
             }
-            return false;
+            // Continue with next task
           }
         } on SheetsRateLimitException {
           await SyncQueueDao.markFailed(task.id!, 'Rate limit encountered');
           LoggerUtil.warn('[Pusher] Rate limit on task ${task.id}');
-          rethrow;
+          // Stop further processing to respect rate limits, will retry next tick
+          return anySuccess;
         }
       }
 
-      return true;
+      return anySuccess && !anyPermanentFailure;
     } on SheetsRateLimitException {
       rethrow;
     } catch (e) {
@@ -131,7 +141,6 @@ class Pusher {
               DateTime.fromMillisecondsSinceEpoch(printedAt).toIso8601String();
         }
       } else if (task.type == SyncQueueDao.typeMarkUnverified) {
-        // Clear Verified At and Device ID
         values['Verified At'] = '';
         values['Device ID'] = '';
       }
