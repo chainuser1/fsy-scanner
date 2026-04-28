@@ -1976,3 +1976,81 @@ None required - implementation was successful on first attempt.
 
 ### Deviations from Plan
 None - this was an additional enhancement to improve accessibility.
+## 36.0 — Animated Scan Result Card, Camera Management, and Accessibility Polish
+Date/Time: 2026-04-29 09:30:00
+Status: ✅ Complete
+
+What I Did
+Replaced the intrusive SnackBar notifications with a smooth animated result card that appears at the bottom of the scanner screen. Added proper camera on/off lifecycle management to save battery and prevent the camera from running while navigating away or during result display. Fixed accessibility labelling on the Settings save button and prepared asset paths for success/error indicator images.
+
+Changes:
+
+Animated result card. Removed SnackBar for scan results (except for supplementary messages like "already checked in" time and print errors). Instead, a card scales in with an elastic animation showing:
+
+A success or error logo (transparent_qr_code_logo_success.png / _error.png)
+
+Participant name
+
+Room, Table, Shirt details (on success)
+
+A large checkmark or cancel icon
+The card fades out after 2 seconds, then the scanner resumes.
+
+Camera off during result display. When the result card appears, the camera is stopped via controller.stop(). After the card hides and the cooldown completes, the camera is restarted.
+
+Camera off when navigating away. A helper method _navigateTo stops the camera before pushing a new screen (Settings, Participants) and resumes it upon return, provided the scanner is active.
+
+App lifecycle handling. Implemented WidgetsBindingObserver to pause the camera when the app is backgrounded and resume it when it returns to the foreground.
+
+Accessibility improvement. Replaced the Semantics wrapper with the built‑in semanticLabel property on the Save button in Settings.
+
+Asset updates. Added transparent_qr_code_logo_success.png and transparent_qr_code_logo_error.png to pubspec.yaml and replaced the old generic icon usage with these event‑branded images.
+
+Finalised v2.0.0 release. Tagged commit as v2.0.0 and pushed to main. CI workflow now builds successfully after Gradle/AGP version bumps.
+
+Files modified:
+
+lib/screens/scan_screen.dart – complete rewrite of scan feedback UI with animation, camera management, lifecycle observer, and navigation-aware start/stop.
+
+lib/screens/settings_screen.dart – accessibility label on Save button.
+
+pubspec.yaml – added new QR logo assets.
+
+How I Followed the Plan
+Offline-first principle preserved – camera management does not affect local scanning or sync.
+
+Hard Constraint #9 (clean flutter analyze) – zero issues.
+
+UI changes only – no data flow or sync logic altered.
+
+Verification Result
+flutter analyze passes with zero errors.
+
+Scanning a valid QR code shows the animated success card with participant details; camera turns off during display and resumes after cooldown.
+
+Scanning an invalid QR shows the error card with the event‑branded error image.
+
+Navigating to Settings stops the camera; returning resumes it.
+
+Sending the app to background stops the camera; returning resumes it after the loading overlay (if any) disappears.
+
+Accessibility label on Save button passes inspection.
+
+Sound playback of error_sound.mp3 and success_sound.mp3 verified on physical device.
+
+Issues Encountered
+Audio occasionally failed due to file path mismatch; resolved by ensuring asset paths match pubspec.yaml exactly.
+
+AnimatedBuilder required importing package:flutter/material.dart explicitly (already present).
+
+Lifecycle observer needed WidgetsBindingObserver mixin and addObserver/removeObserver calls.
+
+Corrections Made
+Used AssetSource instead of raw string for audio.
+
+Added try‑catch around sound playback to prevent UI crashes if file is missing.
+
+Stopped camera in dispose to release hardware resources.
+
+Deviations from Plan
+Animated result card and camera management entirely new – not in the original plan; added for a smoother, more branded user experience and better resource usage.
