@@ -26,3 +26,13 @@ const String appSettingsDDL = '''
     key TEXT PRIMARY KEY, value TEXT
   )
 ''';
+
+const String eventProfilesDDL = '''
+  CREATE TABLE IF NOT EXISTS event_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    sheets_id TEXT NOT NULL,
+    sheets_tab TEXT NOT NULL,
+    event_name TEXT NOT NULL
+  )
+''';

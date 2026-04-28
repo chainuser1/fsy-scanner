@@ -11,7 +11,6 @@ import '../utils/logger.dart';
 import 'sheets_api.dart';
 
 class Pusher {
-  /// Push all pending sync tasks to Google Sheets
   static Future<bool> pushPendingUpdates(AppState appState) async {
     LoggerUtil.debug('[Pusher] Starting pending updates...');
 
@@ -24,7 +23,6 @@ class Pusher {
 
       final db = await DatabaseHelper.database;
 
-      // Get sheet config
       final sheetIdResult = await db
           .query('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
       final sheetTabResult = await db
@@ -46,10 +44,7 @@ class Pusher {
 
       while (true) {
         final task = await SyncQueueDao.claimNextTask();
-        if (task == null) {
-          LoggerUtil.debug('[Pusher] No more pending tasks');
-          break;
-        }
+        if (task == null) break;
 
         try {
           final success =
@@ -62,7 +57,6 @@ class Pusher {
             await SyncQueueDao.markFailed(task.id!, 'Failed to update Sheets');
             LoggerUtil.warn('[Pusher] Task ${task.id} failed');
 
-            // Check if task has reached max attempts
             final failedTask = await SyncQueueDao.getTask(task.id!);
             if (failedTask != null && failedTask.attempts >= 10) {
               appState.incrementFailedTaskCount();
@@ -71,7 +65,6 @@ class Pusher {
               LoggerUtil.error(
                   '[Pusher] Task ${task.id} permanently failed after 10 attempts');
             }
-
             return false;
           }
         } on SheetsRateLimitException {
@@ -90,7 +83,6 @@ class Pusher {
     }
   }
 
-  /// Process a single sync task
   static Future<bool> _processTask(
     Database db,
     String token,
@@ -107,7 +99,6 @@ class Pusher {
         return false;
       }
 
-      // Find the current row of this participant in the sheet
       final int? currentRow = await SheetsApi.findRowByValue(
         accessToken: token,
         sheetId: sheetId,
@@ -139,19 +130,22 @@ class Pusher {
           values['Printed At'] =
               DateTime.fromMillisecondsSinceEpoch(printedAt).toIso8601String();
         }
+      } else if (task.type == SyncQueueDao.typeMarkUnverified) {
+        // Clear Verified At and Device ID
+        values['Verified At'] = '';
+        values['Device ID'] = '';
       }
 
-      if (values.isEmpty) return true;
-
-      await SheetsApi.updateCells(
-        accessToken: token,
-        sheetId: sheetId,
-        tabName: tabName,
-        row: currentRow,
-        colMap: colMap,
-        values: values,
-      );
-
+      if (values.isNotEmpty) {
+        await SheetsApi.updateCells(
+          accessToken: token,
+          sheetId: sheetId,
+          tabName: tabName,
+          row: currentRow,
+          colMap: colMap,
+          values: values,
+        );
+      }
       LoggerUtil.info('[Pusher] Updated row $currentRow for $participantId');
       return true;
     } on SheetsRateLimitException {

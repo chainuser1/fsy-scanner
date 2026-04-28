@@ -14,6 +14,9 @@ import 'receipt_builder.dart';
 class PrinterService {
   static final _printerPlugin = FlutterThermalPrinter.instance;
 
+  // Simple in‑memory queue of failed print jobs
+  static final List<_FailedPrintJob> _failedJobs = [];
+
   /// Scan for nearby Bluetooth printers
   static Future<List<Printer>> scanPrinters() async {
     try {
@@ -28,9 +31,8 @@ class PrinterService {
     }
   }
 
-  /// Print receipt for a participant. Fire-and-forget — never awaited by UI.
-  /// On success: records printed_at in SQLite, enqueues mark_printed task.
-  /// On failure: returns false, does NOT block registration flow.
+  /// Print receipt for a participant. Fire‑and‑forget.
+  /// On failure, adds the job to a retry queue.
   static Future<bool> printReceipt(
       Participant participant, String deviceId) async {
     try {
@@ -38,29 +40,21 @@ class PrinterService {
 
       final db = await DatabaseHelper.database;
 
-      // Get event name from settings
-      final eventResult = await db.query(
-        'app_settings',
-        where: 'key = ?',
-        whereArgs: ['event_name'],
-      );
+      final eventResult = await db
+          .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
       final eventName = eventResult.isNotEmpty
           ? eventResult.first['value'] as String
           : 'FSY Event';
 
-      // Get saved printer address
-      final printerResult = await db.query(
-        'app_settings',
-        where: 'key = ?',
-        whereArgs: ['printer_address'],
-      );
+      final printerResult = await db.query('app_settings',
+          where: 'key = ?', whereArgs: ['printer_address']);
       if (printerResult.isEmpty) {
         debugPrint('[PrinterService] No printer address saved');
+        _addFailedJob(participant, deviceId);
         return false;
       }
       final printerAddress = printerResult.first['value'] as String;
 
-      // Find the printer
       await _printerPlugin.getPrinters(connectionTypes: [ConnectionType.BLE]);
       final printers = await _printerPlugin.devicesStream.first.timeout(
         const Duration(seconds: 5),
@@ -72,21 +66,20 @@ class PrinterService {
         orElse: () => throw Exception('Printer not found or out of range'),
       );
 
-      // Connect and print
       final connected = await _printerPlugin.connect(targetPrinter);
       if (!connected) {
-        debugPrint('[PrinterService] Failed to connect to printer');
+        debugPrint('[PrinterService] Failed to connect');
+        _addFailedJob(participant, deviceId);
         return false;
       }
 
-      // Build receipt text and print
       final receiptText =
           ReceiptBuilder.build(participant, eventName, deviceId);
       final bytes = utf8.encode(receiptText);
       await _printerPlugin.printData(targetPrinter, bytes);
       await _printerPlugin.disconnect(targetPrinter);
 
-      // On success: record printed_at and enqueue mark_printed task (fire-and-forget)
+      // Success – record locally and enqueue mark_printed task
       final now = DateTime.now().millisecondsSinceEpoch;
       unawaited(_onPrintSuccess(participant, now));
 
@@ -94,11 +87,36 @@ class PrinterService {
       return true;
     } catch (e) {
       debugPrint('[PrinterService] Print failed: $e');
+      _addFailedJob(participant, deviceId);
       return false;
     }
   }
 
-  /// Handle post-print success operations asynchronously
+  /// Add a failed job to the retry queue
+  static void _addFailedJob(Participant participant, String deviceId) {
+    // Avoid duplicates
+    if (!_failedJobs.any((job) => job.participant.id == participant.id)) {
+      _failedJobs
+          .add(_FailedPrintJob(participant: participant, deviceId: deviceId));
+    }
+  }
+
+  /// Retry all failed print jobs. Call this e.g. from Settings.
+  static Future<int> retryFailedPrints() async {
+    if (_failedJobs.isEmpty) return 0;
+    int success = 0;
+    final jobs = List<_FailedPrintJob>.from(_failedJobs);
+    _failedJobs.clear();
+    for (final job in jobs) {
+      final ok = await printReceipt(job.participant, job.deviceId);
+      if (ok) success++;
+    }
+    return success;
+  }
+
+  /// Number of currently queued failed jobs
+  static int get failedJobCount => _failedJobs.length;
+
   static Future<void> _onPrintSuccess(
       Participant participant, int printedAt) async {
     try {
@@ -106,7 +124,6 @@ class PrinterService {
       final dao = ParticipantsDao(db);
       await dao.markPrintedLocally(participant.id, printedAt);
 
-      // Enqueue mark_printed task with CORRECT payload format
       await SyncQueueDao.enqueueTask(
         SyncQueueDao.typeMarkPrinted,
         {
@@ -119,4 +136,10 @@ class PrinterService {
       debugPrint('[PrinterService] Error recording print: $e');
     }
   }
+}
+
+class _FailedPrintJob {
+  final Participant participant;
+  final String deviceId;
+  _FailedPrintJob({required this.participant, required this.deviceId});
 }

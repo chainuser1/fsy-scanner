@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'providers/app_state.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/scan_screen.dart';
 import 'sync/sync_engine.dart';
 
 class FSYScannerApp extends StatelessWidget {
   final AppState appState;
+  final bool showOnboarding;
 
-  const FSYScannerApp({super.key, required this.appState});
+  const FSYScannerApp(
+      {super.key, required this.appState, this.showOnboarding = false});
 
-  // Version
-  static const String appVersion = '2.0.0';
-
-  // FSY logo brand colors
   static const Color primaryBlue = Color(0xFF045782);
   static const Color accentGreen = Color(0xFFA3C997);
   static const Color accentGold = Color(0xFFF7B550);
@@ -24,7 +23,7 @@ class FSYScannerApp extends StatelessWidget {
     });
 
     return MaterialApp(
-      title: 'FSY Scanner 2026 v2.0.0',
+      title: 'FSY Scanner',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryBlue,
@@ -45,7 +44,7 @@ class FSYScannerApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const ScanScreen(),
+      home: showOnboarding ? const OnboardingScreen() : const ScanScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

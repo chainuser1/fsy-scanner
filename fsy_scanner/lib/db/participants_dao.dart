@@ -40,28 +40,27 @@ class ParticipantsDao {
 
     if (rowsUpdated == 0) {
       await _db.insert(
-        'participants',
-        {
-          'id': p.id,
-          'full_name': p.fullName,
-          'stake': p.stake,
-          'ward': p.ward,
-          'gender': p.gender,
-          'room_number': p.roomNumber,
-          'table_number': p.tableNumber,
-          'tshirt_size': p.tshirtSize,
-          'medical_info': p.medicalInfo,
-          'note': p.note,
-          'status': p.status,
-          'verified_at': p.verifiedAt,
-          'printed_at': p.printedAt,
-          'registered_by': p.registeredBy,
-          'sheets_row': p.sheetsRow,
-          'raw_json': p.rawJson,
-          'updated_at': p.updatedAt,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+          'participants',
+          {
+            'id': p.id,
+            'full_name': p.fullName,
+            'stake': p.stake,
+            'ward': p.ward,
+            'gender': p.gender,
+            'room_number': p.roomNumber,
+            'table_number': p.tableNumber,
+            'tshirt_size': p.tshirtSize,
+            'medical_info': p.medicalInfo,
+            'note': p.note,
+            'status': p.status,
+            'verified_at': p.verifiedAt,
+            'printed_at': p.printedAt,
+            'registered_by': p.registeredBy,
+            'sheets_row': p.sheetsRow,
+            'raw_json': p.rawJson,
+            'updated_at': p.updatedAt,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore);
     }
   }
 
@@ -71,12 +70,8 @@ class ParticipantsDao {
   }
 
   Future<Participant?> getParticipantById(String id) async {
-    final List<Map<String, Object?>> results = await _db.query(
-      'participants',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
+    final List<Map<String, Object?>> results =
+        await _db.query('participants', where: 'id = ?', whereArgs: [id]);
     if (results.isEmpty) return null;
     return Participant.fromDbRow(results.first);
   }
@@ -88,6 +83,19 @@ class ParticipantsDao {
       {
         'verified_at': verifiedAt,
         'registered_by': deviceId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markUnverifiedLocally(String id) async {
+    await _db.update(
+      'participants',
+      {
+        'verified_at': null,
+        'registered_by': null,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'id = ?',
@@ -108,11 +116,8 @@ class ParticipantsDao {
   }
 
   Future<List<Participant>> getAllParticipants() async {
-    final List<Map<String, Object?>> results = await _db.query(
-      'participants',
-      orderBy: 'full_name ASC',
-    );
-
+    final List<Map<String, Object?>> results =
+        await _db.query('participants', orderBy: 'full_name ASC');
     return results.map(Participant.fromDbRow).toList();
   }
 
@@ -123,7 +128,6 @@ class ParticipantsDao {
       whereArgs: ['%${query.toLowerCase()}%'],
       limit: 50,
     );
-
     return results.map(Participant.fromDbRow).toList();
   }
 

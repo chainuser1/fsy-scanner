@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
+import '../db/sync_queue_dao.dart';
+import '../models/participant.dart';
 import '../utils/logger.dart';
 
 class AppState extends ChangeNotifier {
@@ -10,12 +12,20 @@ class AppState extends ChangeNotifier {
   int _participantsCount = 0;
   DateTime? _lastSyncedAt;
   String? _syncError;
-
   bool _isInitialLoading = false;
   bool _isOnline = true;
   bool _printerConnected = false;
   String? _printerAddress;
   String? _lastScanResult;
+
+  bool _soundEnabled = true;
+  bool _hapticEnabled = true;
+  bool _voiceEnabled = false; // off by default
+
+  // Recent scans for undo
+  static const int maxRecentScans = 10;
+  final List<_RecentScan> _recentScans = [];
+  List<_RecentScan> get recentScans => List.unmodifiable(_recentScans);
 
   int get pendingTaskCount => _pendingTaskCount;
   int get failedTaskCount => _failedTaskCount;
@@ -27,6 +37,41 @@ class AppState extends ChangeNotifier {
   bool get printerConnected => _printerConnected;
   String? get printerAddress => _printerAddress;
   String? get lastScanResult => _lastScanResult;
+  bool get soundEnabled => _soundEnabled;
+  bool get hapticEnabled => _hapticEnabled;
+  bool get voiceEnabled => _voiceEnabled;
+
+  void addRecentScan(Participant participant) {
+    _recentScans.insert(
+        0,
+        _RecentScan(
+          participantId: participant.id,
+          name: participant.fullName,
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+        ));
+    if (_recentScans.length > maxRecentScans) {
+      _recentScans.removeLast();
+    }
+    notifyListeners();
+  }
+
+  Future<bool> undoRecentScan(String participantId) async {
+    try {
+      final db = await DatabaseHelper.database;
+      final dao = ParticipantsDao(db);
+      await dao.markUnverifiedLocally(participantId);
+      await SyncQueueDao.enqueueTask(SyncQueueDao.typeMarkUnverified, {
+        'participantId': participantId,
+      });
+      _recentScans.removeWhere((s) => s.participantId == participantId);
+      await refreshParticipantsCount();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      LoggerUtil.error('Undo failed: $e', error: e);
+      return false;
+    }
+  }
 
   void setPendingTaskCount(int count) {
     _pendingTaskCount = count;
@@ -97,6 +142,92 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> loadPreferences() async {
+    final db = await DatabaseHelper.database;
+    final soundResult = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
+    final hapticResult = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['haptic_enabled']);
+    final voiceResult = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['voice_enabled']);
+    _soundEnabled =
+        soundResult.isEmpty || soundResult.first['value'] != 'false';
+    _hapticEnabled =
+        hapticResult.isEmpty || hapticResult.first['value'] != 'false';
+    _voiceEnabled =
+        voiceResult.isNotEmpty && voiceResult.first['value'] == 'true';
+    notifyListeners();
+  }
+
+  Future<void> setSoundEnabled(bool enabled) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+        'app_settings', {'key': 'sound_enabled', 'value': enabled.toString()},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    _soundEnabled = enabled;
+    notifyListeners();
+  }
+
+  Future<void> setHapticEnabled(bool enabled) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+        'app_settings', {'key': 'haptic_enabled', 'value': enabled.toString()},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    _hapticEnabled = enabled;
+    notifyListeners();
+  }
+
+  Future<void> setVoiceEnabled(bool enabled) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+        'app_settings', {'key': 'voice_enabled', 'value': enabled.toString()},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    _voiceEnabled = enabled;
+    notifyListeners();
+  }
+
+  // Profile management (unchanged)
+  Future<List<Map<String, dynamic>>> getProfiles() async {
+    final db = await DatabaseHelper.database;
+    return db.query('event_profiles', orderBy: 'id ASC');
+  }
+
+  Future<void> saveProfile(
+      String name, String sheetsId, String sheetsTab, String eventName) async {
+    final db = await DatabaseHelper.database;
+    await db.insert('event_profiles', {
+      'name': name,
+      'sheets_id': sheetsId,
+      'sheets_tab': sheetsTab,
+      'event_name': eventName,
+    });
+    notifyListeners();
+  }
+
+  Future<void> loadProfile(int profileId) async {
+    final db = await DatabaseHelper.database;
+    final profiles = await db
+        .query('event_profiles', where: 'id = ?', whereArgs: [profileId]);
+    if (profiles.isEmpty) return;
+    final p = profiles.first;
+    await db.insert(
+        'app_settings', {'key': 'sheets_id', 'value': p['sheets_id'] as String},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('app_settings',
+        {'key': 'sheets_tab', 'value': p['sheets_tab'] as String},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('app_settings',
+        {'key': 'event_name', 'value': p['event_name'] as String},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    notifyListeners();
+  }
+
+  Future<void> deleteProfile(int profileId) async {
+    final db = await DatabaseHelper.database;
+    await db.delete('event_profiles', where: 'id = ?', whereArgs: [profileId]);
+    notifyListeners();
+  }
+
   Future<void> clearAllData() async {
     final db = await DatabaseHelper.database;
     await db.delete('participants');
@@ -104,6 +235,17 @@ class AppState extends ChangeNotifier {
     _participantsCount = 0;
     _pendingTaskCount = 0;
     _failedTaskCount = 0;
+    _recentScans.clear();
     notifyListeners();
   }
+}
+
+class _RecentScan {
+  final String participantId;
+  final String name;
+  final int timestamp;
+  _RecentScan(
+      {required this.participantId,
+      required this.name,
+      required this.timestamp});
 }

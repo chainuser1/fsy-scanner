@@ -14,27 +14,30 @@ import 'pusher.dart';
 import 'sheets_api.dart';
 
 class SyncEngine {
-  // Adaptive polling intervals
-  static const int _activeIntervalMs = 2000; // 2 seconds when actively scanning
-  static const int _idleIntervalMs = 300000; // 5 minutes when idle
-  static const int _idleThresholdSeconds =
-      300; // 5 minutes without activity = idle
-  static const int _offlineRetryMs = 10000; // 10 seconds when offline
-  static const int _noAuthRetryMs = 30000; // 30 seconds when no auth token
-  static const int _noConfigRetryMs =
-      30000; // 30 seconds when missing sheet config
+  static const int _activeIntervalMs = 60000;
+  static const int _idleIntervalMs = 300000;
+  static const int _idleThresholdSeconds = 300;
+  static const int _offlineRetryMs = 10000;
+  static const int _noAuthRetryMs = 30000;
+  static const int _noConfigRetryMs = 30000;
 
   static bool _isSyncing = false;
-  static final _syncStatusController = StreamController<bool>.broadcast();
+  static final _syncStatusController =
+      StreamController<Map<String, dynamic>>.broadcast();
   static int _rateLimitBackoffMultiplier = 1;
   static DateTime _lastUserActivity = DateTime.now();
 
   static bool get isSyncing => _isSyncing;
-  static Stream<bool> get syncStatusStream => _syncStatusController.stream;
+  static Stream<Map<String, dynamic>> get syncStatusStream =>
+      _syncStatusController.stream;
 
-  static void _setSyncing(bool value) {
+  static void _setSyncing(bool value, {String? message, double? progress}) {
     _isSyncing = value;
-    _syncStatusController.add(value);
+    _syncStatusController.add({
+      'syncing': value,
+      'message': message ?? '',
+      'progress': progress ?? 0.0,
+    });
   }
 
   static void notifyUserActivity() {
@@ -65,7 +68,6 @@ class SyncEngine {
 
     final colMapResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
-
     if (colMapResult.isEmpty ||
         colMapResult.first['value'] == null ||
         (colMapResult.first['value'] as String).isEmpty) {
@@ -76,7 +78,6 @@ class SyncEngine {
               where: 'key = ?', whereArgs: ['sheets_id']);
           final sheetTabResult = await db.query('app_settings',
               where: 'key = ?', whereArgs: ['sheets_tab']);
-
           if (sheetIdResult.isNotEmpty && sheetTabResult.isNotEmpty) {
             final sheetId = sheetIdResult.first['value'] as String;
             final sheetTab = sheetTabResult.first['value'] as String;
@@ -91,10 +92,8 @@ class SyncEngine {
       }
     }
 
-    LoggerUtil.info('[SyncEngine] Active interval: ${_activeIntervalMs}ms, '
-        'Idle interval: ${_idleIntervalMs}ms, '
-        'Idle threshold: ${_idleThresholdSeconds}s');
-
+    LoggerUtil.info(
+        '[SyncEngine] Active interval: ${_activeIntervalMs}ms, Idle: ${_idleIntervalMs}ms');
     _lastUserActivity = DateTime.now();
 
     await Future.delayed(const Duration(seconds: 3));
@@ -108,21 +107,23 @@ class SyncEngine {
   static Future<bool> performFullSync(AppState appState) async {
     notifyUserActivity();
     if (_isSyncing) return false;
-    _setSyncing(true);
+    _setSyncing(true, message: 'Full sync started');
     LoggerUtil.info('[SyncEngine] Performing full sync...');
     try {
+      _setSyncing(true, message: 'Pushing pending updates...', progress: 0.0);
       final pushSuccess = await Pusher.pushPendingUpdates(appState);
+      _setSyncing(true, message: 'Pulling latest data...', progress: 0.5);
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
-        LoggerUtil.warn('[SyncEngine] No auth token for full sync');
+        LoggerUtil.warn('[SyncEngine] No auth token');
         return false;
       }
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn('[SyncEngine] Missing sheet config for full sync');
+        LoggerUtil.warn('[SyncEngine] Missing sheet config');
         return false;
       }
 
@@ -131,6 +132,8 @@ class SyncEngine {
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
 
+      _setSyncing(true, message: 'Sync complete', progress: 1.0);
+      await Future.delayed(const Duration(seconds: 1));
       LoggerUtil.info('[SyncEngine] Full sync completed');
       return pushSuccess;
     } on SheetsRateLimitException {
@@ -149,34 +152,25 @@ class SyncEngine {
   static Future<bool> performPullSync(AppState appState) async {
     notifyUserActivity();
     if (_isSyncing) return false;
-    _setSyncing(true);
+    _setSyncing(true, message: 'Pull sync started', progress: 0.0);
     LoggerUtil.info('[SyncEngine] Performing pull sync...');
     try {
       final token = await GoogleAuth.getValidToken();
-      if (token == null) {
-        LoggerUtil.warn('[SyncEngine] No auth token for pull sync');
-        return false;
-      }
+      if (token == null) return false;
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn('[SyncEngine] Missing sheet config for pull sync');
-        return false;
-      }
+      if (sheetId == null || sheetName == null) return false;
 
+      _setSyncing(true, message: 'Fetching data...', progress: 0.5);
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
 
-      LoggerUtil.info('[SyncEngine] Pull sync completed');
+      _setSyncing(true, message: 'Pull complete', progress: 1.0);
+      await Future.delayed(const Duration(seconds: 1));
       return true;
-    } on SheetsRateLimitException {
-      _increaseBackoff();
-      LoggerUtil.warn(
-          '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
-      return false;
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Pull sync error: $e', error: e);
       return false;
@@ -233,8 +227,7 @@ class SyncEngine {
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
-        LoggerUtil.warn(
-            '[SyncEngine] No auth token, waiting ${_noAuthRetryMs}ms...');
+        LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
         await Future.delayed(const Duration(milliseconds: _noAuthRetryMs));
         continue;
       }
@@ -242,8 +235,7 @@ class SyncEngine {
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn(
-            '[SyncEngine] Missing sheet config, waiting ${_noConfigRetryMs}ms...');
+        LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
         await Future.delayed(const Duration(milliseconds: _noConfigRetryMs));
         continue;
       }
@@ -256,14 +248,17 @@ class SyncEngine {
       }
 
       try {
+        _setSyncing(true, message: 'Pushing…', progress: 0.0);
         await Pusher.pushPendingUpdates(appState);
+        _setSyncing(true, message: 'Pulling…', progress: 0.5);
 
         final db = await DatabaseHelper.database;
         await Puller.pull(db, token, sheetId, sheetName);
-
-        // Update count and last sync time
         unawaited(appState.refreshParticipantsCount());
         appState.setLastSyncedAt(DateTime.now());
+
+        _setSyncing(true, message: 'Sync done', progress: 1.0);
+        await Future.delayed(const Duration(milliseconds: 500));
 
         if (isFirstLoad) {
           appState.setInitialLoading(false);
@@ -275,17 +270,15 @@ class SyncEngine {
               '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
         }
       } on SheetsRateLimitException {
-        if (isFirstLoad) {
-          appState.setInitialLoading(false);
-        }
+        if (isFirstLoad) appState.setInitialLoading(false);
         _increaseBackoff();
         LoggerUtil.warn(
             '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       } catch (e) {
-        if (isFirstLoad) {
-          appState.setInitialLoading(false);
-        }
+        if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
+      } finally {
+        _setSyncing(false);
       }
 
       final pendingCount = await SyncQueueDao.getPendingCount();
@@ -318,10 +311,8 @@ class SyncEngine {
   static Future<String?> _getSettingValue(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db.rawQuery(
-        'SELECT value FROM app_settings WHERE key = ?',
-        [key],
-      );
+      final result = await db
+          .rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
       if (result.isNotEmpty) {
         return result.first['value'] as String?;
       }

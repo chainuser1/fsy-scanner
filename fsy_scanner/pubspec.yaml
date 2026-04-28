@@ -73,6 +73,18 @@ dependencies:
   #audio
   audioplayers: ^6.0.0  
 
+  #path
+  path_provider: ^2.1.2
+
+  # wakelock
+  wakelock_plus: ^1.2.8
+
+  # Text-to-speech
+  flutter_tts: ^4.0.2
+
+  # Shared preferences for storing settings
+  # shared_preferences: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -97,7 +109,8 @@ flutter:
     # image assets
     - assets/fsy_logo.png
     - assets/transparent_background_fsy_logo.png
-    - assets/transparent_qr_code_logo.png
+    - assets/transparent_qr_code_logo_success.png
+    - assets/transparent_qr_code_logo_error.png
     # audio assets error and success sounds
     - assets/sounds/error_sound.mp3
     - assets/sounds/success_sound.mp3

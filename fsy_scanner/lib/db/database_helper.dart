@@ -8,11 +8,8 @@ class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
   static Database? _database;
 
-  // Returns the open database instance (opens if not yet open)
   static Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
-    }
+    if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
@@ -21,29 +18,36 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
         await db.execute(syncTasksDDL);
+        await db.execute(eventProfilesDDL);
         await runMigrations(db);
       },
       onUpgrade: (Database db, int oldVersion, int newVersion) async {
-        // Handle future migrations here
+        if (oldVersion < 2) {
+          await db.execute(eventProfilesDDL);
+        }
+        if (oldVersion < 1) {
+          await db.execute(appSettingsDDL);
+          await db.execute(participantsDDL);
+          await db.execute(syncTasksDDL);
+          await db.execute(eventProfilesDDL);
+          await runMigrations(db);
+        }
       },
     );
   }
 
-  // Runs initial data seeding on first creation
   static Future<void> runMigrations(Database db) async {
-    // Check if device_id exists in app_settings
+    // device_id
     final deviceIdResult = await db.rawQuery(
       'SELECT value FROM app_settings WHERE key = ?',
       ['device_id'],
     );
-
     if (deviceIdResult.isEmpty) {
-      // Generate UUID v4 and save to app_settings
       final uuid = const Uuid().v4();
       await db.insert('app_settings', {
         'key': 'device_id',
@@ -51,16 +55,34 @@ class DatabaseHelper {
       });
     }
 
-    // Set db_version = 1 if not already set
+    // db_version
     final versionResult = await db.rawQuery(
       'SELECT value FROM app_settings WHERE key = ?',
       ['db_version'],
     );
-
     if (versionResult.isEmpty) {
       await db.insert('app_settings', {
         'key': 'db_version',
-        'value': '1',
+        'value': '2',
+      });
+    } else {
+      await db.update(
+        'app_settings',
+        {'value': '2'},
+        where: 'key = ?',
+        whereArgs: ['db_version'],
+      );
+    }
+
+    // Seed default profile if none exist
+    final profileCount =
+        await db.rawQuery('SELECT COUNT(*) AS cnt FROM event_profiles');
+    if ((profileCount.first['cnt'] as int?) == 0) {
+      await db.insert('event_profiles', {
+        'name': 'Default',
+        'sheets_id': '', // will be filled by .env later
+        'sheets_tab': '',
+        'event_name': '',
       });
     }
   }
