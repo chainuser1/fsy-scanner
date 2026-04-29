@@ -195,7 +195,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Image.asset('assets/fsy_logo.png', height: 240 ),
+          Image.asset('assets/fsy_logo.png', height: 240),
           const SizedBox(height: 32),
           const Text(
             'Welcome!',
@@ -206,10 +206,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ),
           ),
           const SizedBox(height: 16),
-                    Text(
+          Text(
             'Your dedicated check‑in scanner\nfor ${context.watch<AppState>().eventName}.',
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, color: Colors.grey, height: 1.5),
+            style:
+                const TextStyle(fontSize: 16, color: Colors.grey, height: 1.5),
           ),
           const SizedBox(height: 48),
           Container(

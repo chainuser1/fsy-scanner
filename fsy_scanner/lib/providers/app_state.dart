@@ -150,8 +150,8 @@ class AppState extends ChangeNotifier {
     final db = await DatabaseHelper.database;
     final soundResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
-    final hapticResult = await db.query('app_settings',
-        where: 'key = ?', whereArgs: ['haptic_enabled']);
+    final hapticResult = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['haptic_enabled']);
     final voiceResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['voice_enabled']);
     final eventNameResult = await db
@@ -175,8 +175,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadEventName() async {
     final db = await DatabaseHelper.database;
-    final result = await db.query('app_settings',
-        where: 'key = ?', whereArgs: ['event_name']);
+    final result = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
     if (result.isNotEmpty) {
       _eventName = result.first['value'] as String? ?? '';
     } else {

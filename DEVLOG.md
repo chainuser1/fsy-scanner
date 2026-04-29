@@ -2466,3 +2466,83 @@ Added flutter_launcher_icons dev dependency.
 Configured it to generate Android icons from transparent_background_fsy_logo.png.
 
 Ran dart run flutter_launcher_icons to produce all mipmap sizes.
+
+## 46.0 — Immersive Full‑Screen Result Overlay, Dynamic Event Name, Camera Flip, and Sync Resilience
+Date/Time: 2026-04-29 23:45:00
+Status: ✅ Complete
+
+What I Did
+Delivered a major UX upgrade to the scan feedback system, replacing the card‑based result with a full‑screen, color‑coded overlay that is readable from a distance. Made the app's event name dynamic (sourced from settings), replaced the ambiguous sync FAB with a camera flip button, and hardened the background sync loop to prevent stalls.
+
+Changes:
+
+Immersive full‑screen result overlay. Replaced the bottom card with a Positioned.fill overlay that covers the entire screen.
+
+Green background with the success logo for new check‑ins.
+
+Orange/amber background with the error logo for already‑checked‑in participants (differentiates from "not found").
+
+Red background with the error logo for unknown participants.
+
+Logo sized at 130px, centered vertically with participant name in 28px bold text, room/table/shirt details below.
+
+Undo button remains on success overlay.
+
+Smooth fade‑in/scale animation; auto‑dismiss after 2 seconds.
+
+Camera is stopped during overlay display, ensuring a clean, immersive experience.
+
+Dynamic event name. Removed the hardcoded appName constant from app.dart. Added eventName to AppState, loaded from app_settings (with .env fallback). The onboarding welcome screen now displays the actual event name dynamically.
+
+Camera flip FAB. Replaced the sync FAB (which was ambiguous and redundant) with a camera flip button (Icons.flip_camera_android) that toggles between front and rear cameras. Sound and haptic toggles remain.
+
+Long‑press manual sync. Added a long‑press gesture on the pending‑tasks badge that triggers SyncEngine.pushImmediately() with a confirmation snackbar.
+
+Sync loop hardening. Added verbose logging ([SyncEngine] Starting sync tick…, Sync tick complete. Pending: X, Next sync in Yms) to make background sync activity visible. Re‑added the pushImmediately method to SyncEngine. The loop already had finally { _setSyncing(false); } to prevent flag‑stuck issues.
+
+Import ordering fixes. Corrected package: / relative import ordering in app_state.dart and onboarding_screen.dart to pass flutter analyze.
+
+Files modified:
+
+lib/screens/scan_screen.dart – full‑screen overlay, camera flip FAB, long‑press sync, import fix.
+
+lib/providers/app_state.dart – added eventName with getter, loader, and .env fallback; import ordering fixed.
+
+lib/screens/onboarding_screen.dart – uses dynamic eventName; import ordering fixed.
+
+lib/app.dart – removed static appName constant.
+
+lib/sync/sync_engine.dart – re‑added pushImmediately, enhanced logging in _syncLoop.
+
+Verification Result
+flutter analyze passes with zero errors.
+
+Scanning a valid QR code shows a full‑screen green overlay with participant details; logo and name are readable from across the room.
+
+Scanning an already‑checked‑in participant shows an orange overlay with the error logo.
+
+Scanning an unknown QR shows a red overlay.
+
+Camera flip button switches cameras correctly; sound/haptic toggles work.
+
+Long‑press on the sync badge triggers a manual push.
+
+Event name displayed on onboarding reflects the actual event from settings.
+
+Sync loop logs confirm ticks are running at the expected intervals.
+
+Issues Encountered
+Import ordering issues (package: before relative) caused analysis warnings; fixed by reordering.
+
+Missing pushImmediately method in SyncEngine caused compilation error; re‑added the method.
+
+Previous flutter_tts and compileSdk issues already resolved in prior entries.
+
+Deviations from Plan
+Full‑screen overlay: Not in the original plan; added for superior visibility in busy, high‑throughput check‑in environments.
+
+Camera flip FAB: Replaces the sync FAB which was confusing; provides a must‑have feature for events.
+
+Dynamic event name: Hardcoded name was impractical for multi‑event or changed configurations; now reflects the actual setting.
+
+Ran dart run flutter_launcher_icons to produce all mipmap sizes.

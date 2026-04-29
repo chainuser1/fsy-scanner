@@ -64,6 +64,7 @@ class _ScanScreenState extends State<ScanScreen>
   bool _resultSuccess = false;
   bool _resultAlreadyChecked = false;
   String? _resultParticipantId;
+  String? _resultTimeStr;
 
   @override
   void initState() {
@@ -200,6 +201,7 @@ class _ScanScreenState extends State<ScanScreen>
     required bool success,
     required bool alreadyChecked,
     String? participantId,
+    String? timeStr,
   }) {
     controller.stop();
     setState(() {
@@ -210,6 +212,7 @@ class _ScanScreenState extends State<ScanScreen>
       _resultSuccess = success;
       _resultAlreadyChecked = alreadyChecked;
       _resultParticipantId = participantId;
+      _resultTimeStr = timeStr;
       _showResultCard = true;
     });
     _overlayAnimController.forward(from: 0.0);
@@ -221,7 +224,8 @@ class _ScanScreenState extends State<ScanScreen>
       setState(() {
         _showResultCard = false;
         _resultParticipantId = null;
-        _resultAlreadyChecked = false; // ensure flag is cleared
+        _resultAlreadyChecked = false;
+        _resultTimeStr = null;
       });
     }
   }
@@ -495,18 +499,9 @@ class _ScanScreenState extends State<ScanScreen>
                                 table: participant.tableNumber,
                                 shirt: participant.tshirtSize,
                                 success: false,
+                                timeStr: timeStr,
                                 alreadyChecked: true,
                               );
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content:
-                                        Text('Checked in at $timeStr'),
-                                    backgroundColor: Colors.orange,
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
-                              }
                             } else {
                               final deviceId = await DeviceId.get();
                               final now = DateTime.now().millisecondsSinceEpoch;
@@ -662,6 +657,19 @@ class _ScanScreenState extends State<ScanScreen>
                                       ),
                                       textAlign: TextAlign.center,
                                     ),
+                                    if (_resultAlreadyChecked &&
+                                        _resultTimeStr != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 12),
+                                        child: Text(
+                                          'Checked in at $_resultTimeStr',
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            color: Colors.white70,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
                                     if (_resultSuccess) ...[
                                       const SizedBox(height: 20),
                                       _buildDetailRow('Room', _resultRoom),
@@ -680,8 +688,8 @@ class _ScanScreenState extends State<ScanScreen>
                                           foregroundColor: Colors.white,
                                           side: const BorderSide(
                                               color: Colors.white70),
-                                          backgroundColor: Colors.white
-                                              .withOpacity(0.15),
+                                          backgroundColor:
+                                              Colors.white.withAlpha(38),
                                         ),
                                       ),
                                     ] else
