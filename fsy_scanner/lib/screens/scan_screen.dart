@@ -30,8 +30,8 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const String _errorSoundPath = '/sounds/error_sound.mp3';
-  static const String _successSoundPath = '/sounds/success_sound.mp3';
+  static const String _errorSoundPath = 'assets/sounds/error_sound.mp3';
+  static const String _successSoundPath = 'assets/sounds/success_sound.mp3';
 
   MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -48,9 +48,10 @@ class _ScanScreenState extends State<ScanScreen>
   String _syncStatusText = '';
   double _syncProgress = 0.0;
 
-  late AnimationController _cardAnimController;
-  late Animation<double> _cardScaleAnimation;
-  late Animation<double> _cardOpacityAnimation;
+  // Overlay animations (renamed from card* for clarity)
+  late AnimationController _overlayAnimController;
+  late Animation<double> _overlayScaleAnimation;
+  late Animation<double> _overlayOpacityAnimation;
 
   late AnimationController _reticlePulseController;
   late Animation<double> _reticlePulseAnimation;
@@ -61,6 +62,7 @@ class _ScanScreenState extends State<ScanScreen>
   String _resultTable = '';
   String _resultShirt = '';
   bool _resultSuccess = false;
+  bool _resultAlreadyChecked = false;
   String? _resultParticipantId;
 
   @override
@@ -80,16 +82,16 @@ class _ScanScreenState extends State<ScanScreen>
 
     WakelockPlus.enable();
 
-    _cardAnimController = AnimationController(
+    _overlayAnimController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    _cardScaleAnimation = CurvedAnimation(
-      parent: _cardAnimController,
+    _overlayScaleAnimation = CurvedAnimation(
+      parent: _overlayAnimController,
       curve: Curves.elasticOut,
     );
-    _cardOpacityAnimation = CurvedAnimation(
-      parent: _cardAnimController,
+    _overlayOpacityAnimation = CurvedAnimation(
+      parent: _overlayAnimController,
       curve: const Interval(0.0, 0.3, curve: Curves.easeIn),
     );
 
@@ -196,6 +198,7 @@ class _ScanScreenState extends State<ScanScreen>
     String? table,
     String? shirt,
     required bool success,
+    required bool alreadyChecked,
     String? participantId,
   }) {
     controller.stop();
@@ -205,18 +208,20 @@ class _ScanScreenState extends State<ScanScreen>
       _resultTable = table ?? 'N/A';
       _resultShirt = shirt ?? 'N/A';
       _resultSuccess = success;
+      _resultAlreadyChecked = alreadyChecked;
       _resultParticipantId = participantId;
       _showResultCard = true;
     });
-    _cardAnimController.forward(from: 0.0);
+    _overlayAnimController.forward(from: 0.0);
   }
 
   Future<void> _hideAnimatedResult() async {
-    await _cardAnimController.reverse();
+    await _overlayAnimController.reverse();
     if (mounted) {
       setState(() {
         _showResultCard = false;
         _resultParticipantId = null;
+        _resultAlreadyChecked = false; // ensure flag is cleared
       });
     }
   }
@@ -472,6 +477,7 @@ class _ScanScreenState extends State<ScanScreen>
                               _showAnimatedResult(
                                 name: 'Participant not found',
                                 success: false,
+                                alreadyChecked: false,
                               );
                             } else if (participant.verifiedAt != null) {
                               _playSound(_errorSoundPath);
@@ -489,12 +495,13 @@ class _ScanScreenState extends State<ScanScreen>
                                 table: participant.tableNumber,
                                 shirt: participant.tshirtSize,
                                 success: false,
+                                alreadyChecked: true,
                               );
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content:
-                                        Text('Already checked in at $timeStr'),
+                                        Text('Checked in at $timeStr'),
                                     backgroundColor: Colors.orange,
                                     duration: const Duration(seconds: 2),
                                   ),
@@ -539,6 +546,7 @@ class _ScanScreenState extends State<ScanScreen>
                                 table: participant.tableNumber,
                                 shirt: participant.tshirtSize,
                                 success: true,
+                                alreadyChecked: false,
                                 participantId: participant.id,
                               );
                             }
@@ -613,76 +621,72 @@ class _ScanScreenState extends State<ScanScreen>
                           ),
                         ),
                       ),
+                      // Full-screen result overlay
                       if (_showResultCard)
-                        Positioned(
-                          bottom: 80,
-                          left: 24,
-                          right: 24,
+                        Positioned.fill(
                           child: AnimatedBuilder(
-                            animation: _cardAnimController,
+                            animation: _overlayAnimController,
                             builder: (context, child) {
                               return Opacity(
-                                opacity: _cardOpacityAnimation.value,
+                                opacity: _overlayOpacityAnimation.value,
                                 child: Transform.scale(
-                                  scale: _cardScaleAnimation.value,
+                                  scale: _overlayScaleAnimation.value,
                                   child: child,
                                 ),
                               );
                             },
-                            child: Card(
-                              elevation: 12,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24)),
+                            child: Container(
                               color: _resultSuccess
-                                  ? FSYScannerApp.accentGreen.withAlpha(240)
-                                  : Colors.red[400]!.withAlpha(240),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 24, horizontal: 20),
+                                  ? FSYScannerApp.accentGreen.withAlpha(230)
+                                  : _resultAlreadyChecked
+                                      ? Colors.orange.withAlpha(230)
+                                      : Colors.redAccent.withAlpha(230),
+                              child: Center(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (_resultSuccess)
-                                      Image.asset(
-                                          'assets/transparent_qr_code_logo_success.png',
-                                          height: 48)
-                                    else
-                                      Image.asset(
-                                          'assets/transparent_qr_code_logo_error.png',
-                                          height: 48),
-                                    const SizedBox(height: 12),
+                                    const Spacer(),
+                                    Image.asset(
+                                      _resultSuccess
+                                          ? 'assets/transparent_qr_code_logo_success.png'
+                                          : 'assets/transparent_qr_code_logo_error.png',
+                                      height: 130,
+                                    ),
+                                    const SizedBox(height: 24),
                                     Text(
                                       _resultName,
                                       style: const TextStyle(
-                                        fontSize: 22,
+                                        fontSize: 28,
                                         fontWeight: FontWeight.bold,
                                         color: Colors.white,
                                       ),
                                       textAlign: TextAlign.center,
                                     ),
                                     if (_resultSuccess) ...[
-                                      const SizedBox(height: 16),
+                                      const SizedBox(height: 20),
                                       _buildDetailRow('Room', _resultRoom),
                                       _buildDetailRow('Table', _resultTable),
                                       _buildDetailRow('Shirt', _resultShirt),
-                                      const SizedBox(height: 12),
-                                      TextButton.icon(
+                                      const SizedBox(height: 24),
+                                      // Improved Undo button – outlined, visible on bright background
+                                      OutlinedButton.icon(
                                         onPressed: _undoScan,
                                         icon: const Icon(Icons.undo,
                                             color: Colors.white),
                                         label: const Text('Undo',
                                             style:
                                                 TextStyle(color: Colors.white)),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          side: const BorderSide(
+                                              color: Colors.white70),
+                                          backgroundColor: Colors.white
+                                              .withOpacity(0.15),
+                                        ),
                                       ),
                                     ] else
-                                      const SizedBox(height: 12),
-                                    Icon(
-                                      _resultSuccess
-                                          ? Icons.check_circle
-                                          : Icons.cancel,
-                                      color: Colors.white,
-                                      size: 36,
-                                    ),
+                                      const SizedBox(height: 24),
+                                    const Spacer(),
                                   ],
                                 ),
                               ),
@@ -743,17 +747,13 @@ class _ScanScreenState extends State<ScanScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Camera flip (front/back)
                   FloatingActionButton.small(
                     heroTag: 'camera_flip',
-                    onPressed: () {
-                      controller.switchCamera();
-                    },
+                    onPressed: () => controller.switchCamera(),
                     tooltip: 'Flip camera (front/back)',
                     child: const Icon(Icons.flip_camera_android),
                   ),
                   const SizedBox(height: 8),
-                  // Sound toggle
                   Semantics(
                     label:
                         appState.soundEnabled ? 'Mute sounds' : 'Enable sounds',
@@ -770,7 +770,6 @@ class _ScanScreenState extends State<ScanScreen>
                     ),
                   ),
                   const SizedBox(height: 8),
-                  // Haptic toggle
                   Semantics(
                     label: appState.hapticEnabled
                         ? 'Disable vibration'
@@ -799,17 +798,20 @@ class _ScanScreenState extends State<ScanScreen>
 
   Widget _buildDetailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text('$label: ',
-              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+              style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500)),
           Text(value,
               style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500)),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -823,7 +825,7 @@ class _ScanScreenState extends State<ScanScreen>
     _syncSub?.cancel();
     _audioPlayer.dispose();
     _flutterTts.stop();
-    _cardAnimController.dispose();
+    _overlayAnimController.dispose();
     _reticlePulseController.dispose();
     controller.dispose();
     super.dispose();
