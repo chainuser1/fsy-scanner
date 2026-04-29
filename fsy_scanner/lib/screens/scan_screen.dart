@@ -43,7 +43,7 @@ class _ScanScreenState extends State<ScanScreen>
   bool _isSyncingNow = false;
   bool _isCooldown = false;
   bool _torchOn = false;
-  bool _isFrontCamera = false;   // remembers user’s camera choice
+  bool _isFrontCamera = false; // remembers user’s camera choice
   Timer? _powerSaveTimer;
   bool _powerSaveMode = false;
 
