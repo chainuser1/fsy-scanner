@@ -76,14 +76,54 @@ jobs:
         run: flutter pub get
         working-directory: fsy_scanner
 
-      - name: Create .env file from secrets
+      - name: Create .env file from secrets (Python)
         run: |
-          echo "GOOGLE_SERVICE_ACCOUNT_EMAIL=${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}" > assets/.env
-          echo "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}" >> assets/.env
-          echo "SHEETS_ID=${{ secrets.SHEETS_ID }}" >> assets/.env
-          echo "SHEETS_TAB=${{ secrets.SHEETS_TAB }}" >> assets/.env
-          echo "EVENT_NAME=${{ secrets.EVENT_NAME }}" >> assets/.env
-          echo ".env created (values hidden)"
+          python3 -c "
+          import os
+          secrets = {
+              'GOOGLE_SERVICE_ACCOUNT_EMAIL': os.environ['GOOGLE_SERVICE_ACCOUNT_EMAIL'],
+              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY': os.environ['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'],
+              'SHEETS_ID': os.environ['SHEETS_ID'],
+              'SHEETS_TAB': os.environ['SHEETS_TAB'],
+              'EVENT_NAME': os.environ['EVENT_NAME'],
+          }
+          with open('assets/.env', 'w') as f:
+              for k, v in secrets.items():
+                  f.write(f'{k}={v}\n')
+          print('.env created')
+          "
+        working-directory: fsy_scanner
+        env:
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          SHEETS_ID: ${{ secrets.SHEETS_ID }}
+          SHEETS_TAB: ${{ secrets.SHEETS_TAB }}
+          EVENT_NAME: ${{ secrets.EVENT_NAME }}
+
+      - name: Verify .env file integrity
+        run: |
+          FILE="assets/.env"
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: .env file was not created!"
+            exit 1
+          fi
+          if [ ! -s "$FILE" ]; then
+            echo "ERROR: .env file is empty!"
+            exit 1
+          fi
+          echo "Checking required keys..."
+          MISSING=""
+          for key in GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY SHEETS_ID SHEETS_TAB EVENT_NAME; do
+            if ! grep -q "^${key}=" "$FILE"; then
+              MISSING="$MISSING $key"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: Missing required keys in .env:$MISSING"
+            exit 1
+          fi
+          echo "All required keys present"
+          echo "File size: $(wc -c < $FILE) bytes"
         working-directory: fsy_scanner
 
       - name: Build Android APK (debug)

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../db/database_helper.dart';
@@ -23,6 +24,8 @@ class AppState extends ChangeNotifier {
   bool _hapticEnabled = true;
   bool _voiceEnabled = false;
 
+  String _eventName = '';
+
   static const int maxRecentScans = 10;
   final List<RecentScan> _recentScans = [];
   List<RecentScan> get recentScans => List.unmodifiable(_recentScans);
@@ -40,10 +43,8 @@ class AppState extends ChangeNotifier {
   bool get soundEnabled => _soundEnabled;
   bool get hapticEnabled => _hapticEnabled;
   bool get voiceEnabled => _voiceEnabled;
+  String get eventName => _eventName;
 
-  // ---------------------------------------------------------------------------
-  // Recent scans / undo
-  // ---------------------------------------------------------------------------
   void addRecentScan(Participant participant) {
     _recentScans.insert(
         0,
@@ -76,9 +77,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Setters
-  // ---------------------------------------------------------------------------
   void setPendingTaskCount(int count) {
     _pendingTaskCount = count;
     notifyListeners();
@@ -148,23 +146,42 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Preferences
-  // ---------------------------------------------------------------------------
   Future<void> loadPreferences() async {
     final db = await DatabaseHelper.database;
     final soundResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
-    final hapticResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['haptic_enabled']);
+    final hapticResult = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['haptic_enabled']);
     final voiceResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['voice_enabled']);
+    final eventNameResult = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+
     _soundEnabled =
         soundResult.isEmpty || soundResult.first['value'] != 'false';
     _hapticEnabled =
         hapticResult.isEmpty || hapticResult.first['value'] != 'false';
     _voiceEnabled =
         voiceResult.isNotEmpty && voiceResult.first['value'] == 'true';
+
+    if (eventNameResult.isNotEmpty) {
+      _eventName = eventNameResult.first['value'] as String? ?? '';
+    } else {
+      _eventName = dotenv.env['EVENT_NAME'] ?? 'FSY 2026';
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> loadEventName() async {
+    final db = await DatabaseHelper.database;
+    final result = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['event_name']);
+    if (result.isNotEmpty) {
+      _eventName = result.first['value'] as String? ?? '';
+    } else {
+      _eventName = dotenv.env['EVENT_NAME'] ?? 'FSY 2026';
+    }
     notifyListeners();
   }
 
@@ -207,9 +224,6 @@ class AppState extends ChangeNotifier {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Helper class for recent undo
-// -----------------------------------------------------------------------------
 class RecentScan {
   final String participantId;
   final String name;

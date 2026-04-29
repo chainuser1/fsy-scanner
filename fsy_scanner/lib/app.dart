@@ -8,6 +8,7 @@ import 'sync/sync_engine.dart';
 class FSYScannerApp extends StatelessWidget {
   final AppState appState;
   final bool showOnboarding;
+  // static const String appName = 'FSY 2026 Tacloban & Tolosa';
 
   const FSYScannerApp(
       {super.key, required this.appState, this.showOnboarding = false});

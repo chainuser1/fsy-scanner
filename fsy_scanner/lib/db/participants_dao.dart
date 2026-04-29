@@ -33,6 +33,8 @@ class ParticipantsDao {
         'sheets_row': p.sheetsRow,
         'raw_json': p.rawJson,
         'updated_at': p.updatedAt,
+        'age': p.age,
+        'birthday': p.birthday,
       },
       where: 'id = ?',
       whereArgs: [p.id],
@@ -59,6 +61,8 @@ class ParticipantsDao {
             'sheets_row': p.sheetsRow,
             'raw_json': p.rawJson,
             'updated_at': p.updatedAt,
+            'age': p.age,
+            'birthday': p.birthday,
           },
           conflictAlgorithm: ConflictAlgorithm.ignore);
     }

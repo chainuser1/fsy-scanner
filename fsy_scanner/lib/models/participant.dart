@@ -10,6 +10,8 @@ class Participant {
   final String? medicalInfo;
   final String? note;
   final String? status;
+  final int? age;
+  final String? birthday;
   final int? verifiedAt;
   final int? printedAt;
   final String? registeredBy;
@@ -29,6 +31,8 @@ class Participant {
     this.medicalInfo,
     this.note,
     this.status,
+    this.age,
+    this.birthday,
     this.verifiedAt,
     this.printedAt,
     this.registeredBy,
@@ -50,6 +54,8 @@ class Participant {
       'medical_info': medicalInfo,
       'note': note,
       'status': status,
+      'age': age,
+      'birthday': birthday,
       'verified_at': verifiedAt,
       'printed_at': printedAt,
       'registered_by': registeredBy,
@@ -72,6 +78,8 @@ class Participant {
       medicalInfo: json['medical_info'] as String?,
       note: json['note'] as String?,
       status: json['status'] as String?,
+      age: json['age'] as int?,
+      birthday: json['birthday'] as String?,
       verifiedAt: json['verified_at'] as int?,
       printedAt: json['printed_at'] as int?,
       registeredBy: json['registered_by'] as String?,
@@ -94,6 +102,8 @@ class Participant {
       medicalInfo: row['medical_info'] as String?,
       note: row['note'] as String?,
       status: row['status'] as String?,
+      age: row['age'] as int?,
+      birthday: row['birthday'] as String?,
       verifiedAt: row['verified_at'] as int?,
       printedAt: row['printed_at'] as int?,
       registeredBy: row['registered_by'] as String?,

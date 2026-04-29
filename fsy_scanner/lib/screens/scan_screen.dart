@@ -17,6 +17,7 @@ import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../sync/sync_engine.dart';
 import '../utils/device_id.dart';
+import 'dashboard_screen.dart';
 import 'participants_screen.dart';
 import 'settings_screen.dart';
 
@@ -29,8 +30,8 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const String _errorSoundPath = 'assets/sounds/error_sound.mp3';
-  static const String _successSoundPath = 'assets/sounds/success_sound.mp3';
+  static const String _errorSoundPath = '/sounds/error_sound.mp3';
+  static const String _successSoundPath = '/sounds/success_sound.mp3';
 
   MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -44,7 +45,6 @@ class _ScanScreenState extends State<ScanScreen>
   Timer? _powerSaveTimer;
   bool _powerSaveMode = false;
 
-  // Sync progress
   String _syncStatusText = '';
   double _syncProgress = 0.0;
 
@@ -68,7 +68,6 @@ class _ScanScreenState extends State<ScanScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // Listen for sync status with progress details
     _syncSub = SyncEngine.syncStatusStream.listen((data) {
       if (mounted) {
         setState(() {
@@ -125,7 +124,9 @@ class _ScanScreenState extends State<ScanScreen>
     _powerSaveTimer?.cancel();
     if (_powerSaveMode) {
       setState(() => _powerSaveMode = false);
-      controller.start();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) controller.start();
+      });
     }
     _powerSaveTimer = Timer(const Duration(minutes: 10), () {
       if (mounted) {
@@ -335,7 +336,6 @@ class _ScanScreenState extends State<ScanScreen>
             onPressed: () => _navigateTo(const SettingsScreen()),
           ),
           actions: [
-            // Torch toggle
             IconButton(
               icon: Icon(
                 _torchOn ? Icons.flashlight_on : Icons.flashlight_off,
@@ -348,10 +348,20 @@ class _ScanScreenState extends State<ScanScreen>
               icon: const Icon(Icons.people),
               onPressed: () => _navigateTo(const ParticipantsScreen()),
             ),
+            IconButton(
+              icon: const Icon(Icons.dashboard),
+              onPressed: () => _navigateTo(const DashboardScreen()),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 12.0),
               child: GestureDetector(
                 onTap: _showQueueVisualizer,
+                onLongPress: () {
+                  SyncEngine.pushImmediately(appState);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Manual sync triggered')),
+                  );
+                },
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -417,15 +427,16 @@ class _ScanScreenState extends State<ScanScreen>
                       ],
                     ),
                   ),
-                // Sync progress indicator
-                if (_isSyncingNow && _syncProgress > 0)
+                if (!_powerSaveMode && _isSyncingNow && _syncProgress > 0)
                   LinearProgressIndicator(
                     value: _syncProgress,
                     backgroundColor: Colors.grey[300],
                     valueColor: const AlwaysStoppedAnimation<Color>(
                         FSYScannerApp.primaryBlue),
                   ),
-                if (_isSyncingNow && _syncStatusText.isNotEmpty)
+                if (!_powerSaveMode &&
+                    _isSyncingNow &&
+                    _syncStatusText.isNotEmpty)
                   Container(
                     color: Colors.black54,
                     padding:
@@ -542,12 +553,12 @@ class _ScanScreenState extends State<ScanScreen>
                           },
                         )
                       else
-                        Container(
+                        Material(
                           color: Colors.black87,
-                          child: Center(
-                            child: GestureDetector(
-                              onTap: _resetPowerSaveTimer,
-                              child: const Column(
+                          child: InkWell(
+                            onTap: _resetPowerSaveTimer,
+                            child: const Center(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.touch_app,
@@ -562,27 +573,27 @@ class _ScanScreenState extends State<ScanScreen>
                             ),
                           ),
                         ),
-                      // Reticle with pulse
-                      Center(
-                        child: AnimatedBuilder(
-                          animation: _reticlePulseAnimation,
-                          builder: (context, child) {
-                            return Transform.scale(
-                              scale: _reticlePulseAnimation.value,
-                              child: child,
-                            );
-                          },
-                          child: Container(
-                            width: 260,
-                            height: 260,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.white, width: 2),
+                      if (!_powerSaveMode)
+                        Center(
+                          child: AnimatedBuilder(
+                            animation: _reticlePulseAnimation,
+                            builder: (context, child) {
+                              return Transform.scale(
+                                scale: _reticlePulseAnimation.value,
+                                child: child,
+                              );
+                            },
+                            child: Container(
+                              width: 260,
+                              height: 260,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border:
+                                    Border.all(color: Colors.white, width: 2),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      // Live checked‑in badge
                       Positioned(
                         top: 60,
                         left: 20,
@@ -602,7 +613,6 @@ class _ScanScreenState extends State<ScanScreen>
                           ),
                         ),
                       ),
-                      // Animated result card
                       if (_showResultCard)
                         Positioned(
                           bottom: 80,
@@ -679,7 +689,6 @@ class _ScanScreenState extends State<ScanScreen>
                             ),
                           ),
                         ),
-                      // First‑run loading overlay
                       if (appState.isInitialLoading)
                         Container(
                           color: Colors.black.withAlpha(204),
@@ -728,23 +737,23 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
               ],
             ),
-            // FABs
             Positioned(
               right: 16,
               bottom: 32,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Semantics(
-                    label: 'Sync now',
-                    child: FloatingActionButton.small(
-                      heroTag: 'sync_fab',
-                      onPressed: () => SyncEngine.performFullSync(appState),
-                      tooltip: 'Sync now',
-                      child: const Icon(Icons.sync),
-                    ),
+                  // Camera flip (front/back)
+                  FloatingActionButton.small(
+                    heroTag: 'camera_flip',
+                    onPressed: () {
+                      controller.switchCamera();
+                    },
+                    tooltip: 'Flip camera (front/back)',
+                    child: const Icon(Icons.flip_camera_android),
                   ),
                   const SizedBox(height: 8),
+                  // Sound toggle
                   Semantics(
                     label:
                         appState.soundEnabled ? 'Mute sounds' : 'Enable sounds',
@@ -761,6 +770,7 @@ class _ScanScreenState extends State<ScanScreen>
                     ),
                   ),
                   const SizedBox(height: 8),
+                  // Haptic toggle
                   Semantics(
                     label: appState.hapticEnabled
                         ? 'Disable vibration'

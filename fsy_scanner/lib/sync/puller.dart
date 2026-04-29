@@ -107,6 +107,9 @@ class Puller {
           _parseTimestamp(_safeString(row, colMap[SheetColumns.verifiedAt]));
       final printedAt =
           _parseTimestamp(_safeString(row, colMap[SheetColumns.printedAt]));
+      final ageStr = _safeString(row, colMap[SheetColumns.age]);
+      final age = ageStr != null ? int.tryParse(ageStr) : null;
+      final birthday = _safeString(row, colMap[SheetColumns.birthday]);
 
       return Participant(
         id: id,
@@ -120,6 +123,8 @@ class Puller {
         medicalInfo: _safeString(row, colMap[SheetColumns.medicalInfo]),
         note: _safeString(row, colMap[SheetColumns.note]),
         status: _safeString(row, colMap[SheetColumns.status]),
+        age: age,
+        birthday: birthday,
         verifiedAt: verifiedAt,
         printedAt: printedAt,
         registeredBy: _safeString(row, colMap[SheetColumns.deviceId]),

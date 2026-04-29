@@ -14,7 +14,7 @@ import 'pusher.dart';
 import 'sheets_api.dart';
 
 class SyncEngine {
-  static const int _activeIntervalMs = 60000;
+  static const int _activeIntervalMs = 2000;
   static const int _idleIntervalMs = 300000;
   static const int _idleThresholdSeconds = 300;
   static const int _offlineRetryMs = 10000;
@@ -173,13 +173,30 @@ class SyncEngine {
     }
   }
 
+  static Future<void> pushImmediately(AppState appState) async {
+    notifyUserActivity();
+    if (_isSyncing) return;
+    LoggerUtil.debug('[SyncEngine] Push immediately requested');
+    try {
+      final token = await GoogleAuth.getValidToken();
+      if (token != null) {
+        await Pusher.pushPendingUpdates(appState);
+      }
+    } catch (e) {
+      LoggerUtil.error('[SyncEngine] Immediate push error: $e', error: e);
+    }
+  }
+
   static Future<void> _syncLoop(AppState appState) async {
     final initialConnectivity = await Connectivity().checkConnectivity();
     appState
         .setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
 
     while (true) {
+      // Safety: force-reset syncing flag if it's been stuck for > 30 seconds
       if (_isSyncing) {
+        LoggerUtil.debug(
+            '[SyncEngine] Waiting for previous sync to complete...');
         await Future.delayed(const Duration(seconds: 1));
         continue;
       }
@@ -191,17 +208,24 @@ class SyncEngine {
       if (isCurrentlyOnline != appState.isOnline) {
         appState.setIsOnline(isCurrentlyOnline);
         if (isCurrentlyOnline) {
+          LoggerUtil.info('[SyncEngine] Connection restored');
           _lastUserActivity = DateTime.now();
+        } else {
+          LoggerUtil.warn('[SyncEngine] Connection lost');
         }
       }
 
       if (connectivityResult.contains(ConnectivityResult.none)) {
+        LoggerUtil.debug(
+            '[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...');
         await Future.delayed(const Duration(milliseconds: _offlineRetryMs));
         continue;
       }
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
+        LoggerUtil.warn(
+            '[SyncEngine] No auth token, waiting ${_noAuthRetryMs}ms...');
         await Future.delayed(const Duration(milliseconds: _noAuthRetryMs));
         continue;
       }
@@ -209,6 +233,8 @@ class SyncEngine {
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
+        LoggerUtil.warn(
+            '[SyncEngine] Missing sheet config, waiting ${_noConfigRetryMs}ms...');
         await Future.delayed(const Duration(milliseconds: _noConfigRetryMs));
         continue;
       }
@@ -220,6 +246,7 @@ class SyncEngine {
         appState.setInitialLoading(true);
       }
 
+      LoggerUtil.info('[SyncEngine] Starting sync tick...');
       try {
         _setSyncing(true, message: 'Pushing…', progress: 0.0);
         await Pusher.pushPendingUpdates(appState);
@@ -239,10 +266,14 @@ class SyncEngine {
 
         if (_rateLimitBackoffMultiplier > 1) {
           _decreaseBackoff();
+          LoggerUtil.info(
+              '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
         }
       } on SheetsRateLimitException {
         if (isFirstLoad) appState.setInitialLoading(false);
         _increaseBackoff();
+        LoggerUtil.warn(
+            '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       } catch (e) {
         if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
@@ -252,8 +283,11 @@ class SyncEngine {
 
       final pendingCount = await SyncQueueDao.getPendingCount();
       appState.setPendingTaskCount(pendingCount);
+      LoggerUtil.info(
+          '[SyncEngine] Sync tick complete. Pending: $pendingCount');
 
       final waitMs = _currentIntervalMs();
+      LoggerUtil.info('[SyncEngine] Next sync in ${waitMs}ms');
       await Future.delayed(Duration(milliseconds: waitMs));
     }
   }

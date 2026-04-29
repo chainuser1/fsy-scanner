@@ -32,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isScanningPrinters = false;
   bool _isSyncing = false;
   String? _selectedPrinterAddress;
+  String _printerStatus = 'Not checked';
 
   @override
   void initState() {
@@ -197,14 +198,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _resetToDefaults() async {
     final db = await DatabaseHelper.database;
-    // Remove current sheet settings so they are re-seeded from .env
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
     await db
         .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
     await db
         .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
 
-    // Re-seed from .env
     final settingsToSeed = {
       'sheets_id': dotenv.env['SHEETS_ID'],
       'sheets_tab': dotenv.env['SHEETS_TAB'],
@@ -220,10 +219,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
-    // Reload UI fields
     await _loadSettings();
 
-    // Re-detect column map
     try {
       final token = await GoogleAuth.getValidToken();
       if (token != null && mounted) {
@@ -254,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ─── Printer ────────────────────────────────────────────────
   Future<void> _scanPrinters() async {
     setState(() => _isScanningPrinters = true);
     final printers = await PrinterService.scanPrinters();
@@ -270,7 +268,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {'key': 'printer_address', 'value': printer.address},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    setState(() => _selectedPrinterAddress = printer.address);
+    setState(() {
+      _selectedPrinterAddress = printer.address;
+      _printerStatus = 'Selected – tap Check Status to verify';
+    });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Printer ${printer.name} selected')),
@@ -297,6 +298,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _checkPrinterStatus() async {
+    if (_selectedPrinterAddress == null) {
+      setState(() => _printerStatus = 'No printer selected');
+      return;
+    }
+    setState(() => _printerStatus = 'Checking…');
+    try {
+      // Scan for printers and see if our saved address appears
+      await PrinterService.scanPrinters();
+      final found =
+          _discoveredPrinters.any((p) => p.address == _selectedPrinterAddress);
+      if (found) {
+        setState(() => _printerStatus = 'Available');
+      } else {
+        setState(() => _printerStatus =
+            'Not found. Make sure printer is on and in range.');
+      }
+    } catch (e) {
+      setState(() => _printerStatus = 'Error: $e');
+    }
+  }
+
+  Future<void> _retryFailedPrints() async {
+    final count = PrinterService.failedJobCount;
+    if (count == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No failed prints to retry')),
+      );
+      return;
+    }
+    final success = await PrinterService.retryFailedPrints();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Retried $count jobs, $success succeeded')),
+      );
+    }
+  }
+
+  // ─── Sync ───────────────────────────────────────────────────
   Future<void> _startFullSync() async {
     final appState = Provider.of<AppState>(context, listen: false);
     await SyncEngine.performFullSync(appState);
@@ -420,7 +460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Printer Settings
+          // Printer Settings (enhanced)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -449,7 +489,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   if (_discoveredPrinters.isNotEmpty)
                     ListView.builder(
                       shrinkWrap: true,
@@ -470,6 +510,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                  const SizedBox(height: 12),
+                  // Status and troubleshooting
+                  Row(
+                    children: [
+                      const Text('Status: ',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      Expanded(
+                        child: Text(_printerStatus,
+                            style: const TextStyle(color: Colors.grey)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _checkPrinterStatus,
+                        icon: const Icon(Icons.info_outline),
+                        label: const Text('Check Status'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: _retryFailedPrints,
+                        icon: const Icon(Icons.replay),
+                        label: Text(
+                            'Retry Failed (${PrinterService.failedJobCount})'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

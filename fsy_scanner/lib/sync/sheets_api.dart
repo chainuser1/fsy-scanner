@@ -21,6 +21,8 @@ class SheetColumns {
   static const String medicalInfo = 'Medical/Food Info';
   static const String note = 'Note';
   static const String tshirtSize = 'T-Shirt Size';
+  static const String age = 'Age';
+  static const String birthday = 'Birthday';
   static const String tableNumber = 'Table Number';
   static const String roomNumber = 'Hotel Room Number';
   static const String verifiedAt = 'Verified At';
