@@ -37,7 +37,7 @@ class ReceiptBuilder {
     buffer.writeln('Verified: $timestamp');
     buffer.writeln('Device: $shortDeviceId');
     buffer.writeln('=' * _receiptWidth);
-    buffer.writeln(_centerText('Welcome to FSY 2026!', _receiptWidth));
+    buffer.writeln(_centerText('Welcome to $eventName!', _receiptWidth));
     buffer.writeln('=' * _receiptWidth);
     buffer.writeln('\n\n\n'); // Paper feed for cutting
 

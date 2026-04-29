@@ -197,12 +197,12 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       },
     );
 
-    PrinterService.printReceipt(widget.participant, deviceId).then((success) {
-      if (!success && mounted) {
+    PrinterService.printReceipt(widget.participant, deviceId).then((result) {
+      if (!result.success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Print failed – check printer connection'),
-            backgroundColor: Colors.orange,
+          SnackBar(
+            content: Text(result.message),
+            backgroundColor: result.queuedForRetry ? Colors.orange : Colors.red,
           ),
         );
       }

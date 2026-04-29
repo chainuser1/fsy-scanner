@@ -2567,3 +2567,150 @@ Camera flip FAB: Replaces the sync FAB which was confusing; provides a must‑ha
 Dynamic event name: Hardcoded name was impractical for multi‑event or changed configurations; now reflects the actual setting.
 
 Ran dart run flutter_launcher_icons to produce all mipmap sizes.
+---
+
+## 49.0 — Printer Overhaul (Classic SPP Support), Namespace Build Fix, Persist Camera Selection, and Sync Polishing 
+**Date/Time:** 2026-04-30 11:00:00 
+**Status:** ✅ Complete 
+ 
+### What I Did 
+Replaced `flutter_thermal_printer` with `blue_thermal_printer` because the old plugin only supports BLE, while the PT‑200 and most budget receipt printers use Bluetooth Classic SPP. This allowed the app to detect already paired printers via `getBondedDevices()` and connect with Classic SPP automatically when supported. The change was limited to the printer integration layer, with added automatic re‑connection before each print and a manual Connect button in Settings for diagnosis. I also fixed a critical build failure caused by a missing `namespace` in the new plugin, resolved the camera reverting to rear after every scan, and further refined sync feedback behaviour. 
+ 
+### Changes: 
+ 
+**Printer backend replacement.** 
+Removed `flutter_thermal_printer` because its `getPrinters(connectionTypes: [ConnectionType.BLE])` flow only discovers BLE devices and cannot find Bluetooth Classic printers even when they are already paired in Android settings. Added `blue_thermal_printer`, which supports both Classic and BLE, uses `getBondedDevices()` to list paired printers regardless of type, and lets `connect(device)` use Classic SPP automatically when supported. No other part of the app required a broader rewrite beyond the printer integration. Updated `PrinterService` to provide: 
+- `connect(device)` – manual connect from Settings UI. 
+- `_ensureConnected(address)` – automatic re‑connect before every print. 
+- Persistent connection state (`_connectedDevice`). 
+- Failed‑print retry queue preserved. 
+ 
+**Android build fix.** 
+Added a `subprojects` block in the root `android/build.gradle` that automatically assigns a `namespace` to any library module that lacks one. This resolved the `Namespace not specified` error from `blue_thermal_printer` under AGP 8.9.1. 
+ 
+**Persist camera selection (front/rear).** 
+Previously the camera would always revert to rear after an overlay, power‑save resume, or navigation. Added a `_isFrontCamera` flag and `_ensureCameraMatchesFlag()` method that re‑applies the user’s choice after any `controller.start()`. The camera‑flip FAB now toggles this persistent state. 
+ 
+**Sync feedback refinements.** 
+- Suppressed progress text (“Pushing…”, “Sync complete”) during automatic background ticks; only the spinner and progress bar appear. 
+- Manual syncs (Settings buttons, long‑press on badge) still show brief status messages. 
+- Added `_interruptibleSleep` to the sync loop so that after an idle period, a user scan immediately shortens the next tick interval. 
+ 
+**Full‑screen overlay check‑in time display.** 
+The orange “already checked‑in” overlay now shows the previous check‑in time directly beneath the participant name (e.g., “Checked in at 09:42”). 
+ 
+**Minor clean‑ups.** 
+- Removed unused imports (`dart:convert`, `dart:typed_data`) from printer service. 
+- Fixed nullable `String?` warnings in `settings_screen.dart` printer list. 
+- Deleted the unused `isSelected` variable and replaced inline checks with direct comparison. 
+- Removed the old `flutter_thermal_printer` import and updated all references from `Printer` to `BluetoothDevice`. 
+ 
+### Files modified: 
+- `pubspec.yaml` – swapped dependencies. 
+- `lib/print/printer_service.dart` – updated printer integration for `blue_thermal_printer`, auto‑connect before print, manual connect, retry queue. 
+- `lib/screens/settings_screen.dart` – printer list, manual connect button, status updates, nullable fixes. 
+- `lib/screens/scan_screen.dart` – camera persistence (`_isFrontCamera`, `_ensureCameraMatchesFlag`), sync SnackBar removal. 
+- `lib/sync/sync_engine.dart` – `_suppressProgressText`, `_interruptibleSleep`, progress text suppression. 
+- `android/build.gradle` – added `subprojects` namespace fallback. 
+ 
+### Verification Result 
+- `flutter analyze` passes with zero errors. 
+- The PT‑200 printer is detected among bonded devices, can be manually connected, and prints successfully. 
+- Auto‑connect works on subsequent prints without re‑scanning. 
+- Camera stays on the selected front/rear option after overlays, power‑save resume, and navigation. 
+- Automatic syncs show only spinner and progress bar; manual syncs show brief text. 
+- Orange “already checked‑in” overlay displays the previous check‑in time. 
+- `flutter build apk --debug` succeeds without namespace error. 
+ 
+### Issues Encountered 
+- `blue_thermal_printer` required AGP namespace assignment; fixed via root `build.gradle` script. 
+- `BluetoothDevice` in the new package has nullable `name` and `address`; handled with null‑coalescing operators. 
+- The `write` method expects a `String`, not bytes; adjusted receipt delivery accordingly. 
+ 
+### Corrections Made 
+- Added `namespace` fallback in `android/build.gradle` for all library modules. 
+- Null‑safety handling for printer properties in the UI. 
+- Re‑applied `_ensureCameraMatchesFlag()` after every `controller.start()` call to maintain front camera. 
+ 
+### Deviations from Plan 
+The printer plugin was swapped from BLE‑only `flutter_thermal_printer` to `blue_thermal_printer` because the target PT‑200 printer and similar low‑cost receipt printers use Bluetooth Classic SPP, which the old plugin could not discover or connect to. This was a necessary hardware compatibility fix. 
+
+---
+
+## 50.0 — Bluetooth Printer Gap Audit and Hardening
+**Date/Time:** 2026-04-30 12:30:00
+**Status:** ✅ Complete
+
+### What I Did
+Audited the Bluetooth printer workflow after the move to `blue_thermal_printer`, documented the remaining operational gaps, and then fixed them across the printer service, Settings UI, print entry points, receipt output, and Android permission setup. The goal was to eliminate mismatches between selected and connected printers, make failed prints recoverable across app restarts, improve operator feedback, and ensure the Classic SPP printer path is reliable on Android.
+
+### Findings
+- Bluetooth runtime permissions were declared in the manifest but not handled at runtime, which could break paired-printer access on Android 12+.
+- The app listed only bonded devices, but the UI still implied active discovery instead of “paired printers only”.
+- Manual connect and saved printer selection could drift apart, allowing a user to connect one printer while the app still printed to a different saved address.
+- Failed print jobs were kept only in memory, so they were lost on app restart.
+- Reprint flow feedback was weaker than the main scan/confirm flow.
+- Undoing a scan cleared `verified_at` but left `printed_at`, which could leave local state inconsistent.
+- Receipt footer text still used hardcoded event branding instead of the configured event name.
+
+### Changes Made
+**Bluetooth permissions and Android config.**
+- Added `permission_handler` and implemented runtime Bluetooth permission requests before loading paired printers, checking status, connecting, or printing.
+- Updated `AndroidManifest.xml` so `BLUETOOTH_SCAN` uses `neverForLocation` and removed the unneeded location permission for the bonded-device workflow.
+
+**Printer selection and connection consistency.**
+- Centralised saved printer persistence inside `PrinterService`.
+- Manual connect in Settings now saves and connects the same device, removing the drift between “selected” and “connected” printer state.
+- Added a richer printer status check so the UI can distinguish between no selection, missing permission, not paired, paired, and connected.
+
+**Durable failed-print recovery.**
+- Replaced the in-memory failed print queue with a persistent queue stored in `app_settings` as serialized jobs.
+- Retry Failed Prints now survives app restarts and reports attempted, succeeded, and remaining jobs.
+- Print failures now queue the receipt with an explicit reason instead of silently disappearing.
+
+**Settings printer UX improvements.**
+- Renamed the printer loader flow to paired-printer language and added guidance that the printer must first be paired in Android Bluetooth settings.
+- Added a dedicated `Check Status` action.
+- Added a visible selected printer address and refreshed printer readiness state on load and after printer actions.
+
+**Print flow feedback improvements.**
+- Updated scan, confirm, and participants reprint flows to show the actual printer result message.
+- Failed or queued prints now show actionable warnings instead of a generic failure message.
+- Reprint from the participants list now awaits the print result and reports success, queued retry, or failure clearly.
+
+**State and receipt fixes.**
+- Undoing a scan now clears both `verified_at` and `printed_at` locally.
+- Receipt footer now uses the configured event name instead of hardcoded `FSY 2026` text.
+
+### Files Modified
+- `fsy_scanner/pubspec.yaml` – added `permission_handler`.
+- `fsy_scanner/android/app/src/main/AndroidManifest.xml` – updated Bluetooth permission configuration.
+- `fsy_scanner/lib/print/printer_service.dart` – runtime permissions, saved-printer consistency, persistent failed-print queue, status model, retry summary, and improved print results.
+- `fsy_scanner/lib/screens/settings_screen.dart` – paired-printer messaging, status checks, selected-printer refresh, retry count refresh, and permission UX.
+- `fsy_scanner/lib/screens/scan_screen.dart` – better print failure messaging.
+- `fsy_scanner/lib/screens/confirm_screen.dart` – better print failure messaging.
+- `fsy_scanner/lib/screens/participants_screen.dart` – awaited reprint result and user feedback.
+- `fsy_scanner/lib/db/participants_dao.dart` – clear `printed_at` on undo.
+- `fsy_scanner/lib/print/receipt_builder.dart` – dynamic event-name footer.
+
+### Verification Result
+- `flutter pub get` succeeds.
+- `flutter analyze` passes with zero issues.
+- Printer actions now request Bluetooth permissions before use.
+- Settings no longer treats manual connect and saved selection as separate targets.
+- Failed print jobs persist across app restarts and can be retried later.
+- The printer section now makes it clear that only paired printers are listed.
+- Reprint, scan, and confirm flows all surface real print outcome messages.
+
+### Issues Encountered
+- The printer hardening touched both service logic and UI state, so selection, connection, retry, and status updates had to be unified in one pass to avoid introducing new drift.
+
+### Corrections Made
+- Added runtime permission handling.
+- Persisted the failed print queue.
+- Unified selected printer and connected printer handling.
+- Improved operator-facing status and retry messaging.
+- Fixed local undo and receipt-branding inconsistencies.
+
+### Deviations from Plan
+These changes go beyond the original printer swap and focus on operational resilience. They were necessary to close real workflow gaps discovered during the Bluetooth printer audit.

@@ -193,16 +193,27 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                                         tooltip: 'Reprint receipt',
                                         onPressed: () async {
                                           final deviceId = await DeviceId.get();
-                                          unawaited(PrinterService.printReceipt(
-                                              participant, deviceId));
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              SnackBar(
-                                                  content: Text(
-                                                      'Printing receipt for ${participant.fullName}')),
-                                            );
+                                          final result =
+                                              await PrinterService.printReceipt(
+                                            participant,
+                                            deviceId,
+                                          );
+                                          if (!mounted) {
+                                            return;
                                           }
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(result.success
+                                                  ? 'Receipt printed for ${participant.fullName}'
+                                                  : result.message),
+                                              backgroundColor: result.success
+                                                  ? Colors.green
+                                                  : result.queuedForRetry
+                                                      ? Colors.orange
+                                                      : Colors.red,
+                                            ),
+                                          );
                                         },
                                       ),
                                     Icon(

@@ -99,6 +99,7 @@ class ParticipantsDao {
       'participants',
       {
         'verified_at': null,
+        'printed_at': null,
         'registered_by': null,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },

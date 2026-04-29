@@ -1,8 +1,9 @@
 import 'dart:async';
 
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_thermal_printer/utils/printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -28,11 +29,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _tabNameController = TextEditingController();
   final _eventNameController = TextEditingController();
 
-  List<Printer> _discoveredPrinters = [];
+  List<BluetoothDevice> _discoveredPrinters = [];
   bool _isScanningPrinters = false;
   bool _isSyncing = false;
   String? _selectedPrinterAddress;
   String _printerStatus = 'Not checked';
+  int _failedPrintCount = 0;
 
   @override
   void initState() {
@@ -79,7 +81,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _eventNameController.text = dotenv.env['EVENT_NAME'] ?? '';
     }
 
+    if (!mounted) {
+      return;
+    }
+
     setState(() {});
+    await _refreshPrinterInfo();
   }
 
   String? _validateSheetId(String? value) {
@@ -199,10 +206,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _resetToDefaults() async {
     final db = await DatabaseHelper.database;
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-    await db
-        .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-    await db
-        .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
 
     final settingsToSeed = {
       'sheets_id': dotenv.env['SHEETS_ID'],
@@ -251,92 +256,176 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showSnackBar(
+    String message, {
+    Color? backgroundColor,
+  }) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
+
+  Future<bool> _ensureBluetoothPermissions() async {
+    final granted = await PrinterService.ensureBluetoothPermissions();
+    if (granted || !mounted) {
+      return granted;
+    }
+
+    final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Bluetooth Permission Required'),
+            content: const Text(
+              'Allow Bluetooth access so the app can load paired printers and print receipts.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (openSettings) {
+      await openAppSettings();
+    }
+    return false;
+  }
+
+  Future<void> _refreshPrinterInfo() async {
+    final status = await PrinterService.getSelectedPrinterStatus();
+    final failedPrintCount = await PrinterService.getFailedJobCount();
+    if (!mounted) {
+      return;
+    }
+
+    context.read<AppState>().setPrinterAddress(status.selectedAddress);
+    context.read<AppState>().setPrinterConnected(status.isConnected);
+
+    setState(() {
+      _selectedPrinterAddress = status.selectedAddress;
+      _printerStatus = status.message;
+      _failedPrintCount = failedPrintCount;
+    });
+  }
+
   // ─── Printer ────────────────────────────────────────────────
   Future<void> _scanPrinters() async {
+    final granted = await _ensureBluetoothPermissions();
+    if (!granted) {
+      return;
+    }
+
     setState(() => _isScanningPrinters = true);
     final printers = await PrinterService.scanPrinters();
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _discoveredPrinters = printers;
       _isScanningPrinters = false;
     });
-  }
+    await _refreshPrinterInfo();
 
-  Future<void> _selectPrinter(Printer printer) async {
-    final db = await DatabaseHelper.database;
-    await db.insert(
-      'app_settings',
-      {'key': 'printer_address', 'value': printer.address},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    setState(() {
-      _selectedPrinterAddress = printer.address;
-      _printerStatus = 'Selected – tap Check Status to verify';
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Printer ${printer.name} selected')),
+    if (printers.isEmpty) {
+      _showSnackBar(
+        'No paired printers found. Pair the printer in Android Bluetooth settings first.',
+        backgroundColor: Colors.orange,
       );
     }
   }
 
+  Future<void> _selectPrinter(BluetoothDevice printer) async {
+    await PrinterService.saveSelectedPrinter(printer);
+    await _refreshPrinterInfo();
+    _showSnackBar('Printer ${printer.name ?? 'Unknown'} selected');
+  }
+
+  Future<void> _connectToPrinter(BluetoothDevice device) async {
+    final granted = await _ensureBluetoothPermissions();
+    if (!granted) {
+      return;
+    }
+
+    final result =
+        await PrinterService.connect(device, rememberSelection: true);
+    await _refreshPrinterInfo();
+    _showSnackBar(
+      result.message,
+      backgroundColor: result.success ? Colors.green : Colors.red,
+    );
+  }
+
   Future<void> _testPrint() async {
+    final granted = await _ensureBluetoothPermissions();
+    if (!granted) {
+      return;
+    }
+
     final deviceId = await DeviceId.get();
     final mockParticipant = Participant(
       id: 'TEST-001',
       fullName: 'Test Participant',
       sheetsRow: 0,
     );
-    final success =
-        await PrinterService.printReceipt(mockParticipant, deviceId);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? 'Test print sent' : 'Test print failed'),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _checkPrinterStatus() async {
-    if (_selectedPrinterAddress == null) {
-      setState(() => _printerStatus = 'No printer selected');
-      return;
-    }
-    setState(() => _printerStatus = 'Checking…');
-    try {
-      // Scan for printers and see if our saved address appears
-      await PrinterService.scanPrinters();
-      final found =
-          _discoveredPrinters.any((p) => p.address == _selectedPrinterAddress);
-      if (found) {
-        setState(() => _printerStatus = 'Available');
-      } else {
-        setState(() => _printerStatus =
-            'Not found. Make sure printer is on and in range.');
-      }
-    } catch (e) {
-      setState(() => _printerStatus = 'Error: $e');
-    }
+    final result = await PrinterService.printReceipt(mockParticipant, deviceId);
+    await _refreshPrinterInfo();
+    _showSnackBar(
+      result.message,
+      backgroundColor: result.success
+          ? Colors.green
+          : result.queuedForRetry
+              ? Colors.orange
+              : Colors.red,
+    );
   }
 
   Future<void> _retryFailedPrints() async {
-    final count = PrinterService.failedJobCount;
-    if (count == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No failed prints to retry')),
-      );
+    final summary = await PrinterService.retryFailedPrints();
+    await _refreshPrinterInfo();
+
+    if (summary.attempted == 0) {
+      _showSnackBar('No failed prints to retry');
       return;
     }
-    final success = await PrinterService.retryFailedPrints();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Retried $count jobs, $success succeeded')),
-      );
-    }
+
+    final allSucceeded = summary.remaining == 0;
+    _showSnackBar(
+      'Retried ${summary.attempted} jobs, ${summary.succeeded} succeeded, ${summary.remaining} remaining.',
+      backgroundColor: allSucceeded ? Colors.green : Colors.orange,
+    );
   }
 
-  // ─── Sync ───────────────────────────────────────────────────
+  Future<void> _checkPrinterStatus() async {
+    final granted = await _ensureBluetoothPermissions();
+    if (!granted) {
+      return;
+    }
+
+    await _refreshPrinterInfo();
+    _showSnackBar(
+      _printerStatus,
+      backgroundColor:
+          _printerStatus == 'Connected' || _printerStatus == 'Paired and ready'
+              ? Colors.green
+              : Colors.orange,
+    );
+  }
+
   Future<void> _startFullSync() async {
     final appState = Provider.of<AppState>(context, listen: false);
     await SyncEngine.performFullSync(appState);
@@ -460,7 +549,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Printer Settings (enhanced)
+          // Printer Settings
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -470,6 +559,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text('Printer Settings',
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Only paired printers appear here. Pair the printer in Android Bluetooth settings first.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -478,18 +572,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           onPressed: _isScanningPrinters ? null : _scanPrinters,
                           child: Text(_isScanningPrinters
                               ? 'Scanning...'
-                              : 'Scan for Printers'),
+                              : 'Load Paired Printers'),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed:
-                            _selectedPrinterAddress != null ? _testPrint : null,
-                        child: const Text('Test Print'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _checkPrinterStatus,
+                          child: const Text('Check Status'),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed:
+                              _selectedPrinterAddress != null ? _testPrint : null,
+                          child: const Text('Test Print'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_selectedPrinterAddress != null)
+                    Text(
+                      'Selected: $_selectedPrinterAddress',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  if (_selectedPrinterAddress != null)
+                    const SizedBox(height: 8),
                   if (_discoveredPrinters.isNotEmpty)
                     ListView.builder(
                       shrinkWrap: true,
@@ -497,48 +611,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       itemCount: _discoveredPrinters.length,
                       itemBuilder: (context, index) {
                         final printer = _discoveredPrinters[index];
-                        final isSelected =
-                            _selectedPrinterAddress == printer.address;
                         return ListTile(
                           title: Text(printer.name ?? 'Unknown Printer'),
                           subtitle: Text(printer.address ?? ''),
-                          trailing: isSelected
-                              ? const Icon(Icons.check_circle,
-                                  color: Colors.green)
-                              : null,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.bluetooth_connected,
+                                    size: 20),
+                                tooltip: 'Select and connect',
+                                onPressed: () => _connectToPrinter(printer),
+                              ),
+                              if (_selectedPrinterAddress == printer.address)
+                                const Icon(Icons.check_circle,
+                                    color: Colors.green)
+                              else
+                                Container(width: 24),
+                            ],
+                          ),
                           onTap: () => _selectPrinter(printer),
                         );
                       },
                     ),
                   const SizedBox(height: 12),
-                  // Status and troubleshooting
                   Row(
                     children: [
                       const Text('Status: ',
                           style: TextStyle(fontWeight: FontWeight.bold)),
-                      Expanded(
-                        child: Text(_printerStatus,
-                            style: const TextStyle(color: Colors.grey)),
-                      ),
+                      Text(_printerStatus,
+                          style: const TextStyle(color: Colors.grey)),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _checkPrinterStatus,
-                        icon: const Icon(Icons.info_outline),
-                        label: const Text('Check Status'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _retryFailedPrints,
-                        icon: const Icon(Icons.replay),
-                        label: Text(
-                            'Retry Failed (${PrinterService.failedJobCount})'),
-                      ),
-                    ],
+                  ElevatedButton.icon(
+                    onPressed: _retryFailedPrints,
+                    icon: const Icon(Icons.replay),
+                    label: Text('Retry Failed ($_failedPrintCount)'),
                   ),
                 ],
               ),
