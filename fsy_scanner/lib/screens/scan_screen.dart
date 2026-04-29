@@ -43,6 +43,7 @@ class _ScanScreenState extends State<ScanScreen>
   bool _isSyncingNow = false;
   bool _isCooldown = false;
   bool _torchOn = false;
+  bool _isFrontCamera = false;   // remembers user’s camera choice
   Timer? _powerSaveTimer;
   bool _powerSaveMode = false;
 
@@ -129,7 +130,10 @@ class _ScanScreenState extends State<ScanScreen>
     if (_powerSaveMode) {
       setState(() => _powerSaveMode = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) controller.start();
+        if (mounted) {
+          controller.start();
+          _ensureCameraMatchesFlag();
+        }
       });
     }
     _powerSaveTimer = Timer(const Duration(minutes: 10), () {
@@ -140,11 +144,31 @@ class _ScanScreenState extends State<ScanScreen>
     });
   }
 
+  /// Make sure the active camera matches [_isFrontCamera].
+  /// Call this after any `controller.start()` that might reset to rear.
+  void _ensureCameraMatchesFlag() {
+    // The controller doesn't expose which camera is currently active,
+    // but we can safely toggle once if the flag says front.
+    // We assume the camera is rear after a fresh start().
+    if (_isFrontCamera) {
+      // Small delay to let the camera initialise, then switch.
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) controller.switchCamera();
+      });
+    }
+  }
+
+  void _toggleCamera() {
+    setState(() => _isFrontCamera = !_isFrontCamera);
+    controller.switchCamera();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (!_isCooldown && !_showResultCard && !_powerSaveMode) {
         controller.start();
+        _ensureCameraMatchesFlag();
       }
       WakelockPlus.enable();
     } else if (state == AppLifecycleState.paused ||
@@ -243,6 +267,7 @@ class _ScanScreenState extends State<ScanScreen>
         !_powerSaveMode &&
         !context.read<AppState>().isInitialLoading) {
       controller.start();
+      _ensureCameraMatchesFlag();
     }
     return result;
   }
@@ -320,7 +345,10 @@ class _ScanScreenState extends State<ScanScreen>
     }
     if (success) {
       await _hideAnimatedResult();
-      if (mounted) controller.start();
+      if (mounted) {
+        controller.start();
+        _ensureCameraMatchesFlag();
+      }
     }
   }
 
@@ -368,9 +396,6 @@ class _ScanScreenState extends State<ScanScreen>
                 onTap: _showQueueVisualizer,
                 onLongPress: () {
                   SyncEngine.pushImmediately(appState);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Manual sync triggered')),
-                  );
                 },
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -549,7 +574,10 @@ class _ScanScreenState extends State<ScanScreen>
 
                             await Future.delayed(const Duration(seconds: 2));
                             await _hideAnimatedResult();
-                            if (mounted && !_powerSaveMode) controller.start();
+                            if (mounted && !_powerSaveMode) {
+                              controller.start();
+                              _ensureCameraMatchesFlag();
+                            }
                             await Future.delayed(
                                 const Duration(milliseconds: 300));
                             _isCooldown = false;
@@ -677,7 +705,6 @@ class _ScanScreenState extends State<ScanScreen>
                                       _buildDetailRow('Table', _resultTable),
                                       _buildDetailRow('Shirt', _resultShirt),
                                       const SizedBox(height: 24),
-                                      // Improved Undo button – outlined, visible on bright background
                                       OutlinedButton.icon(
                                         onPressed: _undoScan,
                                         icon: const Icon(Icons.undo,
@@ -756,9 +783,10 @@ class _ScanScreenState extends State<ScanScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Camera flip (uses persistent state)
                   FloatingActionButton.small(
                     heroTag: 'camera_flip',
-                    onPressed: () => controller.switchCamera(),
+                    onPressed: _toggleCamera,
                     tooltip: 'Flip camera (front/back)',
                     child: const Icon(Icons.flip_camera_android),
                   ),
