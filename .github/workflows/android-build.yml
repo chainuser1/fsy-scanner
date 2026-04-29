@@ -1,5 +1,5 @@
 name: CI / Android Build (Flutter)
-# Version: 2.1.0
+# Version: 2.2.0
 
 on:
   push:
@@ -88,28 +88,28 @@ jobs:
               v = v.replace('\"', '\\\\\"')
               return '\"' + v + '\"'
 
-          keys = [
-              'GOOGLE_SERVICE_ACCOUNT_EMAIL',
-              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
-              'SHEETS_ID',
-              'SHEETS_TAB',
-              'EVENT_NAME',
-          ]
+          # Maps .env key -> environment variable name passed in via env: block
+          mapping = {
+              'GOOGLE_SERVICE_ACCOUNT_EMAIL':        os.environ.get('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
+              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY':  os.environ.get('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', ''),
+              'SHEETS_ID':                           os.environ.get('EXPO_PUBLIC_SHEETS_ID', ''),
+              'SHEETS_TAB':                          os.environ.get('EXPO_PUBLIC_SHEETS_TAB', ''),
+              'EVENT_NAME':                          os.environ.get('EXPO_PUBLIC_EVENT_NAME', ''),
+          }
 
           with open('assets/.env', 'w') as f:
-              for k in keys:
-                  v = os.environ.get(k, '')
+              for k, v in mapping.items():
                   f.write(f'{k}={escape_val(v)}\n')
 
           print('.env created successfully')
           "
         working-directory: fsy_scanner
         env:
-          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL:       ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
           GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
-          SHEETS_ID: ${{ secrets.SHEETS_ID }}
-          SHEETS_TAB: ${{ secrets.SHEETS_TAB }}
-          EVENT_NAME: ${{ secrets.EVENT_NAME }}
+          EXPO_PUBLIC_SHEETS_ID:              ${{ secrets.EXPO_PUBLIC_SHEETS_ID }}
+          EXPO_PUBLIC_SHEETS_TAB:             ${{ secrets.EXPO_PUBLIC_SHEETS_TAB }}
+          EXPO_PUBLIC_EVENT_NAME:             ${{ secrets.EXPO_PUBLIC_EVENT_NAME }}
 
       - name: Verify .env file integrity
         run: |
