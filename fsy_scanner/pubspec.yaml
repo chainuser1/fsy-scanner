@@ -45,6 +45,7 @@ flutter:
     - assets/transparent_qr_code_logo_error.png
     - assets/error_sound.mp3
     - assets/success_sound.mp3
+    - assets/warning_sound.mp3
 
 flutter_launcher_icons:
   android: true

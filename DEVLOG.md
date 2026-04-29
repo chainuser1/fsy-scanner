@@ -1810,48 +1810,69 @@ First‑run loading overlay shows the full event logo above the status text.
 
 Android launcher icon. Added flutter_launcher_icons dev dependency. Configured it to generate Android icons from fsy_logo.png. Ran dart run flutter_launcher_icons to produce all mipmap sizes.
 
+---
+## 48.0 — Sync Feedback Refinement: Suppress Auto‑Sync Text, Fix Idle‑to‑Active Interval, Check‑in Time Overlay, and APK Installation Workflow
+Date/Time: 2026-04-30 00:15:00
+Status: ✅ Complete
+
+What I Did
+Polished the sync progress feedback to eliminate distracting text during automatic background syncs, fixed the idle‑to‑active interval so scanning immediately shortens the wait, added the previous check‑in time to the already‑checked‑in overlay, and streamlined the APK installation process for faster iterative testing.
+
+Changes:
+
+Suppressed progress text for automatic syncs.
+Added a _suppressProgressText flag in SyncEngine. When set to true (before automatic ticks), the _setSyncing method emits an empty message – no "Pushing…", "Pulling…", or "Sync complete" text appears. Manual syncs (Full Sync, Pull Data, long‑press on the badge) set the flag to false, restoring the brief status messages. The spinner and progress bar remain visible at all times.
+
+Implemented interruptible sleep to fix the idle‑to‑active gap.
+Replaced long Future.delayed calls in the sync loop with _interruptibleSleep, which breaks the wait into 1‑second chunks. After each second, it checks if the current ideal interval (based on latest user activity) is shorter than the remaining sleep. If yes, the sleep exits immediately, allowing the loop to recalculate and start the next tick sooner. This eliminates the issue where scanning after an idle period would wait the full 5‑minute idle delay.
+
+Displayed previous check‑in time on the orange overlay.
+Added _resultTimeStr state variable. The _showAnimatedResult method now accepts an optional timeStr parameter, which is stored and displayed beneath the participant name on the orange "already checked‑in" full‑screen overlay. The time is formatted as HH:MM and presented in a readable white/grey style.
+
+Removed redundant SnackBar for manual sync trigger.
+The long‑press on the cloud badge already triggers the spinner and progress bar; the separate SnackBar that said "Manual sync triggered" was removed to reduce UI clutter.
+
+Fixed minor analyzer warnings.
+Replaced deprecated Colors.white.withOpacity(0.15) with Colors.white.withAlpha(38). Added a missing newline at the end of lib/providers/app_state.dart.
+
+APK installation workflow.
+Documented commands to build the debug APK (flutter build apk --debug) and install it directly via ADB (adb install -r build/app/outputs/flutter-apk/app-debug.apk), bypassing full rebuilds during iterative testing.
+
 Files modified:
 
-lib/app.dart – brand color constants, custom ThemeData, ColorScheme.
+lib/sync/sync_engine.dart – _suppressProgressText flag, _interruptibleSleep, pushImmediately updates.
 
-lib/screens/scan_screen.dart – logo in AppBar and loading overlay; accent colors for snackbar, offline banner, pending badge.
+lib/screens/scan_screen.dart – _resultTimeStr field, time display in overlay, manual‑sync SnackBar removal, withOpacity fix.
 
-lib/screens/confirm_screen.dart – gold "Confirm Check‑In" button, green success snackbar.
-
-lib/screens/participants_screen.dart – green checkmark, gold print icon.
-
-lib/screens/settings_screen.dart – removed hardcoded blue; relies on theme.
-
-pubspec.yaml – added logo assets and flutter_launcher_icons config.
-
-How I Followed the Plan
-All color and logo changes are purely cosmetic – no logic or data flow was altered.
-
-Asset registration follows the plan's folder structure (Section 5).
-
-Hard Constraints #9 (clean flutter analyze) – zero issues.
+lib/providers/app_state.dart – newline at end of file.
 
 Verification Result
-flutter analyze passes with zero errors.
+flutter analyze passes with zero issues.
 
-App builds and installs; launcher icon shows the FSY logo.
+Automatic syncs show only the spinner and progress bar; no text messages appear.
 
-AppBar displays the transparent FSY logo.
+Manual syncs (Settings buttons and long‑press) still display brief progress text.
 
-Loading overlay shows the full event logo.
+After an idle period, a scan causes the next sync tick to start within ~1 second.
 
-Success snackbar is green, offline banner is gold, confirm button is gold.
+The orange overlay now clearly shows the previous check‑in time ("Checked in at 09:42").
 
-All screens consistently use the brand palette.
+APK can be built and installed directly via ADB commands without a full flutter run.
 
 Issues Encountered
-None.
+The _interruptibleSleep logic initially risked busy‑waiting; a 1‑second delay between checks balances responsiveness and CPU usage.
+
+Ensuring _suppressProgressText was reset after manual syncs required explicit placement in the finally blocks of performFullSync and performPullSync.
 
 Corrections Made
-None.
+Reset _suppressProgressText to true in finally blocks of manual sync methods to prevent the flag from leaking into subsequent automatic ticks.
+
+Used Colors.white.withAlpha(38) as a direct replacement for the deprecated withOpacity(0.15).
 
 Deviations from Plan
-Brand color palette and launcher icon: Not specified in the original plan; added to align the app visually with the FSY event identity.
+Suppressing progress text during automatic syncs was a last‑minute refinement to reduce operator distraction; not originally specified.
+
+The _interruptibleSleep mechanism was unplanned but necessary to address the reported idle‑to‑active interval gap.
 
 ## 33.0 — Source-of-Truth Alignment, Camera Preview Fix, Print Feedback, and Settings Recovery
 **Date/Time:** 2026-04-28 21:45:00

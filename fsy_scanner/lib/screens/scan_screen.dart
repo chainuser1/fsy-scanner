@@ -32,6 +32,7 @@ class _ScanScreenState extends State<ScanScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   static const String _errorSoundPath = 'error_sound.mp3';
   static const String _successSoundPath = 'success_sound.mp3';
+  static const String _warningSoundPath = 'warning_sound.mp3';
 
   MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -484,7 +485,7 @@ class _ScanScreenState extends State<ScanScreen>
                                 alreadyChecked: false,
                               );
                             } else if (participant.verifiedAt != null) {
-                              _playSound(_errorSoundPath);
+                              _playSound(_warningSoundPath);
                               _hapticFeedback(false);
                               String timeStr = '';
                               if (participant.verifiedAt != null) {
