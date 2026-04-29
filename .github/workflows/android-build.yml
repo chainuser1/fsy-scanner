@@ -1,5 +1,5 @@
 name: CI / Android Build (Flutter)
-# Version: 2.0.0
+# Version: 2.1.0
 
 on:
   push:
@@ -49,7 +49,7 @@ jobs:
         working-directory: fsy_scanner
 
   build-android:
-    name: Build Android APK
+    name: Build Android APK (debug)
     runs-on: ubuntu-latest
     needs: ci
     if: github.event_name != 'pull_request'
@@ -80,17 +80,28 @@ jobs:
         run: |
           python3 -c "
           import os
-          secrets = {
-              'GOOGLE_SERVICE_ACCOUNT_EMAIL': os.environ['GOOGLE_SERVICE_ACCOUNT_EMAIL'],
-              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY': os.environ['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'],
-              'SHEETS_ID': os.environ['SHEETS_ID'],
-              'SHEETS_TAB': os.environ['SHEETS_TAB'],
-              'EVENT_NAME': os.environ['EVENT_NAME'],
-          }
+
+          def escape_val(v):
+              # Wrap in double quotes; escape backslashes and internal double quotes
+              # This safely handles multi-line values like RSA private keys
+              v = v.replace('\\\\', '\\\\\\\\')
+              v = v.replace('\"', '\\\\\"')
+              return '\"' + v + '\"'
+
+          keys = [
+              'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+              'SHEETS_ID',
+              'SHEETS_TAB',
+              'EVENT_NAME',
+          ]
+
           with open('assets/.env', 'w') as f:
-              for k, v in secrets.items():
-                  f.write(f'{k}={v}\n')
-          print('.env created')
+              for k in keys:
+                  v = os.environ.get(k, '')
+                  f.write(f'{k}={escape_val(v)}\n')
+
+          print('.env created successfully')
           "
         working-directory: fsy_scanner
         env:
@@ -103,26 +114,32 @@ jobs:
       - name: Verify .env file integrity
         run: |
           FILE="assets/.env"
+
           if [ ! -f "$FILE" ]; then
             echo "ERROR: .env file was not created!"
             exit 1
           fi
+
           if [ ! -s "$FILE" ]; then
             echo "ERROR: .env file is empty!"
             exit 1
           fi
-          echo "Checking required keys..."
+
+          echo "Checking required keys and non-empty values..."
           MISSING=""
           for key in GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY SHEETS_ID SHEETS_TAB EVENT_NAME; do
-            if ! grep -q "^${key}=" "$FILE"; then
+            VALUE=$(grep "^${key}=" "$FILE" | cut -d'=' -f2-)
+            if [ -z "$VALUE" ] || [ "$VALUE" = '""' ]; then
               MISSING="$MISSING $key"
             fi
           done
+
           if [ -n "$MISSING" ]; then
-            echo "ERROR: Missing required keys in .env:$MISSING"
+            echo "ERROR: Missing or empty keys in .env:$MISSING"
             exit 1
           fi
-          echo "All required keys present"
+
+          echo "All required keys present and non-empty"
           echo "File size: $(wc -c < $FILE) bytes"
         working-directory: fsy_scanner
 
@@ -130,20 +147,9 @@ jobs:
         run: flutter build apk --target-platform android-arm64 --debug
         working-directory: fsy_scanner
 
-      - name: Build Android APK (release)
-        run: flutter build apk --target-platform android-arm64 --release
-        working-directory: fsy_scanner
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: fsy-scanner-debug
           path: fsy_scanner/build/app/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: fsy-scanner-release
-          path: fsy_scanner/build/app/outputs/apk/release/app-release.apk
           retention-days: 30
