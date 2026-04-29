@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -14,7 +15,7 @@ import 'pusher.dart';
 import 'sheets_api.dart';
 
 class SyncEngine {
-  static const int _activeIntervalMs = 1500;
+  static const int _activeIntervalMs = 2000;
   static const int _idleIntervalMs = 300000;
   static const int _idleThresholdSeconds = 300;
   static const int _offlineRetryMs = 10000;
@@ -27,21 +28,28 @@ class SyncEngine {
   static int _rateLimitBackoffMultiplier = 1;
   static DateTime _lastUserActivity = DateTime.now();
 
+  // flag to suppress text messages during automatic syncs
+  static bool _suppressProgressText = false;
+
   static bool get isSyncing => _isSyncing;
   static Stream<Map<String, dynamic>> get syncStatusStream =>
       _syncStatusController.stream;
 
   static void _setSyncing(bool value, {String? message, double? progress}) {
     _isSyncing = value;
+    // Only emit message when it's a manual sync (progress text not suppressed)
+    final displayMessage = _suppressProgressText ? '' : (message ?? '');
     _syncStatusController.add({
       'syncing': value,
-      'message': message ?? '',
+      'message': displayMessage,
       'progress': progress ?? 0.0,
     });
   }
 
   static void notifyUserActivity() {
     _lastUserActivity = DateTime.now();
+    // When user becomes active, the loop will immediately see the shorter interval
+    
   }
 
   static Future<void> startup(AppState appState) async {
@@ -104,9 +112,11 @@ class SyncEngine {
     _syncStatusController.close();
   }
 
+  // ── Manual sync operations (with progress text) ──────────────
   static Future<bool> performFullSync(AppState appState) async {
     notifyUserActivity();
     if (_isSyncing) return false;
+    _suppressProgressText = false;                  // manual → show text
     _setSyncing(true, message: 'Full sync started');
     LoggerUtil.info('[SyncEngine] Performing full sync...');
     try {
@@ -140,12 +150,14 @@ class SyncEngine {
       return false;
     } finally {
       _setSyncing(false);
+      _suppressProgressText = true;                 // revert to automatic mode
     }
   }
 
   static Future<bool> performPullSync(AppState appState) async {
     notifyUserActivity();
     if (_isSyncing) return false;
+    _suppressProgressText = false;
     _setSyncing(true, message: 'Pull sync started');
     LoggerUtil.info('[SyncEngine] Performing pull sync...');
     try {
@@ -170,6 +182,7 @@ class SyncEngine {
       return false;
     } finally {
       _setSyncing(false);
+      _suppressProgressText = true;
     }
   }
 
@@ -177,33 +190,34 @@ class SyncEngine {
     notifyUserActivity();
     if (_isSyncing) return;
     LoggerUtil.debug('[SyncEngine] Push immediately requested');
+    _suppressProgressText = false;                  // manual push shows text
     try {
+      _setSyncing(true, message: 'Pushing now…', progress: 0.3);
       final token = await GoogleAuth.getValidToken();
       if (token != null) {
         await Pusher.pushPendingUpdates(appState);
       }
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Immediate push error: $e', error: e);
+    } finally {
+      _setSyncing(false);
+      _suppressProgressText = true;
     }
   }
 
+  // ── Adaptive background loop (text suppressed) ────────────────
   static Future<void> _syncLoop(AppState appState) async {
     final initialConnectivity = await Connectivity().checkConnectivity();
-    appState
-        .setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
+    appState.setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
 
     while (true) {
-      // Safety: force-reset syncing flag if it's been stuck for > 30 seconds
       if (_isSyncing) {
-        LoggerUtil.debug(
-            '[SyncEngine] Waiting for previous sync to complete...');
         await Future.delayed(const Duration(seconds: 1));
         continue;
       }
 
       final connectivityResult = await Connectivity().checkConnectivity();
-      final isCurrentlyOnline =
-          !connectivityResult.contains(ConnectivityResult.none);
+      final isCurrentlyOnline = !connectivityResult.contains(ConnectivityResult.none);
 
       if (isCurrentlyOnline != appState.isOnline) {
         appState.setIsOnline(isCurrentlyOnline);
@@ -216,26 +230,24 @@ class SyncEngine {
       }
 
       if (connectivityResult.contains(ConnectivityResult.none)) {
-        LoggerUtil.debug(
-            '[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...');
-        await Future.delayed(const Duration(milliseconds: _offlineRetryMs));
+        LoggerUtil.debug('[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...');
+        // Sleep in small steps so that a user scan can shorten the wait
+        await _interruptibleSleep(const Duration(milliseconds: _offlineRetryMs));
         continue;
       }
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
-        LoggerUtil.warn(
-            '[SyncEngine] No auth token, waiting ${_noAuthRetryMs}ms...');
-        await Future.delayed(const Duration(milliseconds: _noAuthRetryMs));
+        LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
+        await _interruptibleSleep(const Duration(milliseconds: _noAuthRetryMs));
         continue;
       }
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
-        LoggerUtil.warn(
-            '[SyncEngine] Missing sheet config, waiting ${_noConfigRetryMs}ms...');
-        await Future.delayed(const Duration(milliseconds: _noConfigRetryMs));
+        LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
+        await _interruptibleSleep(const Duration(milliseconds: _noConfigRetryMs));
         continue;
       }
 
@@ -246,9 +258,11 @@ class SyncEngine {
         appState.setInitialLoading(true);
       }
 
-      LoggerUtil.info('[SyncEngine] Starting sync tick...');
+      // Suppress text for automatic tick
+      _suppressProgressText = true;
+      LoggerUtil.info('[SyncEngine] Starting automatic sync tick...');
       try {
-        _setSyncing(true, message: 'Pushing…', progress: 0.0);
+        _setSyncing(true, message: 'Pushing…', progress: 0.0);   // will be suppressed
         await Pusher.pushPendingUpdates(appState);
         _setSyncing(true, message: 'Pulling…', progress: 0.5);
 
@@ -266,14 +280,12 @@ class SyncEngine {
 
         if (_rateLimitBackoffMultiplier > 1) {
           _decreaseBackoff();
-          LoggerUtil.info(
-              '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
+          LoggerUtil.info('[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
         }
       } on SheetsRateLimitException {
         if (isFirstLoad) appState.setInitialLoading(false);
         _increaseBackoff();
-        LoggerUtil.warn(
-            '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
+        LoggerUtil.warn('[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
       } catch (e) {
         if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
@@ -283,12 +295,28 @@ class SyncEngine {
 
       final pendingCount = await SyncQueueDao.getPendingCount();
       appState.setPendingTaskCount(pendingCount);
-      LoggerUtil.info(
-          '[SyncEngine] Sync tick complete. Pending: $pendingCount');
+      LoggerUtil.info('[SyncEngine] Sync tick complete. Pending: $pendingCount');
 
       final waitMs = _currentIntervalMs();
       LoggerUtil.info('[SyncEngine] Next sync in ${waitMs}ms');
-      await Future.delayed(Duration(milliseconds: waitMs));
+      await _interruptibleSleep(Duration(milliseconds: waitMs));
+    }
+  }
+
+  // ── Helper: sleep that aborts early if the active interval becomes shorter ──
+  static Future<void> _interruptibleSleep(Duration maxWait) async {
+    final start = DateTime.now();
+    while (DateTime.now().difference(start).inMilliseconds < maxWait.inMilliseconds) {
+      // Check if a user scan should shorten the remaining time
+      final remaining = maxWait - DateTime.now().difference(start);
+      final currentIdeal = _currentIntervalMs() * (1 - _rateLimitBackoffMultiplier / 100.0); // approximate
+      // Actually, just check if the ideal wait (currentIntervalMs) is significantly shorter than the remaining time
+      final idealWait = _currentIntervalMs();
+      if (idealWait < remaining.inMilliseconds) {
+        // It's now shorter – stop waiting and return so the loop can recalculate
+        return;
+      }
+      await Future.delayed(const Duration(seconds: 1));
     }
   }
 
@@ -305,15 +333,14 @@ class SyncEngine {
   }
 
   static void _decreaseBackoff() {
-    _rateLimitBackoffMultiplier =
-        (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
+    _rateLimitBackoffMultiplier = (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
   }
 
   static Future<String?> _getSettingValue(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db
-          .rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
+      final result =
+          await db.rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
       if (result.isNotEmpty) {
         return result.first['value'] as String?;
       }
