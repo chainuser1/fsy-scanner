@@ -1,5 +1,5 @@
 name: CI / Android Build (Flutter)
-# Version: 2.2.0
+# Version: 2.3.0
 
 on:
   push:
@@ -82,19 +82,24 @@ jobs:
           import os
 
           def escape_val(v):
-              # Wrap in double quotes; escape backslashes and internal double quotes
-              # This safely handles multi-line values like RSA private keys
+              # Strip surrounding whitespace and wrapping double quotes
+              # Handles secrets stored as: \"-----BEGIN PRIVATE KEY-----\n...\"
+              v = v.strip().strip('\"')
+              # Escape internal backslashes first, then internal double quotes
               v = v.replace('\\\\', '\\\\\\\\')
               v = v.replace('\"', '\\\\\"')
+              # Re-wrap in double quotes so dotenv parsers honour literal \n as newline
               return '\"' + v + '\"'
 
-          # Maps .env key -> environment variable name passed in via env: block
+          # Maps .env key name -> environment variable injected via env: block below.
+          # EXPO_PUBLIC_ prefix is stripped here for Flutter; secrets stay prefixed
+          # in GitHub so they can be reused by React Native later without changes.
           mapping = {
-              'GOOGLE_SERVICE_ACCOUNT_EMAIL':        os.environ.get('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
-              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY':  os.environ.get('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', ''),
-              'SHEETS_ID':                           os.environ.get('EXPO_PUBLIC_SHEETS_ID', ''),
-              'SHEETS_TAB':                          os.environ.get('EXPO_PUBLIC_SHEETS_TAB', ''),
-              'EVENT_NAME':                          os.environ.get('EXPO_PUBLIC_EVENT_NAME', ''),
+              'GOOGLE_SERVICE_ACCOUNT_EMAIL':       os.environ.get('GOOGLE_SERVICE_ACCOUNT_EMAIL', ''),
+              'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY': os.environ.get('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', ''),
+              'SHEETS_ID':                          os.environ.get('EXPO_PUBLIC_SHEETS_ID', ''),
+              'SHEETS_TAB':                         os.environ.get('EXPO_PUBLIC_SHEETS_TAB', ''),
+              'EVENT_NAME':                         os.environ.get('EXPO_PUBLIC_EVENT_NAME', ''),
           }
 
           with open('assets/.env', 'w') as f:
