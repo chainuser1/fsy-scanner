@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
+import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
@@ -148,6 +149,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     final db = await DatabaseHelper.database;
+    final previousSettings = await db.query(
+      'app_settings',
+      where: 'key IN (?, ?, ?, ?)',
+      whereArgs: ['sheets_id', 'sheets_tab', 'event_name', 'col_map'],
+    );
+    final previousValues = <String, String?>{};
+    for (final row in previousSettings) {
+      previousValues[row['key'] as String] = row['value'] as String?;
+    }
+
     await db.insert(
       'app_settings',
       {'key': 'sheets_id', 'value': _sheetIdController.text},
@@ -190,12 +201,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           );
         }
+      } else {
+        throw Exception('Google authentication unavailable');
       }
     } catch (e) {
+      for (final key in ['sheets_id', 'sheets_tab', 'event_name', 'col_map']) {
+        final previousValue = previousValues[key];
+        if (previousValue == null) {
+          await db.delete('app_settings', where: 'key = ?', whereArgs: [key]);
+        } else {
+          await db.insert(
+            'app_settings',
+            {'key': key, 'value': previousValue},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+      await _loadSettings();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Column detection failed: $e'),
+            content: Text('Save cancelled because validation failed: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -437,6 +463,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _clearAllData(BuildContext context, AppState appState) async {
+    final pendingCount = await SyncQueueDao.getPendingCount();
+    if (pendingCount > 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Clear All Data is blocked because $pendingCount local changes are still pending sync. Run Full Sync first.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     final confirmed = await _showConfirmationDialog(context);
     if (confirmed == true && mounted) {
       await appState.clearAllData();

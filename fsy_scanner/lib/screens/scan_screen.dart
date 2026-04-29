@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -46,6 +47,8 @@ class _ScanScreenState extends State<ScanScreen>
   bool _isFrontCamera = false; // remembers user’s camera choice
   Timer? _powerSaveTimer;
   bool _powerSaveMode = false;
+  PermissionStatus _cameraPermissionStatus = PermissionStatus.denied;
+  bool _cameraPermissionChecked = false;
 
   String _syncStatusText = '';
   double _syncProgress = 0.0;
@@ -114,8 +117,25 @@ class _ScanScreenState extends State<ScanScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().loadPreferences();
     });
+    unawaited(_ensureCameraPermission());
     _resetPowerSaveTimer();
     _initTts();
+  }
+
+  Future<void> _ensureCameraPermission() async {
+    var status = await Permission.camera.status;
+    if (!status.isGranted) {
+      status = await Permission.camera.request();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _cameraPermissionStatus = status;
+      _cameraPermissionChecked = true;
+    });
   }
 
   Future<void> _initTts() async {
@@ -166,7 +186,11 @@ class _ScanScreenState extends State<ScanScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (!_isCooldown && !_showResultCard && !_powerSaveMode) {
+      unawaited(_ensureCameraPermission());
+      if (_cameraPermissionStatus.isGranted &&
+          !_isCooldown &&
+          !_showResultCard &&
+          !_powerSaveMode) {
         controller.start();
         _ensureCameraMatchesFlag();
       }
@@ -485,7 +509,8 @@ class _ScanScreenState extends State<ScanScreen>
                   child: Stack(
                     children: [
                       if (!_powerSaveMode)
-                        MobileScanner(
+                        if (_cameraPermissionStatus.isGranted)
+                          MobileScanner(
                           controller: controller,
                           onDetect: (capture) async {
                             if (_isCooldown || _showResultCard) return;
@@ -535,6 +560,7 @@ class _ScanScreenState extends State<ScanScreen>
                               await dao.markVerifiedLocally(
                                   participant.id, deviceId, now);
                               appState.addRecentScan(participant);
+                              unawaited(appState.refreshParticipantsCount());
                               SyncEngine.notifyUserActivity();
 
                               await SyncQueueDao.enqueueTask(
@@ -585,6 +611,60 @@ class _ScanScreenState extends State<ScanScreen>
                             _resetPowerSaveTimer();
                           },
                         )
+                        else if (_cameraPermissionChecked)
+                          Material(
+                            color: Colors.black87,
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.camera_alt,
+                                            size: 56,
+                                            color: FSYScannerApp.primaryBlue),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'Camera Permission Required',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          _cameraPermissionStatus
+                                                  .isPermanentlyDenied
+                                              ? 'Camera access was permanently denied. Open app settings to enable scanning.'
+                                              : 'Allow camera access to scan participant QR codes.',
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ElevatedButton(
+                                          onPressed: _cameraPermissionStatus
+                                                  .isPermanentlyDenied
+                                              ? openAppSettings
+                                              : _ensureCameraPermission,
+                                          child: Text(
+                                            _cameraPermissionStatus
+                                                    .isPermanentlyDenied
+                                                ? 'Open Settings'
+                                                : 'Grant Camera Access',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          const Center(child: CircularProgressIndicator())
                       else
                         Material(
                           color: Colors.black87,
@@ -606,7 +686,7 @@ class _ScanScreenState extends State<ScanScreen>
                             ),
                           ),
                         ),
-                      if (!_powerSaveMode)
+                      if (!_powerSaveMode && _cameraPermissionStatus.isGranted)
                         Center(
                           child: AnimatedBuilder(
                             animation: _reticlePulseAnimation,
@@ -762,8 +842,9 @@ class _ScanScreenState extends State<ScanScreen>
                                           textAlign: TextAlign.center),
                                       const SizedBox(height: 16),
                                       ElevatedButton(
-                                        onPressed: () =>
-                                            appState.setSyncError(null),
+                                        onPressed: () => SyncEngine.retryNow(
+                                          context.read<AppState>(),
+                                        ),
                                         child: const Text('Retry'),
                                       ),
                                     ],

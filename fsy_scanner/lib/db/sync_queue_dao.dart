@@ -11,6 +11,7 @@ class SyncQueueDao {
   static Future<int> enqueueTask(
       String type, Map<String, dynamic> payload) async {
     final db = await DatabaseHelper.database;
+    await _coalescePendingTasks(db, type, payload);
     final taskId = await db.insert('sync_tasks', {
       'type': type,
       'payload': jsonEncode(payload),
@@ -19,6 +20,73 @@ class SyncQueueDao {
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
     return taskId;
+  }
+
+  static Future<void> _coalescePendingTasks(
+    dynamic db,
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    final participantId = payload['participantId'] as String?;
+    if (participantId == null || participantId.isEmpty) {
+      return;
+    }
+
+    final results = await db.query(
+      'sync_tasks',
+      where: 'status = ?',
+      whereArgs: ['pending'],
+      orderBy: 'created_at ASC',
+    );
+
+    final idsToDelete = <int>[];
+    for (final row in results) {
+      final rowId = row['id'] as int?;
+      if (rowId == null) {
+        continue;
+      }
+
+      final rowType = row['type'] as String? ?? '';
+      final rawPayload = row['payload'] as String? ?? '{}';
+      Map<String, dynamic> rowPayload;
+      try {
+        rowPayload = Map<String, dynamic>.from(jsonDecode(rawPayload));
+      } catch (_) {
+        continue;
+      }
+
+      final rowParticipantId = rowPayload['participantId'] as String?;
+      if (rowParticipantId != participantId) {
+        continue;
+      }
+
+      if (type == typeMarkRegistered) {
+        if (rowType == typeMarkRegistered || rowType == typeMarkUnverified) {
+          idsToDelete.add(rowId);
+        }
+      } else if (type == typeMarkUnverified) {
+        if (rowType == typeMarkRegistered ||
+            rowType == typeMarkPrinted ||
+            rowType == typeMarkUnverified) {
+          idsToDelete.add(rowId);
+        }
+      } else if (type == typeMarkPrinted) {
+        if (rowType == typeMarkPrinted) {
+          idsToDelete.add(rowId);
+        }
+      }
+    }
+
+    if (idsToDelete.isEmpty) {
+      return;
+    }
+
+    final placeholders = List.filled(idsToDelete.length, '?').join(', ');
+    await db.delete(
+      'sync_tasks',
+      where: 'id IN ($placeholders)',
+      whereArgs: idsToDelete,
+    );
   }
 
   static Future<SyncTask?> claimNextTask() async {

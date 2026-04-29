@@ -6,6 +6,7 @@ import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
+import '../print/printer_service.dart';
 import '../utils/logger.dart';
 
 class AppState extends ChangeNotifier {
@@ -61,6 +62,7 @@ class AppState extends ChangeNotifier {
 
   Future<bool> undoRecentScan(String participantId) async {
     try {
+      PrinterService.cancelPendingPrint(participantId);
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);
       await dao.markUnverifiedLocally(participantId);

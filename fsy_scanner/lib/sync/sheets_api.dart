@@ -145,14 +145,13 @@ class SheetsApi {
     }
   }
 
-  /// Fetch all rows from sheet (up to 1000 rows)
+  /// Fetch all populated rows from the sheet without a fixed row cap.
   static Future<List<List<dynamic>>?> fetchAllRows(
     String accessToken,
     String sheetId,
     String tabName,
   ) async {
-    // Using column T to capture up to 20 columns
-    final range = '$tabName!A1:T1000';
+    final range = tabName;
     final url = Uri.parse('$baseUrl/$sheetId/values/$range');
 
     try {

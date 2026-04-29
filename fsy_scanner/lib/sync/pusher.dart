@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
+import '../db/participants_dao.dart';
 import '../db/sync_queue_dao.dart';
 import '../models/sync_task.dart';
 import '../providers/app_state.dart';
@@ -52,6 +53,13 @@ class Pusher {
         if (task == null) break;
 
         try {
+          final shouldApply = await _isTaskStillRelevant(db, task);
+          if (!shouldApply) {
+            await SyncQueueDao.markCompleted(task.id!);
+            LoggerUtil.debug('[Pusher] Skipped stale task ${task.id}');
+            continue;
+          }
+
           final success =
               await _processTask(db, token, sheetId, tabName, colMap, task);
 
@@ -141,6 +149,7 @@ class Pusher {
         }
       } else if (task.type == SyncQueueDao.typeMarkUnverified) {
         values['Verified At'] = '';
+        values['Printed At'] = '';
         values['Device ID'] = '';
       }
 
@@ -162,6 +171,37 @@ class Pusher {
       LoggerUtil.error('[Pusher] Error processing task ${task.id}: $e',
           error: e);
       return false;
+    }
+  }
+
+  static Future<bool> _isTaskStillRelevant(Database db, SyncTask task) async {
+    try {
+      final payload = Map<String, dynamic>.from(jsonDecode(task.payload));
+      final participantId = payload['participantId'] as String? ?? '';
+      if (participantId.isEmpty) {
+        return false;
+      }
+
+      final dao = ParticipantsDao(db);
+      final participant = await dao.getParticipantById(participantId);
+      if (participant == null) {
+        return false;
+      }
+
+      if (task.type == SyncQueueDao.typeMarkRegistered) {
+        return participant.verifiedAt != null;
+      }
+      if (task.type == SyncQueueDao.typeMarkPrinted) {
+        return participant.verifiedAt != null && participant.printedAt != null;
+      }
+      if (task.type == SyncQueueDao.typeMarkUnverified) {
+        return participant.verifiedAt == null;
+      }
+
+      return true;
+    } catch (e) {
+      LoggerUtil.warn('[Pusher] Could not validate task ${task.id}: $e');
+      return true;
     }
   }
 }

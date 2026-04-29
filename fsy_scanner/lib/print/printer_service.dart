@@ -21,6 +21,8 @@ class PrinterService {
   static BluetoothDevice? _connectedDevice;
   static bool _isConnecting = false;
   static bool _failedJobsLoaded = false;
+  static final Map<String, bool> _pendingPrints = <String, bool>{};
+  static final Set<String> _cancelledPrints = <String>{};
 
   static final List<_FailedPrintJob> _failedJobs = [];
 
@@ -302,6 +304,8 @@ class PrinterService {
   static Future<PrintReceiptResult> printReceipt(
       Participant participant, String deviceId) async {
     await _loadFailedJobs();
+    _cancelledPrints.remove(participant.id);
+    _pendingPrints[participant.id] = false;
 
     try {
       debugPrint('[PrinterService] Starting print for ${participant.fullName}');
@@ -361,6 +365,15 @@ class PrinterService {
         );
       }
 
+      if (_wasPrintCancelled(participant.id)) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message:
+              'Print cancelled because the participant was de-verified before printing started.',
+        );
+      }
+
       final connected = await _ensureConnected(printerAddress);
       if (!connected) {
         debugPrint('[PrinterService] Could not connect to printer');
@@ -377,6 +390,16 @@ class PrinterService {
         );
       }
 
+      if (_wasPrintCancelled(participant.id)) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message:
+              'Print cancelled because the participant was de-verified before printing started.',
+        );
+      }
+
+      _pendingPrints[participant.id] = true;
       final receiptText = ReceiptBuilder.build(participant, eventName, deviceId);
       await _printer.write(receiptText);
 
@@ -406,7 +429,21 @@ class PrinterService {
         queuedForRetry: true,
         message: 'Print failed: $e. The receipt was queued for retry.',
       );
+    } finally {
+      _pendingPrints.remove(participant.id);
+      _cancelledPrints.remove(participant.id);
     }
+  }
+
+  static void cancelPendingPrint(String participantId) {
+    final hasStarted = _pendingPrints[participantId] ?? false;
+    if (!hasStarted) {
+      _cancelledPrints.add(participantId);
+    }
+  }
+
+  static bool _wasPrintCancelled(String participantId) {
+    return _cancelledPrints.contains(participantId);
   }
 
   static Future<void> _loadFailedJobs() async {
@@ -514,6 +551,13 @@ class PrinterService {
     try {
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);
+      final currentParticipant = await dao.getParticipantById(participant.id);
+      if (currentParticipant == null || currentParticipant.verifiedAt == null) {
+        debugPrint(
+            '[PrinterService] Skipping print-state update for ${participant.id} because the participant is no longer verified');
+        return true;
+      }
+
       await dao.markPrintedLocally(participant.id, printedAt);
 
       await SyncQueueDao.enqueueTask(

@@ -10,6 +10,7 @@ import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
+import '../sync/sync_engine.dart';
 import '../utils/device_id.dart';
 
 class ConfirmScreen extends StatefulWidget {
@@ -196,6 +197,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
         'registeredBy': deviceId,
       },
     );
+
+    appState.addRecentScan(widget.participant);
+    unawaited(appState.refreshParticipantsCount());
+    SyncEngine.notifyUserActivity();
 
     PrinterService.printReceipt(widget.participant, deviceId).then((result) {
       if (!result.success && mounted) {

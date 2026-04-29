@@ -2714,3 +2714,107 @@ Audited the Bluetooth printer workflow after the move to `blue_thermal_printer`,
 
 ### Deviations from Plan
 These changes go beyond the original printer swap and focus on operational resilience. They were necessary to close real workflow gaps discovered during the Bluetooth printer audit.
+
+---
+
+## 51.0 — Sync Integrity, Startup Resilience, Large-Sheet Support, and Business-Rule Alignment
+**Date/Time:** 2026-04-30 13:15:00
+**Status:** ✅ Complete
+
+### What I Did
+Performed a new audit focused on the remaining high-risk operational gaps outside the Bluetooth printer layer. Confirmed the business rules for this app: a participant remains fully verified even if printing fails, undo means de-verify, Google Sheets is the sole source of truth, and events can exceed 1000 participants. Began remediation work to align the sync engine, queue behavior, startup flow, and sheet ingestion logic with those rules and with standard production practices.
+
+### Findings
+- Pull sync could overwrite unsynced local state before queued work had safely drained.
+- Undo and asynchronous print completion could race, causing stale print state to reappear after de-verification.
+- Sync queue behavior allowed conflicting tasks to accumulate without coalescing or invalidation.
+- Startup and first-load recovery paths were not resilient enough for production use.
+- Camera permission handling lacked a full denied/permanently-denied UX.
+- Sheet fetch range was capped in a way that could truncate larger events.
+
+### Business Rules Confirmed
+- A scanned participant is fully verified even if printing fails.
+- Undo means de-verify the participant.
+- If printing has not yet started, undo may halt printing for that participant.
+- Google Sheets is the sole source of truth.
+- Events can exceed 1000 participants.
+
+### Remediation Plan
+- Harden sync ordering and pull safety around queued local changes.
+- Add queue conflict handling for verification, de-verification, and print-state actions.
+- Prevent stale print completion from restoring state after undo.
+- Improve startup recovery and camera-permission UX.
+- Remove fixed sheet-size assumptions from ingestion.
+
+### Verification Target
+- `flutter analyze` passes with zero issues after the remediation.
+- Sync behavior matches the confirmed business rules.
+- Large sheets are no longer truncated by a fixed 1000-row cap.
+
+### Changes Made
+**Sync integrity and queue conflict handling.**
+- Added pending-task coalescing in `SyncQueueDao` so new verification, de-verification, and print-state tasks replace stale pending tasks for the same participant instead of blindly accumulating.
+- Added stale-task validation in `Pusher` so a queued task is skipped if the participant's current local state no longer supports it.
+- Protected pull operations in `SyncEngine` by skipping pull whenever pending local tasks still exist after push, preventing unsynced local changes from being overwritten before they reach Google Sheets.
+- Updated de-verification sync to clear both `Verified At` and `Printed At` on the sheet, keeping local and remote state aligned.
+
+**Undo and print-race handling.**
+- Added cancellable pending-print behavior in `PrinterService`. If a participant is de-verified before printing starts, the print is cancelled.
+- Added guards so late print completion no longer restores `printed_at` for a participant who has already been de-verified.
+- Wired undo to notify `PrinterService` so pending print work can be stopped before the actual printer write begins.
+
+**Startup and recovery hardening.**
+- Replaced direct startup bootstrapping in `main.dart` with a guarded bootstrap flow that can display a recovery screen and retry initialization if `.env` loading or database startup fails.
+- Made `SyncEngine.startup()` idempotent and retry-safe so the app does not start duplicate sync loops.
+- Added `SyncEngine.retryNow()` and connected the scanner's first-load Retry button to a real recovery path instead of just clearing the error text.
+- Hydrated app state at startup with local participant counts, pending-task counts, and stored preferences before the UI begins normal operation.
+
+**Camera permission UX.**
+- Added explicit camera-permission request and denied/permanently-denied UI to `ScanScreen`.
+- Added an Open Settings path for permanently denied camera permission.
+- Prevented the live scanner from rendering until camera permission is granted.
+
+**Large-sheet and configuration safety fixes.**
+- Removed the fixed `A1:T1000` fetch cap in `SheetsApi`; sheet pull now requests the full used range of the tab.
+- Hardened `SettingsScreen` save behavior so invalid sheet changes do not leave the app on a new sheet with an old `col_map`; failed validation restores the previous configuration.
+- Blocked Clear All Data while pending sync tasks still exist, preventing operators from destroying unsynced check-ins.
+
+**Workflow consistency updates.**
+- Manual confirm now updates recent scans, participant counts, and user activity timing the same way the main QR scan flow does.
+- QR scan success now refreshes participant counts immediately after local verification.
+
+### Files Modified
+- `fsy_scanner/lib/db/sync_queue_dao.dart` – pending-task coalescing for conflicting participant actions.
+- `fsy_scanner/lib/sync/pusher.dart` – stale-task validation and remote clearing of `Printed At` during de-verification.
+- `fsy_scanner/lib/sync/sync_engine.dart` – pull protection, retry-safe startup, real retry behavior, state hydration, and improved error surfacing.
+- `fsy_scanner/lib/sync/sheets_api.dart` – removed fixed row/column fetch cap.
+- `fsy_scanner/lib/print/printer_service.dart` – pending-print cancellation and stale print-state suppression.
+- `fsy_scanner/lib/providers/app_state.dart` – undo now cancels pending print work.
+- `fsy_scanner/lib/screens/scan_screen.dart` – camera-permission UX, real retry action, and immediate participant-count refresh.
+- `fsy_scanner/lib/screens/confirm_screen.dart` – consistent app-state updates for manual confirmation.
+- `fsy_scanner/lib/screens/settings_screen.dart` – safe sheet-setting rollback and block on destructive clear when tasks are pending.
+- `fsy_scanner/lib/main.dart` – guarded startup bootstrap with retry screen.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- Pull is now skipped whenever local sync tasks are still pending, protecting unsynced local changes until they reach Google Sheets.
+- Conflicting pending queue actions are coalesced and stale tasks are skipped during push processing.
+- Undo no longer allows a late print completion to restore stale `printed_at` state after de-verification.
+- Startup can recover from initialization failures through a visible retry flow.
+- The scanner now handles denied and permanently denied camera permission states explicitly.
+- Large events are no longer limited by a fixed 1000-row sheet pull cap.
+- Invalid sheet reconfiguration no longer leaves the app with mismatched configuration and stale column mapping.
+
+### Issues Encountered
+- Several of the remaining gaps were cross-cutting and could not be fixed in isolation. Queue ordering, pull safety, and undo/print handling had to be aligned together to avoid introducing new race conditions.
+
+### Corrections Made
+- Implemented queue coalescing and stale-task suppression.
+- Added pending-print cancellation before write starts.
+- Prevented pull from running over pending local changes.
+- Added guarded startup and real retry behavior.
+- Added explicit camera-permission UX.
+- Removed the fixed large-sheet fetch limit.
+
+### Deviations from Plan
+- Pull protection now prioritizes local pending changes before refreshing from Google Sheets. This is a safety mechanism to preserve correctness while still respecting Google Sheets as the sole source of truth once queued changes have been pushed.

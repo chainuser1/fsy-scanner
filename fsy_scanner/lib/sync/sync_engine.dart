@@ -26,6 +26,8 @@ class SyncEngine {
       StreamController<Map<String, dynamic>>.broadcast();
   static int _rateLimitBackoffMultiplier = 1;
   static DateTime _lastUserActivity = DateTime.now();
+  static bool _loopStarted = false;
+  static Future<void>? _startupFuture;
 
   // flag to suppress text messages during automatic syncs
   static bool _suppressProgressText = false;
@@ -51,63 +53,106 @@ class SyncEngine {
   }
 
   static Future<void> startup(AppState appState) async {
+    if (_startupFuture != null) {
+      return _startupFuture!;
+    }
+
+    _startupFuture = _startupImpl(appState);
+    try {
+      await _startupFuture;
+    } finally {
+      _startupFuture = null;
+    }
+  }
+
+  static Future<void> _startupImpl(AppState appState) async {
     LoggerUtil.info('[SyncEngine] Initializing...');
 
-    final db = await DatabaseHelper.database;
-    await SyncQueueDao.resetInProgressTasks();
+    try {
+      final db = await DatabaseHelper.database;
+      await SyncQueueDao.resetInProgressTasks();
 
-    final settingsToSeed = {
-      'sheets_id': dotenv.env['SHEETS_ID'],
-      'sheets_tab': dotenv.env['SHEETS_TAB'],
-      'event_name': dotenv.env['EVENT_NAME'],
-    };
+      final settingsToSeed = {
+        'sheets_id': dotenv.env['SHEETS_ID'],
+        'sheets_tab': dotenv.env['SHEETS_TAB'],
+        'event_name': dotenv.env['EVENT_NAME'],
+      };
 
-    for (final entry in settingsToSeed.entries) {
-      if (entry.value != null) {
-        await db.insert(
-          'app_settings',
-          {'key': entry.key, 'value': entry.value},
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      }
-    }
-
-    final colMapResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
-    if (colMapResult.isEmpty ||
-        colMapResult.first['value'] == null ||
-        (colMapResult.first['value'] as String).isEmpty) {
-      final token = await GoogleAuth.getValidToken();
-      if (token != null) {
-        try {
-          final sheetIdResult = await db.query('app_settings',
-              where: 'key = ?', whereArgs: ['sheets_id']);
-          final sheetTabResult = await db.query('app_settings',
-              where: 'key = ?', whereArgs: ['sheets_tab']);
-          if (sheetIdResult.isNotEmpty && sheetTabResult.isNotEmpty) {
-            final sheetId = sheetIdResult.first['value'] as String;
-            final sheetTab = sheetTabResult.first['value'] as String;
-            LoggerUtil.info('[SyncEngine] Detecting column map...');
-            await SheetsApi.detectColMap(db, token, sheetId, sheetTab);
-          }
-        } on SheetsColMapException catch (e) {
-          LoggerUtil.error('[SyncEngine] Column map detection failed: $e');
-          appState.setSyncError('Column map detection failed: $e');
-          return;
+      for (final entry in settingsToSeed.entries) {
+        if (entry.value != null) {
+          await db.insert(
+            'app_settings',
+            {'key': entry.key, 'value': entry.value},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
         }
       }
+
+      await appState.loadPreferences();
+      await appState.refreshParticipantsCount();
+      appState.setPendingTaskCount(await SyncQueueDao.getPendingCount());
+
+      final colMapResult = await db
+          .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+      if (colMapResult.isEmpty ||
+          colMapResult.first['value'] == null ||
+          (colMapResult.first['value'] as String).isEmpty) {
+        final token = await GoogleAuth.getValidToken();
+        if (token == null) {
+          appState.setSyncError(
+              'Google authentication unavailable. Check the service-account settings.');
+        } else {
+          try {
+            final sheetId = await _getSettingValue('sheets_id');
+            final sheetTab = await _getSettingValue('sheets_tab');
+            if (sheetId == null || sheetTab == null) {
+              appState.setSyncError(
+                  'Sheet configuration is missing. Open Settings and save the sheet details.');
+            } else {
+              LoggerUtil.info('[SyncEngine] Detecting column map...');
+              await SheetsApi.detectColMap(db, token, sheetId, sheetTab);
+              appState.setSyncError(null);
+            }
+          } on SheetsColMapException catch (e) {
+            LoggerUtil.error('[SyncEngine] Column map detection failed: $e');
+            appState.setSyncError('Column map detection failed: $e');
+          }
+        }
+      }
+
+      LoggerUtil.info(
+          '[SyncEngine] Active interval: ${_activeIntervalMs}ms, Idle: ${_idleIntervalMs}ms');
+      _lastUserActivity = DateTime.now();
+
+      if (_loopStarted) {
+        return;
+      }
+
+      _loopStarted = true;
+      await Future.delayed(const Duration(seconds: 3));
+      unawaited(_syncLoop(appState));
+    } catch (e) {
+      LoggerUtil.error('[SyncEngine] Startup failed: $e', error: e);
+      appState.setSyncError('Startup failed: $e');
     }
-
-    LoggerUtil.info(
-        '[SyncEngine] Active interval: ${_activeIntervalMs}ms, Idle: ${_idleIntervalMs}ms');
-    _lastUserActivity = DateTime.now();
-
-    await Future.delayed(const Duration(seconds: 3));
-    unawaited(_syncLoop(appState));
   }
 
   static void dispose() {
+    _loopStarted = false;
     _syncStatusController.close();
+  }
+
+  static Future<void> retryNow(AppState appState) async {
+    appState.setSyncError(null);
+    appState.setInitialLoading(true);
+    if (_loopStarted) {
+      final success = await performFullSync(appState);
+      if (!success) {
+        appState.setInitialLoading(false);
+      }
+      return;
+    }
+    await startup(appState);
   }
 
   // ── Manual sync operations (with progress text) ──────────────
@@ -119,25 +164,45 @@ class SyncEngine {
     LoggerUtil.info('[SyncEngine] Performing full sync...');
     try {
       _setSyncing(true, message: 'Pushing pending updates...', progress: 0.0);
-      final pushSuccess = await Pusher.pushPendingUpdates(appState);
+      await Pusher.pushPendingUpdates(appState);
+      final pendingCount = await SyncQueueDao.getPendingCount();
+      appState.setPendingTaskCount(pendingCount);
+      if (pendingCount > 0) {
+        appState.setSyncError(
+            'Pull skipped because local changes are still waiting to sync.');
+        _setSyncing(true,
+            message: 'Waiting for pending updates to sync...', progress: 0.5);
+        await Future.delayed(const Duration(seconds: 1));
+        return false;
+      }
+
       _setSyncing(true, message: 'Pulling latest data...', progress: 0.5);
 
       final token = await GoogleAuth.getValidToken();
-      if (token == null) return false;
+      if (token == null) {
+        appState.setSyncError(
+            'Google authentication unavailable. Check the service-account settings.');
+        return false;
+      }
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) return false;
+      if (sheetId == null || sheetName == null) {
+        appState.setSyncError(
+            'Sheet configuration is missing. Open Settings and save the sheet details.');
+        return false;
+      }
 
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
+      appState.setSyncError(null);
 
       _setSyncing(true, message: 'Sync complete', progress: 1.0);
       await Future.delayed(const Duration(seconds: 1));
       LoggerUtil.info('[SyncEngine] Full sync completed');
-      return pushSuccess;
+      return true;
     } on SheetsRateLimitException {
       _increaseBackoff();
       LoggerUtil.warn(
@@ -159,18 +224,35 @@ class SyncEngine {
     _setSyncing(true, message: 'Pull sync started');
     LoggerUtil.info('[SyncEngine] Performing pull sync...');
     try {
+      final pendingCount = await SyncQueueDao.getPendingCount();
+      appState.setPendingTaskCount(pendingCount);
+      if (pendingCount > 0) {
+        appState.setSyncError(
+            'Pull skipped because local changes are still waiting to sync.');
+        return false;
+      }
+
       final token = await GoogleAuth.getValidToken();
-      if (token == null) return false;
+      if (token == null) {
+        appState.setSyncError(
+            'Google authentication unavailable. Check the service-account settings.');
+        return false;
+      }
 
       final sheetId = await _getSettingValue('sheets_id');
       final sheetName = await _getSettingValue('sheets_tab');
-      if (sheetId == null || sheetName == null) return false;
+      if (sheetId == null || sheetName == null) {
+        appState.setSyncError(
+            'Sheet configuration is missing. Open Settings and save the sheet details.');
+        return false;
+      }
 
       _setSyncing(true, message: 'Fetching data...', progress: 0.5);
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
+      appState.setSyncError(null);
 
       _setSyncing(true, message: 'Pull complete', progress: 1.0);
       await Future.delayed(const Duration(seconds: 1));
@@ -194,6 +276,7 @@ class SyncEngine {
       final token = await GoogleAuth.getValidToken();
       if (token != null) {
         await Pusher.pushPendingUpdates(appState);
+        appState.setPendingTaskCount(await SyncQueueDao.getPendingCount());
       }
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Immediate push error: $e', error: e);
@@ -238,9 +321,15 @@ class SyncEngine {
         continue;
       }
 
+      final lastPulledResult = await _getSettingValue('last_pulled_at');
+      final isFirstLoad = lastPulledResult == null || lastPulledResult == '0';
+
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
         LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
+        appState.setSyncError(
+            'Google authentication unavailable. Waiting to retry.');
+        if (isFirstLoad) appState.setInitialLoading(false);
         await _interruptibleSleep(const Duration(milliseconds: _noAuthRetryMs));
         continue;
       }
@@ -249,13 +338,28 @@ class SyncEngine {
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
         LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
+        appState.setSyncError(
+            'Sheet configuration is missing. Open Settings and save the sheet details.');
+        if (isFirstLoad) appState.setInitialLoading(false);
         await _interruptibleSleep(
             const Duration(milliseconds: _noConfigRetryMs));
         continue;
       }
 
-      final lastPulledResult = await _getSettingValue('last_pulled_at');
-      final isFirstLoad = lastPulledResult == null || lastPulledResult == '0';
+      final colMapValue = await _getSettingValue('col_map');
+      if (colMapValue == null || colMapValue.isEmpty) {
+        try {
+          final db = await DatabaseHelper.database;
+          await SheetsApi.detectColMap(db, token, sheetId, sheetName);
+          appState.setSyncError(null);
+        } on SheetsColMapException catch (e) {
+          appState.setSyncError('Column map detection failed: $e');
+          if (isFirstLoad) appState.setInitialLoading(false);
+          await _interruptibleSleep(
+              const Duration(milliseconds: _noConfigRetryMs));
+          continue;
+        }
+      }
 
       if (isFirstLoad) {
         appState.setInitialLoading(true);
@@ -268,12 +372,26 @@ class SyncEngine {
         _setSyncing(true,
             message: 'Pushing…', progress: 0.0); // will be suppressed
         await Pusher.pushPendingUpdates(appState);
+        final pendingCount = await SyncQueueDao.getPendingCount();
+        appState.setPendingTaskCount(pendingCount);
+        if (pendingCount > 0) {
+          LoggerUtil.info(
+              '[SyncEngine] Skipping pull because $pendingCount local tasks are still pending');
+          appState.setSyncError(
+              'Waiting for pending local updates to sync before pulling sheet data.');
+          if (isFirstLoad) {
+            appState.setInitialLoading(false);
+          }
+          await Future.delayed(const Duration(milliseconds: 500));
+          continue;
+        }
         _setSyncing(true, message: 'Pulling…', progress: 0.5);
 
         final db = await DatabaseHelper.database;
         await Puller.pull(db, token, sheetId, sheetName);
         unawaited(appState.refreshParticipantsCount());
         appState.setLastSyncedAt(DateTime.now());
+        appState.setSyncError(null);
 
         _setSyncing(true, message: 'Sync done', progress: 1.0);
         await Future.delayed(const Duration(milliseconds: 500));
@@ -295,6 +413,7 @@ class SyncEngine {
       } catch (e) {
         if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
+        appState.setSyncError('Sync error: $e');
       } finally {
         _setSyncing(false);
       }
