@@ -317,8 +317,7 @@ class SyncEngine {
         maxWait.inMilliseconds) {
       // Check if a user scan should shorten the remaining time
       final remaining = maxWait - DateTime.now().difference(start);
-      final currentIdeal = _currentIntervalMs() *
-          (1 - _rateLimitBackoffMultiplier / 100.0); // approximate
+      // (1 - _rateLimitBackoffMultiplier / 100.0); // approximate
       // Actually, just check if the ideal wait (currentIntervalMs) is significantly shorter than the remaining time
       final idealWait = _currentIntervalMs();
       if (idealWait < remaining.inMilliseconds) {
