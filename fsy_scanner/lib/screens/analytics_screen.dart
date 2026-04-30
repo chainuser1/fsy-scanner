@@ -48,6 +48,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   int? _recentScanMarker;
   int? _pendingTaskMarker;
   int? _failedPrintMarker;
+  PendingSummaryConfirmation? _pendingSummaryConfirmation;
 
   @override
   void initState() {
@@ -100,12 +101,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         limit: 1000,
       );
       final savedViewsFuture = AnalyticsSavedViewsService.listViews();
+      final pendingSummaryFuture =
+          PrinterService.getPendingSummaryConfirmation();
 
       final participants = await participantsFuture;
       final taskRows = await syncTasksFuture;
       final printJobs = await printJobsFuture;
       final printAttempts = await printAttemptsFuture;
       final savedViews = await savedViewsFuture;
+      final pendingSummary = await pendingSummaryFuture;
 
       participants.sort((a, b) {
         final verifiedCompare = (b.verifiedAt ?? 0).compareTo(
@@ -127,6 +131,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _printJobs = printJobs;
         _printAttempts = printAttempts;
         _savedViews = savedViews;
+        _pendingSummaryConfirmation = pendingSummary;
         final selectedView = _selectedSavedViewId == null
             ? null
             : _firstWhereOrNull(
@@ -416,6 +421,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final sections = <Widget>[
       _buildHeader(appState, analytics),
       const SizedBox(height: 12),
+      if (_pendingSummaryConfirmation != null) ...[
+        _buildPendingSummaryConfirmationCard(),
+        const SizedBox(height: 12),
+      ],
       _buildSectionHeader(
         'People and Attendance',
         'Prioritize who is on site, how far verification has progressed, and what attendees need next.',
@@ -606,6 +615,49 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     return sections;
+  }
+
+  Widget _buildPendingSummaryConfirmationCard() {
+    final pending = _pendingSummaryConfirmation;
+    if (pending == null) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      color: Colors.blueGrey.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Pending Summary Confirmation',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'The summary "${pending.title}" was sent to the printer at ${DateFormat('dd MMM, h:mm a').format(DateTime.fromMillisecondsSinceEpoch(pending.requestedAt))}. Confirm it here before treating it as successful.',
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _resolvePendingSummaryConfirmation(true),
+                  icon: const Icon(Icons.check_circle),
+                  label: const Text('Confirm Printed'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _resolvePendingSummaryConfirmation(false),
+                  icon: const Icon(Icons.replay),
+                  label: const Text('Not Printed'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildSectionHeader(String title, String subtitle) {
@@ -858,11 +910,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     var result = await PrinterService.printSummaryReport(
       title: _buildBriefingTitle(appState),
       bodyLines: _buildBriefingLines(appState, analytics),
-      requireOperatorConfirmation: true,
     );
     if (result.requiresOperatorConfirmation && mounted) {
       result = await _confirmSummaryPrintedOutput();
     }
+    await _load(showSpinner: false);
     if (!mounted) {
       return;
     }
@@ -1037,6 +1089,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     return lines;
+  }
+
+  Future<void> _resolvePendingSummaryConfirmation(bool printed) async {
+    final result = printed
+        ? await PrinterService.confirmSummaryPrintDelivery()
+        : await PrinterService.rejectSummaryPrintDelivery();
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(result.message);
   }
 
   void _appendBreakdownSection(

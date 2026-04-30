@@ -543,17 +543,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     var attempted = 0;
     var succeeded = 0;
+    var awaitingConfirmation = 0;
 
     for (final job in jobs) {
       attempted++;
-      var result = await PrinterService.retryQueuedJob(
-        job.jobId,
-        forceBlockingConfirmation: true,
-      );
+      var result = await PrinterService.retryQueuedJob(job.jobId);
       if (result.requiresOperatorConfirmation &&
           result.confirmationJobId != null &&
           mounted) {
         result = await _confirmPrintedOutput(result.confirmationJobId!);
+      }
+      if (result.awaitingOperatorConfirmation) {
+        awaitingConfirmation++;
       }
       if (result.success) {
         succeeded++;
@@ -568,8 +569,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final remaining = _retryablePrintJobs.length;
     final allSucceeded = remaining == 0;
     _showSnackBar(
-      'Retried $attempted jobs, $succeeded confirmed, $remaining remaining.',
-      backgroundColor: allSucceeded ? Colors.green : Colors.orange,
+      awaitingConfirmation > 0
+          ? 'Retried $attempted jobs, $succeeded confirmed, $awaitingConfirmation awaiting confirmation, $remaining remaining.'
+          : 'Retried $attempted jobs, $succeeded confirmed, $remaining remaining.',
+      backgroundColor: allSucceeded && awaitingConfirmation == 0
+          ? Colors.green
+          : Colors.orange,
     );
   }
 
@@ -816,6 +821,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     initialValue: appState.receiptConfirmationPolicy,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Receipt Confirmation Policy',
                       border: OutlineInputBorder(),
@@ -825,19 +831,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     items: const [
                       DropdownMenuItem(
                         value: PrinterService.receiptConfirmationFastQueue,
-                        child: Text('Fast Queue Confirm (Recommended)'),
+                        child: Text(
+                          'Fast Queue Confirm',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       DropdownMenuItem(
                         value: PrinterService.receiptConfirmationAlwaysAsk,
-                        child: Text('Always Ask'),
+                        child: Text(
+                          'Always Ask',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       DropdownMenuItem(
                         value: PrinterService.receiptConfirmationAskOnRisk,
-                        child: Text('Ask Only On Risk'),
+                        child: Text(
+                          'Ask Only On Risk',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       DropdownMenuItem(
                         value: PrinterService.receiptConfirmationNeverAsk,
-                        child: Text('Never Ask (Unsafe)'),
+                        child: Text(
+                          'Never Ask (Unsafe)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                    selectedItemBuilder: (context) => const [
+                      Text(
+                        'Fast Queue Confirm',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Always Ask',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Ask Only On Risk',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Never Ask (Unsafe)',
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                     onChanged: (selection) async {
@@ -1218,6 +1254,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                   if (_retryablePrintJobs.isNotEmpty) ...[
                     const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _retryFailedPrints,
+                      icon: const Icon(Icons.replay),
+                      label: Text(
+                        'Retry Failed (${_retryablePrintJobs.length})',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     const Text(
                       'Queued Print Jobs',
                       style: TextStyle(fontWeight: FontWeight.bold),
@@ -1280,12 +1324,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: _retryFailedPrints,
-                    icon: const Icon(Icons.replay),
-                    label: Text('Retry Failed (${_retryablePrintJobs.length})'),
-                  ),
                 ],
               ),
             ),

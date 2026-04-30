@@ -19,6 +19,8 @@ class PrinterService {
   static const String _printerAddressKey = 'printer_address';
   static const String _receiptConfirmationPolicyKey =
       'receipt_confirmation_policy';
+  static const String _pendingSummaryConfirmationKey =
+      'pending_summary_confirmation';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
   static const String _lastPrintSuccessAtKey = 'printer_last_print_success_at';
   static const String _lastPrintFailureAtKey = 'printer_last_print_failure_at';
@@ -175,6 +177,28 @@ class PrinterService {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     await _emitStateChanged();
+  }
+
+  static Future<PendingSummaryConfirmation?>
+      getPendingSummaryConfirmation() async {
+    final value = await _readStringSetting(_pendingSummaryConfirmationKey);
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      final title = decoded['title'] as String?;
+      final requestedAt = decoded['requested_at'] as int?;
+      if (title == null || requestedAt == null) {
+        return null;
+      }
+      return PendingSummaryConfirmation(title: title, requestedAt: requestedAt);
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _cutModeKey(String printerAddress) {
@@ -1579,7 +1603,7 @@ class PrinterService {
   static Future<PrintReceiptResult> printSummaryReport({
     required String title,
     required List<String> bodyLines,
-    bool requireOperatorConfirmation = false,
+    bool forceBlockingConfirmation = false,
   }) async {
     try {
       final printerAddress = await getSelectedPrinterAddress();
@@ -1657,18 +1681,27 @@ class PrinterService {
       ];
 
       await _printReceiptLines(lines, printerAddress);
-      if (requireOperatorConfirmation) {
+      final confirmationDecision = await _resolveSummaryConfirmationDecision(
+        forceBlockingConfirmation: forceBlockingConfirmation,
+      );
+      if (confirmationDecision.requiresConfirmation) {
+        if (!confirmationDecision.blockingPrompt) {
+          await _storePendingSummaryConfirmation(title);
+        }
         await _emitStateChanged();
-        return const PrintReceiptResult(
+        return PrintReceiptResult(
           success: true,
           queuedForRetry: false,
-          message:
-              'Summary print command sent. Confirm whether paper actually came out.',
-          requiresOperatorConfirmation: true,
+          message: confirmationDecision.blockingPrompt
+              ? 'Summary print command sent. Confirm whether paper actually came out.'
+              : 'Summary print command sent. Confirm it from the pending summary card before treating it as successful.',
+          requiresOperatorConfirmation: confirmationDecision.blockingPrompt,
+          awaitingOperatorConfirmation: !confirmationDecision.blockingPrompt,
         );
       }
 
       await _recordPrintSuccess();
+      await _clearPendingSummaryConfirmation();
       await _emitStateChanged();
       return const PrintReceiptResult(
         success: true,
@@ -1688,6 +1721,7 @@ class PrinterService {
   }
 
   static Future<PrintReceiptResult> confirmSummaryPrintDelivery() async {
+    await _clearPendingSummaryConfirmation();
     await _recordPrintSuccess();
     await _emitStateChanged();
     return const PrintReceiptResult(
@@ -1698,6 +1732,7 @@ class PrinterService {
   }
 
   static Future<PrintReceiptResult> rejectSummaryPrintDelivery() async {
+    await _clearPendingSummaryConfirmation();
     const failure = _QueuedFailure(
       code: _failureWriteFailed,
       reason: 'Operator did not confirm summary paper output',
@@ -2093,6 +2128,47 @@ class PrinterService {
   }
 
   static Future<_ReceiptConfirmationDecision>
+      _resolveSummaryConfirmationDecision({
+    required bool forceBlockingConfirmation,
+  }) async {
+    if (forceBlockingConfirmation) {
+      return const _ReceiptConfirmationDecision(
+        requiresConfirmation: true,
+        blockingPrompt: true,
+      );
+    }
+    final policy = await getReceiptConfirmationPolicy();
+    switch (policy) {
+      case receiptConfirmationAlwaysAsk:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: true,
+          blockingPrompt: true,
+        );
+      case receiptConfirmationAskOnRisk:
+        return await _isSummaryConfirmationRisky()
+            ? const _ReceiptConfirmationDecision(
+                requiresConfirmation: true,
+                blockingPrompt: true,
+              )
+            : const _ReceiptConfirmationDecision(
+                requiresConfirmation: true,
+                blockingPrompt: false,
+              );
+      case receiptConfirmationNeverAsk:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: false,
+          blockingPrompt: false,
+        );
+      case receiptConfirmationFastQueue:
+      default:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: true,
+          blockingPrompt: false,
+        );
+    }
+  }
+
+  static Future<_ReceiptConfirmationDecision>
       _resolveReceiptConfirmationDecision({
     required bool isReprint,
     required bool forceBlockingConfirmation,
@@ -2156,6 +2232,52 @@ class PrinterService {
       (job) =>
           job.status == _jobStatusQueued ||
           job.status == _jobStatusAwaitingConfirmation,
+    );
+  }
+
+  static Future<bool> _isSummaryConfirmationRisky() async {
+    if (await getPendingSummaryConfirmation() != null) {
+      return true;
+    }
+    final failureStreak = await _readFailureStreak();
+    if (failureStreak > 0) {
+      return true;
+    }
+    final lastFailureAt = await _readIntSetting(_lastPrintFailureAtKey);
+    final hasRecentFailure = lastFailureAt != null &&
+        DateTime.now().millisecondsSinceEpoch - lastFailureAt <
+            const Duration(minutes: 10).inMilliseconds;
+    if (hasRecentFailure) {
+      return true;
+    }
+    return _failedJobs.any(
+      (job) =>
+          job.status == _jobStatusQueued ||
+          job.status == _jobStatusAwaitingConfirmation,
+    );
+  }
+
+  static Future<void> _storePendingSummaryConfirmation(String title) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'app_settings',
+      {
+        'key': _pendingSummaryConfirmationKey,
+        'value': jsonEncode({
+          'title': title,
+          'requested_at': DateTime.now().millisecondsSinceEpoch,
+        }),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> _clearPendingSummaryConfirmation() async {
+    final db = await DatabaseHelper.database;
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_pendingSummaryConfirmationKey],
     );
   }
 
@@ -2397,6 +2519,16 @@ class PrinterJobAttempt {
       finishedAt: row['finished_at'] as int? ?? 0,
     );
   }
+}
+
+class PendingSummaryConfirmation {
+  final String title;
+  final int requestedAt;
+
+  const PendingSummaryConfirmation({
+    required this.title,
+    required this.requestedAt,
+  });
 }
 
 class PrintReceiptResult {

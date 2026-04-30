@@ -3975,3 +3975,63 @@ Reworked receipt confirmation from a hardcoded blocking-dialog flow into a polic
 
 ### Deviations from Plan
 - Instead of putting pending confirmation emphasis in a high-visibility banner, this pass intentionally reduced its prominence and used a compact tray so attention stays on scanning unless the operator chooses to expand the pending work.
+
+---
+
+## 64.0 — Policy Consistency Across Reprints, Queued Retries, And Summaries
+**Date/Time:** 2026-04-30 22:55:00
+**Status:** ✅ Complete
+
+### What I Did
+Completed a consistency audit of all app printing entry points and fixed the remaining places where the receipt confirmation policy could still be bypassed or partially ignored.
+
+### Changes Made
+**Settings consistency and layout cleanup.**
+- Fixed the overflow in the `Receipt Confirmation Policy` selector by expanding the dropdown correctly and using ellipsis-safe selected labels.
+- Moved the `Retry Failed` action above `Recent Print Activity` to keep queue recovery actions closer to queue information.
+
+**Queued retry receipts now respect the active policy.**
+- Removed the remaining Settings-level forced blocking confirmation override from the queued retry flow.
+- Updated retry result messaging so it now distinguishes:
+  - confirmed prints
+  - prints now awaiting confirmation
+  - prints still remaining in the retry queue
+
+**Reprints now respect the same central policy engine.**
+- Removed the last UI-level forced blocking confirmation overrides for participant reprints.
+- Participant list reprints and participant detail reprints now follow the same service-level confirmation policy used by scan and manual check-in flows.
+
+**Summary printing now respects the policy too.**
+- Reworked briefing summary printing so it no longer depends only on a one-off immediate confirmation modal path.
+- Added persistent pending summary confirmation storage and retrieval in printer service state.
+- Added a visible pending summary confirmation card in Analytics so non-blocking summary confirmation can still be resolved later when the active policy does not require an immediate modal.
+- Kept summary confirmation finalization and rejection explicit and durable.
+
+### Files Modified
+- `fsy_scanner/lib/screens/settings_screen.dart` – overflow fix, retry button reorder, and removal of retry-path policy bypass.
+- `fsy_scanner/lib/screens/participants_screen.dart` – removed reprint policy override.
+- `fsy_scanner/lib/screens/participant_details_screen.dart` – removed reprint policy override.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – pending summary confirmation visibility and resolution.
+- `fsy_scanner/lib/print/printer_service.dart` – pending summary confirmation persistence and policy-aware summary printing.
+
+### Verification Result
+- Diagnostics are clean for the touched files.
+- `flutter analyze` reports no issues.
+- Receipt confirmation policy is now respected across:
+  - scan receipts
+  - manual check-in receipts
+  - queued retry receipts
+  - participant reprints
+  - participant detail reprints
+  - analytics briefing summaries
+
+### Issues Encountered
+- The policy engine had been centralized, but a few UI-level callers were still overriding it directly.
+- Summary printing had its own separate confirmation path and needed a persistent non-blocking resolution model to be truly consistent with the new policy design.
+
+### Corrections Made
+- Removed UI-level forced confirmation overrides from remaining business print flows.
+- Extended the policy-driven confirmation model to summary printing with a persistent follow-up resolution card instead of relying only on immediate dialogs.
+
+### Deviations from Plan
+- The audit showed that the diagnostic printer test should remain outside the business confirmation policy because it is a hardware probe and does not change participant or summary truth.
