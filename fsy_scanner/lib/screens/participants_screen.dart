@@ -305,11 +305,19 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                         tooltip: 'Reprint receipt',
                         onPressed: () async {
                           final deviceId = await DeviceId.get();
-                          final result = await PrinterService.printReceipt(
+                          var result = await PrinterService.printReceipt(
                             participant,
                             deviceId,
                             isReprint: true,
+                            requireOperatorConfirmation: true,
                           );
+                          if (result.requiresOperatorConfirmation &&
+                              result.confirmationJobId != null &&
+                              mounted) {
+                            result = await _confirmPrintedOutput(
+                              result.confirmationJobId!,
+                            );
+                          }
                           if (!mounted) {
                             return;
                           }
@@ -344,6 +352,34 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         ),
       ),
     );
+  }
+
+  Future<PrintReceiptResult> _confirmPrintedOutput(String jobId) async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Receipt Output'),
+        content: const Text(
+          'Did the receipt actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No, Queue Retry'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
+          ),
+        ],
+      ),
+    );
+
+    if (printed == true) {
+      return PrinterService.confirmPrintDelivery(jobId);
+    }
+    return PrinterService.rejectPrintDelivery(jobId);
   }
 
   @override

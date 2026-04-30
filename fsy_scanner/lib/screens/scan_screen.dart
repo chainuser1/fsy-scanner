@@ -614,20 +614,34 @@ class _ScanScreenState extends State<ScanScreen>
                                   'registeredBy': deviceId,
                                 });
 
-                                PrinterService.printReceipt(
-                                        participant, deviceId)
-                                    .then((result) {
-                                  if (!result.success && mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(result.message),
-                                        backgroundColor: result.queuedForRetry
-                                            ? Colors.orange
-                                            : Colors.red,
-                                      ),
-                                    );
-                                  }
-                                });
+                                var printResult = await PrinterService.printReceipt(
+                                  participant,
+                                  deviceId,
+                                  requireOperatorConfirmation: true,
+                                );
+                                if (printResult
+                                        .requiresOperatorConfirmation &&
+                                    printResult.confirmationJobId != null &&
+                                    mounted) {
+                                  printResult =
+                                      await _confirmPrintedOutput(
+                                    printResult.confirmationJobId!,
+                                  );
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(printResult.success
+                                          ? 'Receipt confirmed for ${participant.fullName}'
+                                          : printResult.message),
+                                      backgroundColor: printResult.success
+                                          ? Colors.green
+                                          : printResult.queuedForRetry
+                                              ? Colors.orange
+                                              : Colors.red,
+                                    ),
+                                  );
+                                }
 
                                 _playSound(_successSoundPath);
                                 _hapticFeedback(true);
@@ -958,6 +972,34 @@ class _ScanScreenState extends State<ScanScreen>
         ),
       ),
     );
+  }
+
+  Future<PrintReceiptResult> _confirmPrintedOutput(String jobId) async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Receipt Output'),
+        content: const Text(
+          'Did the receipt actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No, Queue Retry'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
+          ),
+        ],
+      ),
+    );
+
+    if (printed == true) {
+      return PrinterService.confirmPrintDelivery(jobId);
+    }
+    return PrinterService.rejectPrintDelivery(jobId);
   }
 
   Widget _buildDetailRow(String label, String value) {

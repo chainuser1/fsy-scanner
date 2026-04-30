@@ -14,7 +14,7 @@ import 'pusher.dart';
 import 'sheets_api.dart';
 
 class SyncEngine {
-  static const int _activeIntervalMs = 2500;
+  static const int _activeIntervalMs = 1500;
   static const int _idleIntervalMs = 300000;
   static const int _idleThresholdSeconds = 300;
   static const int _offlineRetryMs = 10000;

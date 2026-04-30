@@ -723,14 +723,46 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _printBriefingSummary() async {
     final appState = context.read<AppState>();
     final analytics = _currentAnalyticsSnapshot();
-    final result = await PrinterService.printSummaryReport(
+    var result = await PrinterService.printSummaryReport(
       title: _buildBriefingTitle(appState),
       bodyLines: _buildBriefingLines(appState, analytics),
+      requireOperatorConfirmation: true,
     );
+    if (result.requiresOperatorConfirmation && mounted) {
+      result = await _confirmSummaryPrintedOutput();
+    }
     if (!mounted) {
       return;
     }
     _showMessage(result.message);
+  }
+
+  Future<PrintReceiptResult> _confirmSummaryPrintedOutput() async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Summary Output'),
+        content: const Text(
+          'Did the summary actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
+          ),
+        ],
+      ),
+    );
+
+    if (printed == true) {
+      return PrinterService.confirmSummaryPrintDelivery();
+    }
+    return PrinterService.rejectSummaryPrintDelivery();
   }
 
   String _buildBriefingTitle(AppState appState) {

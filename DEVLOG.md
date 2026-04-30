@@ -3170,3 +3170,64 @@ Completed the next analytics maturity pass by making the analytics screen more u
 ### Deviations from Plan
 - The event-global implementation uses the latest synced roster data already available in the app rather than introducing a new backend service.
 - Exports were implemented as durable text briefing files and printer-friendly summaries instead of a heavier PDF workflow at this stage.
+
+---
+
+## 59.0 — Printer Truthfulness, Operator Print Confirmation, and Connectivity Revalidation
+**Date/Time:** 2026-04-30 19:05:00
+**Status:** ✅ Complete
+
+### What I Did
+Hardened the printer workflow so the app stops overstating printer connectivity and print success. The app now revalidates the selected printer more honestly, distinguishes stale Bluetooth link state from a freshly confirmed connection, and requires operator confirmation before critical print paths are treated as successful physical output.
+
+### Changes Made
+**Truthful printer status and pre-print revalidation.**
+- Updated printer status handling so the app no longer blindly trusts a stale plugin `connected` state when the printer may already be powered off.
+- Added a fresh connection revalidation path for manual status checks and before print attempts.
+- Introduced a more honest `Connection Unverified` state for cases where an old Bluetooth link may still exist but the printer has not been freshly revalidated.
+
+**Blocked false-positive `printed_at` recording.**
+- Changed first-time participant print flows so `printed_at` is no longer recorded merely because the Bluetooth transport accepted bytes.
+- Added an intermediate awaiting-confirmation job state so the app can wait for an operator decision before finalizing print success.
+- Ensured that participants remain partially verified when paper output is not confirmed.
+
+**Operator confirmation across receipt paths.**
+- Added operator confirmation dialogs to the main confirmation/check-in flow.
+- Added the same confirmation requirement to scan-driven printing.
+- Extended the same confirmation standard to manual reprints from participant details and the participants list.
+- Updated queued retry handling in Settings so retried jobs are only cleared as successful after paper output is confirmed.
+
+**Summary/briefing print confirmation.**
+- Extended analytics summary printing to use the same confirmation model.
+- The app now records summary-print success only after the operator confirms that the briefing actually came out of the printer.
+
+**Sync cadence tweak included in this commit.**
+- Included the existing `sync_engine.dart` adjustment that reduces the active sync interval from `2500` ms to `1500` ms.
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – connection revalidation, truthful printer states, awaiting-confirmation jobs, and operator-confirmed print/success handling.
+- `fsy_scanner/lib/screens/settings_screen.dart` – fresh printer status checks and operator-confirmed queued retry processing.
+- `fsy_scanner/lib/screens/confirm_screen.dart` – operator confirmation before finalizing first-time receipt success.
+- `fsy_scanner/lib/screens/scan_screen.dart` – operator confirmation for scan-driven receipt output.
+- `fsy_scanner/lib/screens/participant_details_screen.dart` – operator confirmation for manual reprints.
+- `fsy_scanner/lib/screens/participants_screen.dart` – operator confirmation for list-triggered reprints.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – operator confirmation for briefing/summary printing.
+- `fsy_scanner/lib/sync/sync_engine.dart` – active sync interval adjustment.
+
+### Verification Result
+- Diagnostics are clean for all updated printer and screen files.
+- Interactive first-time prints no longer finalize `printed_at` until an operator confirms that paper actually printed.
+- Manual reprints, retry flows, and briefing prints now follow the same physical-output confirmation standard.
+- Printer status checks now revalidate the selected printer instead of relying only on a possibly stale Bluetooth connection state.
+
+### Issues Encountered
+- The Bluetooth printer SDK can report a transport-level success even when no paper physically comes out, so transport success is not a reliable proxy for real-world print success.
+- Low-cost Bluetooth thermal printers do not expose consistently trustworthy real-time readiness telemetry for powered-on, writable, or paper-output state.
+
+### Corrections Made
+- Shifted the critical success decision from transport acceptance to explicit operator confirmation for the print paths that matter operationally.
+- Updated printer UI messaging so stale connections are no longer presented as fully trustworthy live printer readiness.
+
+### Deviations from Plan
+- Instead of attempting hardware-only proof of physical printing, this pass uses operator confirmation as the safety mechanism because the current printer hardware/plugin stack cannot guarantee truthful paper-output telemetry.
+- The sync interval tweak was included in the same commit at the user's direction, even though it is adjacent rather than central to the printer-truth hardening work.

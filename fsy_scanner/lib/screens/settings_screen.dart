@@ -429,8 +429,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  Future<void> _refreshPrinterInfo() async {
-    final status = await PrinterService.getSelectedPrinterStatus();
+  Future<void> _refreshPrinterInfo({
+    bool revalidateConnection = false,
+  }) async {
+    final status = await PrinterService.getSelectedPrinterStatus(
+      revalidateConnection: revalidateConnection,
+    );
     final queuedPrintJobs = await PrinterService.getQueuedJobs();
     final recentPrintJobs = await PrinterService.getRecentPrintJobs(limit: 8);
     if (!mounted) {
@@ -529,17 +533,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _retryFailedPrints() async {
-    final summary = await PrinterService.retryFailedPrints();
-    await _refreshPrinterInfo();
-
-    if (summary.attempted == 0) {
+    final jobs = List<PrinterQueuedJob>.from(_queuedPrintJobs)
+      ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+    if (jobs.isEmpty) {
+      await _refreshPrinterInfo();
       _showSnackBar('No failed prints to retry');
       return;
     }
 
-    final allSucceeded = summary.remaining == 0;
+    var attempted = 0;
+    var succeeded = 0;
+
+    for (final job in jobs) {
+      attempted++;
+      var result = await PrinterService.retryQueuedJob(
+        job.jobId,
+        requireOperatorConfirmation: true,
+      );
+      if (result.requiresOperatorConfirmation &&
+          result.confirmationJobId != null &&
+          mounted) {
+        result = await _confirmPrintedOutput(result.confirmationJobId!);
+      }
+      if (result.success) {
+        succeeded++;
+      }
+      await _refreshPrinterInfo();
+      if (!mounted) {
+        return;
+      }
+    }
+
+    await _refreshPrinterInfo();
+    final remaining = _queuedPrintJobs.length;
+    final allSucceeded = remaining == 0;
     _showSnackBar(
-      'Retried ${summary.attempted} jobs, ${summary.succeeded} succeeded, ${summary.remaining} remaining.',
+      'Retried $attempted jobs, $succeeded confirmed, $remaining remaining.',
       backgroundColor: allSucceeded ? Colors.green : Colors.orange,
     );
   }
@@ -550,7 +579,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    await _refreshPrinterInfo();
+    await _refreshPrinterInfo(revalidateConnection: true);
     _showSnackBar(
       '$_printerStateLabel: $_printerStatus',
       backgroundColor: _isPrinterHealthy()
@@ -575,6 +604,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _ => mode,
     };
     _showSnackBar('Paper finish mode set to $label');
+  }
+
+  Future<PrintReceiptResult> _confirmPrintedOutput(String jobId) async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Receipt Output'),
+        content: const Text(
+          'Did the receipt actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No, Queue Retry'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
+          ),
+        ],
+      ),
+    );
+
+    if (printed == true) {
+      return PrinterService.confirmPrintDelivery(jobId);
+    }
+    return PrinterService.rejectPrintDelivery(jobId);
   }
 
   Future<void> _startFullSync() async {

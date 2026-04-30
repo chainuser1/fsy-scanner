@@ -24,6 +24,8 @@ class PrinterService {
       'printer_last_print_failure_reason';
   static const String _lastPrintFailureCodeKey =
       'printer_last_print_failure_code';
+  static const String _lastConnectionVerifiedAtKey =
+      'printer_last_connection_verified_at';
 
   static const String cutModeOff = 'off';
   static const String cutModeSafe = 'safe';
@@ -37,12 +39,15 @@ class PrinterService {
   static const String _failureWriteFailed = 'write_failed';
   static const String _jobStatusQueued = 'queued';
   static const String _jobStatusPrinting = 'printing';
+  static const String _jobStatusAwaitingConfirmation = 'awaiting_confirmation';
   static const String _jobStatusSuccess = 'success';
   static const String _jobStatusCancelled = 'cancelled';
   static const String _attemptOutcomeSuccess = 'success';
   static const String _attemptOutcomeFailed = 'failed';
   static const String _attemptOutcomeCancelled = 'cancelled';
   static const Duration _monitorInterval = Duration(seconds: 8);
+  static const Duration _connectionVerificationFreshness =
+      Duration(seconds: 10);
 
   static final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
   static final StreamController<PrinterServiceEvent> _eventController =
@@ -348,6 +353,7 @@ class PrinterService {
 
   static Future<PrinterStatusSnapshot> getSelectedPrinterStatus({
     bool requestPermissions = true,
+    bool revalidateConnection = false,
   }) async {
     await _loadFailedJobs();
     final address = await getSelectedPrinterAddress();
@@ -355,6 +361,8 @@ class PrinterService {
     final lastPrintFailureAt = await _readIntSetting(_lastPrintFailureAtKey);
     final lastPrintFailureReason =
         await _readStringSetting(_lastPrintFailureReasonKey);
+    final lastConnectionVerifiedAt =
+        await _readIntSetting(_lastConnectionVerifiedAtKey);
     final queuedJobCount = _failedJobs.length;
     final activeJobCount = _pendingPrints.length;
 
@@ -417,12 +425,22 @@ class PrinterService {
         );
       }
 
-      final connected =
-          _connectedDevice?.address == address && await isConnected;
+      var connected = _connectedDevice?.address == address && await isConnected;
+      var recentlyVerified = connected &&
+          _isConnectionVerificationFresh(lastConnectionVerifiedAt);
+      if (revalidateConnection) {
+        connected = await _revalidateConnection(
+          address,
+          requestPermissions: false,
+        );
+        recentlyVerified = connected;
+      }
       final stateLabel = _isConnecting
           ? 'Connecting'
           : connected
-              ? 'Connected'
+              ? recentlyVerified
+                  ? 'Connected'
+                  : 'Connection Unverified'
               : 'Paired, Not Connected';
       return PrinterStatusSnapshot(
         hasSelection: true,
@@ -440,7 +458,9 @@ class PrinterService {
         lastPrintFailureReason: lastPrintFailureReason,
         device: device,
         message: connected
-            ? 'Connected. Printer readiness beyond the Bluetooth link is only confirmed when a print succeeds.'
+            ? recentlyVerified
+                ? 'Connected after a fresh revalidation. Final readiness is still only confirmed when a print succeeds.'
+                : 'A stale Bluetooth link may still exist, but the printer has not been freshly revalidated. Use Check Status or print to confirm reachability.'
             : _isConnecting
                 ? 'Connecting to the selected printer'
                 : 'Paired, but not currently connected',
@@ -468,11 +488,13 @@ class PrinterService {
     Participant participant,
     String deviceId, {
     bool isReprint = false,
+    bool requireOperatorConfirmation = false,
   }) async {
     return _attemptPrint(
       participant,
       deviceId,
       isReprint: isReprint,
+      requireOperatorConfirmation: requireOperatorConfirmation,
     );
   }
 
@@ -480,6 +502,7 @@ class PrinterService {
     Participant participant,
     String deviceId, {
     required bool isReprint,
+    required bool requireOperatorConfirmation,
     _FailedPrintJob? retryJob,
   }) async {
     await _loadFailedJobs();
@@ -512,7 +535,9 @@ class PrinterService {
         );
       }
 
-      final status = await getSelectedPrinterStatus();
+      final status = await getSelectedPrinterStatus(
+        revalidateConnection: true,
+      );
       if (!status.permissionsGranted) {
         return _queueAndReturnFailure(
           participant,
@@ -595,6 +620,19 @@ class PrinterService {
         deviceId,
       );
       await _printReceiptLines(receiptLines, printerAddress);
+
+      if (requireOperatorConfirmation && !isReprint) {
+        await _markJobAwaitingConfirmation(printJob.jobId);
+        await _emitStateChanged();
+        return PrintReceiptResult(
+          success: true,
+          queuedForRetry: false,
+          message:
+              'Print command sent. Confirm whether the receipt actually came out before the participant is marked fully verified.',
+          requiresOperatorConfirmation: true,
+          confirmationJobId: printJob.jobId,
+        );
+      }
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final recorded = await _onPrintSuccess(
@@ -705,6 +743,40 @@ class PrinterService {
     return _drainQueuedJobs(ignoreBackoff: true);
   }
 
+  static Future<PrintReceiptResult> retryQueuedJob(
+    String jobId, {
+    bool requireOperatorConfirmation = false,
+  }) async {
+    await _loadFailedJobs();
+    final job = _firstMatchingJob((entry) => entry.jobId == jobId);
+    if (job == null) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'The queued print job could not be found.',
+      );
+    }
+
+    final retryParticipant =
+        await _resolveRetryParticipant(job.participant.id, job.isReprint);
+    if (retryParticipant == null) {
+      await _removeQueuedJob(job.jobId);
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'The participant record for this queued print could not be found.',
+      );
+    }
+
+    return _attemptPrint(
+      retryParticipant,
+      job.deviceId,
+      isReprint: job.isReprint,
+      requireOperatorConfirmation: requireOperatorConfirmation,
+      retryJob: job,
+    );
+  }
+
   static Future<PrinterRetrySummary> _drainQueuedJobs({
     bool ignoreBackoff = false,
   }) async {
@@ -741,6 +813,7 @@ class PrinterService {
           retryParticipant,
           job.deviceId,
           isReprint: job.isReprint,
+          requireOperatorConfirmation: false,
           retryJob: job,
         );
         if (result.success) {
@@ -827,6 +900,67 @@ class PrinterService {
       limit: limit,
     );
     return rows.map(PrinterJobAttempt.fromDbRow).toList();
+  }
+
+  static Future<PrintReceiptResult> confirmPrintDelivery(String jobId) async {
+    final job = await _getPrintJobById(jobId);
+    if (job == null) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'The pending print confirmation could not be found.',
+      );
+    }
+
+    final printedAt = DateTime.now().millisecondsSinceEpoch;
+    final recorded = await _onPrintSuccess(
+      job.participant,
+      printedAt,
+      job: job,
+      isReprint: job.isReprint,
+    );
+    await _emitStateChanged();
+    return PrintReceiptResult(
+      success: recorded,
+      queuedForRetry: false,
+      message: recorded
+          ? job.isReprint
+              ? 'Receipt reprint confirmed successfully.'
+              : 'Receipt output confirmed. Participant is now fully verified.'
+          : 'Receipt output was confirmed, but local print state could not be updated.',
+    );
+  }
+
+  static Future<PrintReceiptResult> rejectPrintDelivery(String jobId) async {
+    final job = await _getPrintJobById(jobId);
+    if (job == null) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'The pending print confirmation could not be found.',
+      );
+    }
+
+    const failure = _QueuedFailure(
+      code: _failureWriteFailed,
+      reason: 'Operator did not confirm paper output',
+      userMessage:
+          'Receipt output was not confirmed. The print was queued for retry.',
+    );
+    await _queueFailedJob(
+      job.participant,
+      job.deviceId,
+      failure,
+      isReprint: job.isReprint,
+      retryJob: job,
+    );
+    await _emitStateChanged();
+    return const PrintReceiptResult(
+      success: false,
+      queuedForRetry: true,
+      message:
+          'Receipt output was not confirmed. The print was queued for retry.',
+    );
   }
 
   static Future<bool> _onPrintSuccess(
@@ -945,6 +1079,17 @@ class PrinterService {
     return null;
   }
 
+  static _FailedPrintJob? _firstMatchingJob(
+    bool Function(_FailedPrintJob job) test,
+  ) {
+    for (final job in _failedJobs) {
+      if (test(job)) {
+        return job;
+      }
+    }
+    return null;
+  }
+
   static Future<void> _replaceQueuedJob(_FailedPrintJob job) async {
     final index = _failedJobs.indexWhere((entry) => entry.jobId == job.jobId);
     if (index == -1) {
@@ -1000,6 +1145,36 @@ class PrinterService {
       where: 'job_id = ?',
       whereArgs: [jobId],
     );
+  }
+
+  static Future<void> _markJobAwaitingConfirmation(String jobId) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'print_jobs',
+      {
+        'status': _jobStatusAwaitingConfirmation,
+        'failure_code': '',
+        'failure_reason': '',
+        'updated_at': now,
+      },
+      where: 'job_id = ?',
+      whereArgs: [jobId],
+    );
+  }
+
+  static Future<_FailedPrintJob?> _getPrintJobById(String jobId) async {
+    final db = await DatabaseHelper.database;
+    final rows = await db.query(
+      'print_jobs',
+      where: 'job_id = ?',
+      whereArgs: [jobId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return _FailedPrintJob.fromDbRow(rows.first);
   }
 
   static Future<void> _recordAttemptOutcome(
@@ -1079,7 +1254,9 @@ class PrinterService {
         );
       }
 
-      final status = await getSelectedPrinterStatus();
+      final status = await getSelectedPrinterStatus(
+        revalidateConnection: true,
+      );
       if (!status.permissionsGranted) {
         return const PrintReceiptResult(
           success: false,
@@ -1159,6 +1336,7 @@ class PrinterService {
   static Future<PrintReceiptResult> printSummaryReport({
     required String title,
     required List<String> bodyLines,
+    bool requireOperatorConfirmation = false,
   }) async {
     try {
       final printerAddress = await getSelectedPrinterAddress();
@@ -1193,7 +1371,10 @@ class PrinterService {
         );
       }
 
-      final status = await getSelectedPrinterStatus(requestPermissions: false);
+      final status = await getSelectedPrinterStatus(
+        requestPermissions: false,
+        revalidateConnection: true,
+      );
       if (!status.isPaired) {
         const failure = _QueuedFailure(
           code: _failureNotPaired,
@@ -1233,12 +1414,23 @@ class PrinterService {
       ];
 
       await _printReceiptLines(lines, printerAddress);
+      if (requireOperatorConfirmation) {
+        await _emitStateChanged();
+        return const PrintReceiptResult(
+          success: true,
+          queuedForRetry: false,
+          message:
+              'Summary print command sent. Confirm whether paper actually came out.',
+          requiresOperatorConfirmation: true,
+        );
+      }
+
       await _recordPrintSuccess();
       await _emitStateChanged();
       return const PrintReceiptResult(
         success: true,
         queuedForRetry: false,
-        message: 'Summary sent to the selected printer.',
+        message: 'Summary printed successfully.',
       );
     } catch (e) {
       final failure = _failureFromException(e);
@@ -1250,6 +1442,32 @@ class PrinterService {
         message: 'Summary print failed: $e',
       );
     }
+  }
+
+  static Future<PrintReceiptResult> confirmSummaryPrintDelivery() async {
+    await _recordPrintSuccess();
+    await _emitStateChanged();
+    return const PrintReceiptResult(
+      success: true,
+      queuedForRetry: false,
+      message: 'Summary output confirmed successfully.',
+    );
+  }
+
+  static Future<PrintReceiptResult> rejectSummaryPrintDelivery() async {
+    const failure = _QueuedFailure(
+      code: _failureWriteFailed,
+      reason: 'Operator did not confirm summary paper output',
+      userMessage: 'Summary output was not confirmed.',
+    );
+    await _recordPrintFailure(failure);
+    await _emitStateChanged();
+    return const PrintReceiptResult(
+      success: false,
+      queuedForRetry: false,
+      message:
+          'Summary output was not confirmed. The printer should not be treated as successful.',
+    );
   }
 
   static List<ReceiptLine> _wrapSummaryLine(
@@ -1559,6 +1777,11 @@ class PrinterService {
       {'key': _lastPrintFailureCodeKey, 'value': ''},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await db.insert(
+      'app_settings',
+      {'key': _lastConnectionVerifiedAtKey, 'value': now},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   static Future<void> _recordPrintFailure(_QueuedFailure failure) async {
@@ -1579,6 +1802,53 @@ class PrinterService {
       {'key': _lastPrintFailureCodeKey, 'value': failure.code},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  static bool _isConnectionVerificationFresh(int? verifiedAt) {
+    if (verifiedAt == null) {
+      return false;
+    }
+    final age = DateTime.now().millisecondsSinceEpoch - verifiedAt;
+    return age <= _connectionVerificationFreshness.inMilliseconds;
+  }
+
+  static Future<bool> _revalidateConnection(
+    String address, {
+    bool requestPermissions = true,
+  }) async {
+    final granted = await _checkBluetoothPermissions(
+      requestIfMissing: requestPermissions,
+    );
+    if (!granted) {
+      return false;
+    }
+
+    try {
+      try {
+        await _printer.disconnect();
+      } catch (_) {}
+      _connectedDevice = null;
+      final connected = await _ensureConnected(
+        address,
+        requestPermissions: false,
+      );
+      if (!connected) {
+        return false;
+      }
+
+      final db = await DatabaseHelper.database;
+      await db.insert(
+        'app_settings',
+        {
+          'key': _lastConnectionVerifiedAtKey,
+          'value': DateTime.now().millisecondsSinceEpoch.toString(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return true;
+    } finally {
+      await _emitStateChanged();
+    }
   }
 
   static Future<String?> _readStringSetting(String key) async {
@@ -1775,11 +2045,15 @@ class PrintReceiptResult {
   final bool success;
   final bool queuedForRetry;
   final String message;
+  final bool requiresOperatorConfirmation;
+  final String? confirmationJobId;
 
   const PrintReceiptResult({
     required this.success,
     required this.queuedForRetry,
     required this.message,
+    this.requiresOperatorConfirmation = false,
+    this.confirmationJobId,
   });
 }
 

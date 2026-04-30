@@ -210,16 +210,29 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     unawaited(appState.refreshParticipantsCount());
     SyncEngine.notifyUserActivity();
 
-    PrinterService.printReceipt(widget.participant, deviceId).then((result) {
-      if (!result.success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message),
-            backgroundColor: result.queuedForRetry ? Colors.orange : Colors.red,
-          ),
-        );
-      }
-    });
+    var printResult = await PrinterService.printReceipt(
+      widget.participant,
+      deviceId,
+      requireOperatorConfirmation: true,
+    );
+    if (printResult.requiresOperatorConfirmation &&
+        printResult.confirmationJobId != null &&
+        mounted) {
+      printResult = await _confirmPrintedOutput(printResult.confirmationJobId!);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(printResult.message),
+          backgroundColor: printResult.success
+              ? Colors.green
+              : printResult.queuedForRetry
+                  ? Colors.orange
+                  : Colors.red,
+        ),
+      );
+    }
 
     appState.setLastScanResult('success');
 
@@ -231,13 +244,45 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-              'Check-in recorded. Receipt will decide full verification status.',
-              style: TextStyle(color: Colors.white)),
-          backgroundColor: FSYScannerApp.accentGreen,
+            printResult.success
+                ? 'Check-in recorded and receipt confirmed.'
+                : 'Check-in recorded. Participant remains partially verified until a print is confirmed.',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor:
+              printResult.success ? FSYScannerApp.accentGreen : Colors.orange,
         ),
       );
     }
+  }
+
+  Future<PrintReceiptResult> _confirmPrintedOutput(String jobId) async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Receipt Output'),
+        content: const Text(
+          'Did the receipt actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No, Queue Retry'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
+          ),
+        ],
+      ),
+    );
+
+    if (printed == true) {
+      return PrinterService.confirmPrintDelivery(jobId);
+    }
+    return PrinterService.rejectPrintDelivery(jobId);
   }
 }
