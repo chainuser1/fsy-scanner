@@ -280,8 +280,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _resetToDefaults() async {
     final db = await DatabaseHelper.database;
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-    await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
+    await db
+        .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
     await db.delete(
       'app_settings',
       where: 'key = ?',
@@ -732,8 +734,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Expanded(
                         child: ElevatedButton(
-                          onPressed:
-                              _selectedPrinterAddress != null ? _testPrint : null,
+                          onPressed: _selectedPrinterAddress != null
+                              ? _testPrint
+                              : null,
                           child: const Text('Test Print'),
                         ),
                       ),
@@ -749,7 +752,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 8),
                   if (_selectedPrinterAddress != null)
                     FutureBuilder<String>(
-                      future: PrinterService.getCutMode(_selectedPrinterAddress!),
+                      future:
+                          PrinterService.getCutMode(_selectedPrinterAddress!),
                       builder: (context, snapshot) {
                         final currentMode =
                             snapshot.data ?? PrinterService.cutModeOff;

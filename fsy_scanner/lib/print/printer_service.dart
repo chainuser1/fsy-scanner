@@ -118,14 +118,13 @@ class PrinterService {
 
   static Future<List<BluetoothDevice>> _getBondedDevicesUnsafe() async {
     final devices = await _printer.getBondedDevices();
-    final filtered = devices
-        .where((device) => (device.address ?? '').isNotEmpty)
-        .toList()
-      ..sort((a, b) {
-        final left = '${a.name ?? ''}${a.address ?? ''}'.toLowerCase();
-        final right = '${b.name ?? ''}${b.address ?? ''}'.toLowerCase();
-        return left.compareTo(right);
-      });
+    final filtered =
+        devices.where((device) => (device.address ?? '').isNotEmpty).toList()
+          ..sort((a, b) {
+            final left = '${a.name ?? ''}${a.address ?? ''}'.toLowerCase();
+            final right = '${b.name ?? ''}${b.address ?? ''}'.toLowerCase();
+            return left.compareTo(right);
+          });
     return filtered;
   }
 
@@ -165,7 +164,8 @@ class PrinterService {
     if (address == null || address.isEmpty) {
       return const PrinterConnectionResult(
         success: false,
-        message: 'The selected printer does not expose a valid Bluetooth address.',
+        message:
+            'The selected printer does not expose a valid Bluetooth address.',
       );
     }
 
@@ -173,7 +173,8 @@ class PrinterService {
     if (!granted) {
       return const PrinterConnectionResult(
         success: false,
-        message: 'Bluetooth permission is required before connecting to a printer.',
+        message:
+            'Bluetooth permission is required before connecting to a printer.',
       );
     }
 
@@ -270,7 +271,8 @@ class PrinterService {
       final devices = await _getBondedDevicesUnsafe();
       final device = _findDeviceByAddress(devices, address);
       if (device == null) {
-        debugPrint('[PrinterService] Printer $address not found in bonded devices');
+        debugPrint(
+            '[PrinterService] Printer $address not found in bonded devices');
         return false;
       }
 
@@ -322,7 +324,8 @@ class PrinterService {
         );
       }
 
-      final connected = _connectedDevice?.address == address && await isConnected;
+      final connected =
+          _connectedDevice?.address == address && await isConnected;
       return PrinterStatusSnapshot(
         hasSelection: true,
         selectedAddress: address,
@@ -575,7 +578,8 @@ class PrinterService {
   static Future<PrinterRetrySummary> retryFailedPrints() async {
     await _loadFailedJobs();
     if (_failedJobs.isEmpty) {
-      return const PrinterRetrySummary(attempted: 0, succeeded: 0, remaining: 0);
+      return const PrinterRetrySummary(
+          attempted: 0, succeeded: 0, remaining: 0);
     }
 
     final jobs = List<_FailedPrintJob>.from(_failedJobs);
@@ -648,7 +652,8 @@ class PrinterService {
         return const PrintReceiptResult(
           success: false,
           queuedForRetry: false,
-          message: 'Bluetooth permission is required before the diagnostic test.',
+          message:
+              'Bluetooth permission is required before the diagnostic test.',
         );
       }
 
@@ -671,22 +676,35 @@ class PrinterService {
 
       await _printer.writeBytes(
         Uint8List.fromList(<int>[
-          0x1B, 0x40,
-          0x1B, 0x61, 0x01,
+          0x1B,
+          0x40,
+          0x1B,
+          0x61,
+          0x01,
           ...ascii.encode('DIAGNOSTIC TEST'),
-          0x0D, 0x0A,
-          0x1B, 0x61, 0x00,
+          0x0D,
+          0x0A,
+          0x1B,
+          0x61,
+          0x00,
           ...ascii.encode('TEST'),
-          0x0D, 0x0A,
+          0x0D,
+          0x0A,
           ...ascii.encode('1234567890'),
-          0x0D, 0x0A,
+          0x0D,
+          0x0A,
           ...ascii.encode('ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
-          0x0D, 0x0A,
+          0x0D,
+          0x0A,
           ...ascii.encode('abcdefghijklmnopqrstuvwxyz'),
-          0x0D, 0x0A,
+          0x0D,
+          0x0A,
           ...ascii.encode('--------------------------------'),
-          0x0D, 0x0A,
-          0x0A, 0x0A, 0x0A,
+          0x0D,
+          0x0A,
+          0x0A,
+          0x0A,
+          0x0A,
         ]),
       );
 
@@ -728,7 +746,8 @@ class PrinterService {
           break;
       }
     } catch (e) {
-      debugPrint('[PrinterService] Cut command failed, falling back to feed: $e');
+      debugPrint(
+          '[PrinterService] Cut command failed, falling back to feed: $e');
       await _printer.writeBytes(
         Uint8List.fromList(<int>[0x0A, 0x0A]),
       );

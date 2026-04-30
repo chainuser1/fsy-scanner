@@ -511,106 +511,109 @@ class _ScanScreenState extends State<ScanScreen>
                       if (!_powerSaveMode)
                         if (_cameraPermissionStatus.isGranted)
                           MobileScanner(
-                          controller: controller,
-                          onDetect: (capture) async {
-                            if (_isCooldown || _showResultCard) return;
-                            final String? barcode =
-                                capture.barcodes.first.rawValue;
-                            if (barcode == null || barcode.isEmpty) return;
+                            controller: controller,
+                            onDetect: (capture) async {
+                              if (_isCooldown || _showResultCard) return;
+                              final String? barcode =
+                                  capture.barcodes.first.rawValue;
+                              if (barcode == null || barcode.isEmpty) return;
 
-                            _pulseReticle();
-                            _isCooldown = true;
+                              _pulseReticle();
+                              _isCooldown = true;
 
-                            final db = await DatabaseHelper.database;
-                            final dao = ParticipantsDao(db);
-                            final participant =
-                                await dao.getParticipantById(barcode);
+                              final db = await DatabaseHelper.database;
+                              final dao = ParticipantsDao(db);
+                              final participant =
+                                  await dao.getParticipantById(barcode);
 
-                            if (participant == null) {
-                              _playSound(_errorSoundPath);
-                              _hapticFeedback(false);
-                              _showAnimatedResult(
-                                name: 'Participant not found',
-                                success: false,
-                                alreadyChecked: false,
-                              );
-                            } else if (participant.verifiedAt != null) {
-                              _playSound(_warningSoundPath);
-                              _hapticFeedback(false);
-                              String timeStr = '';
-                              if (participant.verifiedAt != null) {
-                                final dt = DateTime.fromMillisecondsSinceEpoch(
-                                    participant.verifiedAt!);
-                                timeStr =
-                                    '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-                              }
-                              _showAnimatedResult(
-                                name: participant.fullName,
-                                room: participant.roomNumber,
-                                table: participant.tableNumber,
-                                shirt: participant.tshirtSize,
-                                success: false,
-                                timeStr: timeStr,
-                                alreadyChecked: true,
-                              );
-                            } else {
-                              final deviceId = await DeviceId.get();
-                              final now = DateTime.now().millisecondsSinceEpoch;
-
-                              await dao.markVerifiedLocally(
-                                  participant.id, deviceId, now);
-                              appState.addRecentScan(participant);
-                              unawaited(appState.refreshParticipantsCount());
-                              SyncEngine.notifyUserActivity();
-
-                              await SyncQueueDao.enqueueTask(
-                                  SyncQueueDao.typeMarkRegistered, {
-                                'participantId': participant.id,
-                                'sheetsRow': participant.sheetsRow,
-                                'verifiedAt': now,
-                                'registeredBy': deviceId,
-                              });
-
-                              PrinterService.printReceipt(participant, deviceId)
-                                  .then((result) {
-                                if (!result.success && mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(result.message),
-                                      backgroundColor: result.queuedForRetry
-                                          ? Colors.orange
-                                          : Colors.red,
-                                    ),
-                                  );
+                              if (participant == null) {
+                                _playSound(_errorSoundPath);
+                                _hapticFeedback(false);
+                                _showAnimatedResult(
+                                  name: 'Participant not found',
+                                  success: false,
+                                  alreadyChecked: false,
+                                );
+                              } else if (participant.verifiedAt != null) {
+                                _playSound(_warningSoundPath);
+                                _hapticFeedback(false);
+                                String timeStr = '';
+                                if (participant.verifiedAt != null) {
+                                  final dt =
+                                      DateTime.fromMillisecondsSinceEpoch(
+                                          participant.verifiedAt!);
+                                  timeStr =
+                                      '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
                                 }
-                              });
+                                _showAnimatedResult(
+                                  name: participant.fullName,
+                                  room: participant.roomNumber,
+                                  table: participant.tableNumber,
+                                  shirt: participant.tshirtSize,
+                                  success: false,
+                                  timeStr: timeStr,
+                                  alreadyChecked: true,
+                                );
+                              } else {
+                                final deviceId = await DeviceId.get();
+                                final now =
+                                    DateTime.now().millisecondsSinceEpoch;
 
-                              _playSound(_successSoundPath);
-                              _hapticFeedback(true);
-                              _speak('${participant.fullName} checked in');
-                              _showAnimatedResult(
-                                name: participant.fullName,
-                                room: participant.roomNumber,
-                                table: participant.tableNumber,
-                                shirt: participant.tshirtSize,
-                                success: true,
-                                alreadyChecked: false,
-                                participantId: participant.id,
-                              );
-                            }
+                                await dao.markVerifiedLocally(
+                                    participant.id, deviceId, now);
+                                appState.addRecentScan(participant);
+                                unawaited(appState.refreshParticipantsCount());
+                                SyncEngine.notifyUserActivity();
 
-                            await Future.delayed(const Duration(seconds: 2));
-                            await _hideAnimatedResult();
-                            if (mounted && !_powerSaveMode) {
-                              controller.start();
-                              _ensureCameraMatchesFlag();
-                            }
-                            await Future.delayed(
-                                const Duration(milliseconds: 300));
-                            _isCooldown = false;
-                            _resetPowerSaveTimer();
-                          },
-                        )
+                                await SyncQueueDao.enqueueTask(
+                                    SyncQueueDao.typeMarkRegistered, {
+                                  'participantId': participant.id,
+                                  'sheetsRow': participant.sheetsRow,
+                                  'verifiedAt': now,
+                                  'registeredBy': deviceId,
+                                });
+
+                                PrinterService.printReceipt(
+                                        participant, deviceId)
+                                    .then((result) {
+                                  if (!result.success && mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(result.message),
+                                        backgroundColor: result.queuedForRetry
+                                            ? Colors.orange
+                                            : Colors.red,
+                                      ),
+                                    );
+                                  }
+                                });
+
+                                _playSound(_successSoundPath);
+                                _hapticFeedback(true);
+                                _speak('${participant.fullName} checked in');
+                                _showAnimatedResult(
+                                  name: participant.fullName,
+                                  room: participant.roomNumber,
+                                  table: participant.tableNumber,
+                                  shirt: participant.tshirtSize,
+                                  success: true,
+                                  alreadyChecked: false,
+                                  participantId: participant.id,
+                                );
+                              }
+
+                              await Future.delayed(const Duration(seconds: 2));
+                              await _hideAnimatedResult();
+                              if (mounted && !_powerSaveMode) {
+                                controller.start();
+                                _ensureCameraMatchesFlag();
+                              }
+                              await Future.delayed(
+                                  const Duration(milliseconds: 300));
+                              _isCooldown = false;
+                              _resetPowerSaveTimer();
+                            },
+                          )
                         else if (_cameraPermissionChecked)
                           Material(
                             color: Colors.black87,
