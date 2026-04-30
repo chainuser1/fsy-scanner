@@ -180,7 +180,8 @@ class ParticipantsDao {
   }) async {
     final ftsQuery = _buildFtsQuery(query);
     if (ftsQuery == null) {
-      final participants = await getParticipantsPage(limit: limit, offset: offset);
+      final participants =
+          await getParticipantsPage(limit: limit, offset: offset);
       final totalCount = await getParticipantsCount();
       return ParticipantQueryResult(
         participants: participants,

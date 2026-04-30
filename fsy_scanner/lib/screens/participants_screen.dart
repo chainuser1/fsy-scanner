@@ -154,7 +154,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => ParticipantDetailsScreen(participant: participant),
+        builder: (context) =>
+            ParticipantDetailsScreen(participant: participant),
       ),
     );
 
@@ -243,7 +244,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.people_outline, size: 64, color: Colors.grey[400]),
+                    Icon(Icons.people_outline,
+                        size: 64, color: Colors.grey[400]),
                     const SizedBox(height: 16),
                     Text(
                       'No participants found',
@@ -268,7 +270,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text('Load more (${_totalMatches - _visibleParticipants.length} remaining)'),
+                      : Text(
+                          'Load more (${_totalMatches - _visibleParticipants.length} remaining)'),
                 ),
               );
             }
@@ -367,6 +370,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         'Table ${participant.tableNumber!.trim()}',
     ];
 
-    return values.isEmpty ? 'Tap to view full participant details' : values.join(' • ');
+    return values.isEmpty
+        ? 'Tap to view full participant details'
+        : values.join(' • ');
   }
 }

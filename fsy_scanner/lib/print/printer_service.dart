@@ -24,7 +24,8 @@ class PrinterService {
   static const String cutModeForce = 'force';
 
   static const String _failureNoPrinter = 'no_printer_selected';
-  static const String _failurePermissionRequired = 'bluetooth_permission_required';
+  static const String _failurePermissionRequired =
+      'bluetooth_permission_required';
   static const String _failureNotPaired = 'printer_not_paired';
   static const String _failureConnectFailed = 'connect_failed';
   static const String _failureWriteFailed = 'write_failed';
@@ -626,10 +627,11 @@ class PrinterService {
         job.matchesParticipant(participant.id, isReprint: isReprint) ||
         job.jobId == retryJob?.jobId);
 
-    final previous = existingIndex == -1 ? retryJob : _failedJobs[existingIndex];
+    final previous =
+        existingIndex == -1 ? retryJob : _failedJobs[existingIndex];
     final attemptCount = (previous?.attemptCount ?? 0) + 1;
-    final queuedJob = (previous ?? _FailedPrintJob.newJob(participant, deviceId))
-        .copyWith(
+    final queuedJob =
+        (previous ?? _FailedPrintJob.newJob(participant, deviceId)).copyWith(
       participant: participant,
       deviceId: deviceId,
       failureCode: failure.code,

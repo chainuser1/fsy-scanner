@@ -270,8 +270,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _refreshPrinterSnapshot() async {
-    final status =
-        await PrinterService.getSelectedPrinterStatus(requestPermissions: false);
+    final status = await PrinterService.getSelectedPrinterStatus(
+        requestPermissions: false);
     final failedPrintCount = await PrinterService.getFailedJobCount();
     _printerAddress = status.selectedAddress;
     _printerConnected = status.isConnected;

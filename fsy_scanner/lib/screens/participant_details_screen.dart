@@ -15,7 +15,8 @@ class ParticipantDetailsScreen extends StatefulWidget {
   const ParticipantDetailsScreen({super.key, required this.participant});
 
   @override
-  State<ParticipantDetailsScreen> createState() => _ParticipantDetailsScreenState();
+  State<ParticipantDetailsScreen> createState() =>
+      _ParticipantDetailsScreenState();
 }
 
 class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
@@ -70,8 +71,7 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                             color: isVerified
                                 ? FSYScannerApp.accentGreen
                                 : FSYScannerApp.accentGold,
-                            textColor:
-                                isVerified ? Colors.black : Colors.black,
+                            textColor: isVerified ? Colors.black : Colors.black,
                           ),
                           if (_hasValue(_participant.ward))
                             _statusChip(
@@ -135,8 +135,10 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                 context,
                 title: 'Check-In',
                 children: [
-                  _infoTile('Verified At', _formatTimestamp(_participant.verifiedAt)),
-                  _infoTile('Printed At', _formatTimestamp(_participant.printedAt)),
+                  _infoTile(
+                      'Verified At', _formatTimestamp(_participant.verifiedAt)),
+                  _infoTile(
+                      'Printed At', _formatTimestamp(_participant.printedAt)),
                   _infoTile('Registered By', _participant.registeredBy),
                   _infoTile('Sheets Row', _participant.sheetsRow.toString()),
                 ],
@@ -233,7 +235,8 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
     required String title,
     required List<Widget> children,
   }) {
-    final visibleChildren = children.where((child) => child is! SizedBox).toList();
+    final visibleChildren =
+        children.where((child) => child is! SizedBox).toList();
     if (visibleChildren.isEmpty) {
       return const SizedBox.shrink();
     }
