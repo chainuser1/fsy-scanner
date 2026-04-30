@@ -3231,3 +3231,73 @@ Hardened the printer workflow so the app stops overstating printer connectivity 
 ### Deviations from Plan
 - Instead of attempting hardware-only proof of physical printing, this pass uses operator confirmation as the safety mechanism because the current printer hardware/plugin stack cannot guarantee truthful paper-output telemetry.
 - The sync interval tweak was included in the same commit at the user's direction, even though it is adjacent rather than central to the printer-truth hardening work.
+
+---
+
+## 60.0 — Sync Safety, Analytics Responsiveness, and Regression Hardening
+**Date/Time:** 2026-04-30 20:05:00
+**Status:** ✅ Complete
+
+### What I Did
+Completed the follow-up hardening pass around rapid scanning, background sync safety, analytics screen responsiveness, and several regressions discovered during the final review. This pass focused on keeping participant verification durable under load, making analytics clearer and safer on smaller screens, and closing review findings that could leave the app in a misleading or stale state.
+
+### Changes Made
+**Atomic local state plus sync queue writes.**
+- Added transaction-safe participant verification, unverification, and print-marking helpers so the local database update and sync queue enqueue happen together.
+- Added transaction-safe sync-task insertion and coalescing to reduce race windows while scanning quickly.
+- Tightened push relevance checks so stale queued tasks are less likely to apply after state has already changed.
+
+**Protected fresh local state during pulls.**
+- Updated pull processing so participants with pending local sync work preserve their local verification and print state instead of being overwritten by stale sheet data.
+- Added pull-start timing checks so newer local edits survive overlapping sync windows more reliably.
+
+**Analytics organization and responsiveness.**
+- Reorganized analytics into clearer people-first sections with technical and audit information lower on the screen.
+- Added responsive layout handling for key analytics cards and headers to reduce right-overflow risk on narrow devices.
+- Preserved committee-specific saved views and briefing/export workflows while improving section hierarchy.
+
+**Printer queue and confirmation truthfulness.**
+- Kept `awaiting_confirmation` print jobs visible in the unresolved queue so they do not disappear if the operator confirmation step is interrupted.
+- Fixed the success path so a confirmed reprint can complete a partially verified participant by recording `printed_at` only when appropriate, while avoiding overwriting the original print timestamp for already fully verified participants.
+
+**Final regression fixes from code review.**
+- Prevented repeated sync startup side effects after the sync loop has already started.
+- Hardened device-ID persistence so a temporary in-memory ID is not cached as if it were the durable device identity.
+- Made participant JSON parsing more tolerant of numeric values stored as strings or generic numbers.
+- Required the sheet `ID` header during column detection so writeback and row lookup cannot pass initial setup with an invalid column map.
+- Fixed saved analytics views to reload by exact row ID after save instead of fuzzy matching.
+- Updated participant-list reprints to refresh the list after success.
+- Changed Settings save behavior so valid local sheet/event settings are preserved even if live column detection fails, while clearing stale column-map state and warning the operator.
+- Added `try/finally` handling to paired-printer scanning so the scan button cannot get stuck in a loading state after an error.
+
+### Files Modified
+- `fsy_scanner/lib/db/participants_dao.dart` – atomic participant mutation and queue helpers plus pull-safe upsert behavior.
+- `fsy_scanner/lib/db/sync_queue_dao.dart` – transaction-safe queue insertion and pending participant lookup.
+- `fsy_scanner/lib/sync/puller.dart` – preservation of fresh local verification and print state during pulls.
+- `fsy_scanner/lib/sync/pusher.dart` – tighter stale-task relevance checks.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – people-first section ordering and responsive layout hardening.
+- `fsy_scanner/lib/print/printer_service.dart` – unresolved confirmation jobs stay visible and partial-to-full verification can complete on confirmed reprint success.
+- `fsy_scanner/lib/screens/settings_screen.dart` – safer settings save behavior and resilient printer scanning state.
+- `fsy_scanner/lib/screens/participants_screen.dart` – refresh after successful inline reprint.
+- `fsy_scanner/lib/services/analytics_saved_views_service.dart` – exact saved-view reload by row ID.
+- `fsy_scanner/lib/models/participant.dart` – safer JSON number parsing.
+- `fsy_scanner/lib/utils/device_id.dart` – safer durable device-ID caching.
+- `fsy_scanner/lib/sync/sheets_api.dart` – stricter required-header validation.
+- `fsy_scanner/lib/sync/sync_engine.dart` – startup re-entry guard.
+
+### Verification Result
+- Diagnostics are clean for the updated sync, analytics, printer, settings, model, and service files.
+- The analytics screen now reflects the intended people-first information hierarchy with technical diagnostics below it.
+- Rapid-scan safety hardening is in place through atomic local writes, transactional queueing, and pull-side preservation of fresh local state.
+- Unresolved print confirmations remain visible in queue counts instead of silently dropping out of the operational view.
+
+### Issues Encountered
+- Several review findings were not syntax problems but state-consistency problems that only appear through rebuilds, interrupted confirmation flows, flaky printer scans, or background sync overlap.
+- Some operational truth still depends on real Android Bluetooth behavior and operator confirmation because the current printer stack cannot fully prove physical output or readiness.
+
+### Corrections Made
+- Fixed the identified regressions directly instead of leaving them as known issues before commit.
+- Preferred preserving truthful local operational state over optimistic assumptions about sheet freshness, printer readiness, or fuzzy saved-view selection.
+
+### Deviations from Plan
+- The final pass expanded from pure diagnostics into a regression-fix sweep because the review surfaced several production-impacting state bugs worth fixing before commit.

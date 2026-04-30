@@ -69,8 +69,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
       late final ParticipantQueryResult queryResult;
       if (query.isEmpty) {
-        final pageFuture =
-            dao.getParticipantsPage(limit: _pageSize, offset: offset);
+        final pageFuture = dao.getParticipantsPage(
+          limit: _pageSize,
+          offset: offset,
+        );
         final totalCount = await totalParticipantsFuture;
         final participants = await pageFuture;
         queryResult = ParticipantQueryResult(
@@ -245,8 +247,11 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.people_outline,
-                        size: 64, color: Colors.grey[400]),
+                    Icon(
+                      Icons.people_outline,
+                      size: 64,
+                      color: Colors.grey[400],
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'No participants found',
@@ -272,7 +277,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(
-                          'Load more (${_totalMatches - _visibleParticipants.length} remaining)'),
+                          'Load more (${_totalMatches - _visibleParticipants.length} remaining)',
+                        ),
                 ),
               );
             }
@@ -290,18 +296,17 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 ),
                 leading: CircleAvatar(
                   backgroundColor: visualStatus.color.withValues(alpha: 0.18),
-                  child: Icon(
-                    visualStatus.icon,
-                    color: visualStatus.color,
-                  ),
+                  child: Icon(visualStatus.icon, color: visualStatus.color),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (participant.isVerified)
                       IconButton(
-                        icon: const Icon(Icons.print,
-                            color: FSYScannerApp.accentGold),
+                        icon: const Icon(
+                          Icons.print,
+                          color: FSYScannerApp.accentGold,
+                        ),
                         tooltip: 'Reprint receipt',
                         onPressed: () async {
                           final deviceId = await DeviceId.get();
@@ -321,6 +326,12 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           if (!mounted) {
                             return;
                           }
+                          if (result.success) {
+                            await _loadParticipants(reset: true);
+                            if (!mounted) {
+                              return;
+                            }
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -337,10 +348,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           );
                         },
                       ),
-                    Icon(
-                      visualStatus.icon,
-                      color: visualStatus.color,
-                    ),
+                    Icon(visualStatus.icon, color: visualStatus.color),
                   ],
                 ),
                 onTap: () async {
@@ -436,8 +444,5 @@ class _ParticipantStatusVisual {
   final IconData icon;
   final Color color;
 
-  const _ParticipantStatusVisual({
-    required this.icon,
-    required this.color,
-  });
+  const _ParticipantStatusVisual({required this.icon, required this.color});
 }

@@ -10,8 +10,12 @@ class ReceiptBuilder {
     String organizationName,
     String deviceId,
   ) {
-    final lines =
-        buildLines(participant, eventName, organizationName, deviceId);
+    final lines = buildLines(
+      participant,
+      eventName,
+      organizationName,
+      deviceId,
+    );
     return lines.map((line) => line.text).join('\n');
   }
 
@@ -36,11 +40,7 @@ class ReceiptBuilder {
       ReceiptLine(_printerSafe('=' * _receiptWidth)),
     ];
 
-    lines.addAll(_wrappedLines(
-      fullName,
-      width: _receiptWidth,
-      align: 1,
-    ));
+    lines.addAll(_wrappedLines(fullName, width: _receiptWidth, align: 1));
     lines.add(const ReceiptLine(''));
     lines.addAll(
       _labeledLines('Room', participant.roomNumber ?? '(not assigned)'),
@@ -66,21 +66,15 @@ class ReceiptBuilder {
 
     if (organization != null) {
       lines.add(const ReceiptLine('Hosted by', align: 1));
-      lines.addAll(_wrappedLines(
-        organization,
-        width: _receiptWidth,
-        align: 1,
-      ));
+      lines.addAll(_wrappedLines(organization, width: _receiptWidth, align: 1));
     }
 
     lines.add(const ReceiptLine(''));
 
     lines.add(const ReceiptLine('Welcome to', align: 1));
-    lines.addAll(_wrappedLines(
-      event ?? 'FSY Event',
-      width: _receiptWidth,
-      align: 1,
-    ));
+    lines.addAll(
+      _wrappedLines(event ?? 'FSY Event', width: _receiptWidth, align: 1),
+    );
     lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
 
     return lines;
@@ -108,7 +102,8 @@ class ReceiptBuilder {
   }) {
     return _wrapText(value, width)
         .map(
-            (line) => ReceiptLine(_printerSafe(line), align: align, size: size))
+          (line) => ReceiptLine(_printerSafe(line), align: align, size: size),
+        )
         .toList();
   }
 
@@ -138,8 +133,9 @@ class ReceiptBuilder {
   }
 
   static List<String> _wrapText(String value, int width) {
-    final normalized =
-        _printerSafe(value).replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normalized = _printerSafe(
+      value,
+    ).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normalized.isEmpty) {
       return const <String>[];
     }

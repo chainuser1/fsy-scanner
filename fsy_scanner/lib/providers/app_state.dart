@@ -6,7 +6,6 @@ import 'package:sqflite/sqflite.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
-import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../utils/logger.dart';
@@ -77,12 +76,13 @@ class AppState extends ChangeNotifier {
 
   void addRecentScan(Participant participant) {
     _recentScans.insert(
-        0,
-        RecentScan(
-          participantId: participant.id,
-          name: participant.fullName,
-          timestamp: DateTime.now().millisecondsSinceEpoch,
-        ));
+      0,
+      RecentScan(
+        participantId: participant.id,
+        name: participant.fullName,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
     if (_recentScans.length > maxRecentScans) {
       _recentScans.removeLast();
     }
@@ -92,12 +92,7 @@ class AppState extends ChangeNotifier {
   Future<bool> undoRecentScan(String participantId) async {
     try {
       PrinterService.cancelPendingPrint(participantId);
-      final db = await DatabaseHelper.database;
-      final dao = ParticipantsDao(db);
-      await dao.markUnverifiedLocally(participantId);
-      await SyncQueueDao.enqueueTask(SyncQueueDao.typeMarkUnverified, {
-        'participantId': participantId,
-      });
+      await ParticipantsDao.markUnverifiedAndQueue(participantId);
       _recentScans.removeWhere((s) => s.participantId == participantId);
       await refreshParticipantsCount();
       notifyListeners();
@@ -197,14 +192,26 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadPreferences() async {
     final db = await DatabaseHelper.database;
-    final soundResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['sound_enabled']);
-    final hapticResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['haptic_enabled']);
-    final voiceResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['voice_enabled']);
-    final eventNameResult = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    final soundResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sound_enabled'],
+    );
+    final hapticResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['haptic_enabled'],
+    );
+    final voiceResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['voice_enabled'],
+    );
+    final eventNameResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['event_name'],
+    );
     final organizationNameResult = await db.query(
       'app_settings',
       where: 'key = ?',
@@ -259,8 +266,11 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadEventName() async {
     final db = await DatabaseHelper.database;
-    final result = await db
-        .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    final result = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['event_name'],
+    );
     if (result.isNotEmpty) {
       _eventName = result.first['value'] as String? ?? '';
     } else {
@@ -282,7 +292,11 @@ class AppState extends ChangeNotifier {
   Future<void> setSoundEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
-        'app_settings', {'key': 'sound_enabled', 'value': enabled.toString()},
+        'app_settings',
+        {
+          'key': 'sound_enabled',
+          'value': enabled.toString(),
+        },
         conflictAlgorithm: ConflictAlgorithm.replace);
     _soundEnabled = enabled;
     notifyListeners();
@@ -291,7 +305,11 @@ class AppState extends ChangeNotifier {
   Future<void> setHapticEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
-        'app_settings', {'key': 'haptic_enabled', 'value': enabled.toString()},
+        'app_settings',
+        {
+          'key': 'haptic_enabled',
+          'value': enabled.toString(),
+        },
         conflictAlgorithm: ConflictAlgorithm.replace);
     _hapticEnabled = enabled;
     notifyListeners();
@@ -300,7 +318,11 @@ class AppState extends ChangeNotifier {
   Future<void> setVoiceEnabled(bool enabled) async {
     final db = await DatabaseHelper.database;
     await db.insert(
-        'app_settings', {'key': 'voice_enabled', 'value': enabled.toString()},
+        'app_settings',
+        {
+          'key': 'voice_enabled',
+          'value': enabled.toString(),
+        },
         conflictAlgorithm: ConflictAlgorithm.replace);
     _voiceEnabled = enabled;
     notifyListeners();
@@ -319,7 +341,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _refreshPrinterSnapshot() async {
     final status = await PrinterService.getSelectedPrinterStatus(
-        requestPermissions: false);
+      requestPermissions: false,
+    );
     applyPrinterSnapshot(status);
   }
 

@@ -110,8 +110,11 @@ class _BootstrapAppState extends State<BootstrapApp> {
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline,
-                          size: 56, color: Colors.red),
+                      const Icon(
+                        Icons.error_outline,
+                        size: 56,
+                        color: Colors.red,
+                      ),
                       const SizedBox(height: 16),
                       const Text(
                         'Startup Failed',

@@ -9,7 +9,6 @@ import 'package:sqflite/sqflite.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
-import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import 'receipt_builder.dart';
 
@@ -46,8 +45,9 @@ class PrinterService {
   static const String _attemptOutcomeFailed = 'failed';
   static const String _attemptOutcomeCancelled = 'cancelled';
   static const Duration _monitorInterval = Duration(seconds: 8);
-  static const Duration _connectionVerificationFreshness =
-      Duration(seconds: 10);
+  static const Duration _connectionVerificationFreshness = Duration(
+    seconds: 10,
+  );
 
   static final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
   static final StreamController<PrinterServiceEvent> _eventController =
@@ -100,10 +100,12 @@ class PrinterService {
 
     final db = await DatabaseHelper.database;
     await db.insert(
-      'app_settings',
-      {'key': _printerAddressKey, 'value': address},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _printerAddressKey,
+          'value': address,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await _emitStateChanged();
   }
 
@@ -158,10 +160,12 @@ class PrinterService {
 
     final db = await DatabaseHelper.database;
     await db.insert(
-      'app_settings',
-      {'key': _cutModeKey(printerAddress), 'value': mode},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _cutModeKey(printerAddress),
+          'value': mode,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     debugPrint('[PrinterService] Cut mode for $printerAddress set to $mode');
   }
 
@@ -178,7 +182,9 @@ class PrinterService {
   }
 
   static BluetoothDevice? _findDeviceByAddress(
-      List<BluetoothDevice> devices, String address) {
+    List<BluetoothDevice> devices,
+    String address,
+  ) {
     for (final device in devices) {
       if (device.address == address) {
         return device;
@@ -334,7 +340,8 @@ class PrinterService {
       final device = _findDeviceByAddress(devices, address);
       if (device == null) {
         debugPrint(
-            '[PrinterService] Printer $address not found in bonded devices');
+          '[PrinterService] Printer $address not found in bonded devices',
+        );
         return false;
       }
 
@@ -359,10 +366,12 @@ class PrinterService {
     final address = await getSelectedPrinterAddress();
     final lastPrintSuccessAt = await _readIntSetting(_lastPrintSuccessAtKey);
     final lastPrintFailureAt = await _readIntSetting(_lastPrintFailureAtKey);
-    final lastPrintFailureReason =
-        await _readStringSetting(_lastPrintFailureReasonKey);
-    final lastConnectionVerifiedAt =
-        await _readIntSetting(_lastConnectionVerifiedAtKey);
+    final lastPrintFailureReason = await _readStringSetting(
+      _lastPrintFailureReasonKey,
+    );
+    final lastConnectionVerifiedAt = await _readIntSetting(
+      _lastConnectionVerifiedAtKey,
+    );
     final queuedJobCount = _failedJobs.length;
     final activeJobCount = _pendingPrints.length;
 
@@ -426,8 +435,8 @@ class PrinterService {
       }
 
       var connected = _connectedDevice?.address == address && await isConnected;
-      var recentlyVerified = connected &&
-          _isConnectionVerificationFresh(lastConnectionVerifiedAt);
+      var recentlyVerified =
+          connected && _isConnectionVerificationFresh(lastConnectionVerifiedAt);
       if (revalidateConnection) {
         connected = await _revalidateConnection(
           address,
@@ -535,9 +544,7 @@ class PrinterService {
         );
       }
 
-      final status = await getSelectedPrinterStatus(
-        revalidateConnection: true,
-      );
+      final status = await getSelectedPrinterStatus(revalidateConnection: true);
       if (!status.permissionsGranted) {
         return _queueAndReturnFailure(
           participant,
@@ -757,14 +764,17 @@ class PrinterService {
       );
     }
 
-    final retryParticipant =
-        await _resolveRetryParticipant(job.participant.id, job.isReprint);
+    final retryParticipant = await _resolveRetryParticipant(
+      job.participant.id,
+      job.isReprint,
+    );
     if (retryParticipant == null) {
       await _removeQueuedJob(job.jobId);
       return const PrintReceiptResult(
         success: false,
         queuedForRetry: false,
-        message: 'The participant record for this queued print could not be found.',
+        message:
+            'The participant record for this queued print could not be found.',
       );
     }
 
@@ -795,15 +805,17 @@ class PrinterService {
 
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
-      final jobs = List<_FailedPrintJob>.from(_failedJobs)
-          .where((job) => ignoreBackoff || job.isReady(now))
-          .toList()
+      final jobs = List<_FailedPrintJob>.from(
+        _failedJobs,
+      ).where((job) => ignoreBackoff || job.isReady(now)).toList()
         ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
 
       for (final job in jobs) {
         attempted++;
-        final retryParticipant =
-            await _resolveRetryParticipant(job.participant.id, job.isReprint);
+        final retryParticipant = await _resolveRetryParticipant(
+          job.participant.id,
+          job.isReprint,
+        );
         if (retryParticipant == null) {
           await _removeQueuedJob(job.jobId);
           continue;
@@ -861,8 +873,9 @@ class PrinterService {
         .toList();
   }
 
-  static Future<List<PrinterQueuedJob>> getRecentPrintJobs(
-      {int limit = 20}) async {
+  static Future<List<PrinterQueuedJob>> getRecentPrintJobs({
+    int limit = 20,
+  }) async {
     final db = await DatabaseHelper.database;
     final rows = await db.query(
       'print_jobs',
@@ -978,29 +991,19 @@ class PrinterService {
         finishedAt: printedAt,
       );
       await _removeQueuedJob(job.jobId);
-      if (isReprint) {
-        return true;
-      }
-
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);
       final currentParticipant = await dao.getParticipantById(participant.id);
       if (currentParticipant == null || currentParticipant.verifiedAt == null) {
         debugPrint(
-            '[PrinterService] Skipping print-state update for ${participant.id} because the participant is no longer verified');
+          '[PrinterService] Skipping print-state update for ${participant.id} because the participant is no longer verified',
+        );
         return true;
       }
 
-      await dao.markPrintedLocally(participant.id, printedAt);
-
-      await SyncQueueDao.enqueueTask(
-        SyncQueueDao.typeMarkPrinted,
-        {
-          'participantId': participant.id,
-          'sheetsRow': participant.sheetsRow,
-          'printedAt': printedAt,
-        },
-      );
+      if (!isReprint || currentParticipant.printedAt == null) {
+        await ParticipantsDao.markPrintedAndQueue(participant.id, printedAt);
+      }
       return true;
     } catch (e) {
       debugPrint('[PrinterService] Error recording print: $e');
@@ -1061,8 +1064,8 @@ class PrinterService {
     final db = await DatabaseHelper.database;
     final rows = await db.query(
       'print_jobs',
-      where: 'status = ?',
-      whereArgs: [_jobStatusQueued],
+      where: 'status IN (?, ?)',
+      whereArgs: [_jobStatusQueued, _jobStatusAwaitingConfirmation],
       orderBy: 'queued_at ASC',
     );
     _failedJobs
@@ -1102,28 +1105,28 @@ class PrinterService {
   static Future<void> _upsertPrintJob(_FailedPrintJob job) async {
     final db = await DatabaseHelper.database;
     await db.insert(
-      'print_jobs',
-      {
-        'job_id': job.jobId,
-        'participant_id': job.participant.id,
-        'participant_name': job.participant.fullName,
-        'participant_json': jsonEncode(job.participant.toJson()),
-        'device_id': job.deviceId,
-        'printer_address': job.printerAddress,
-        'status': job.status,
-        'failure_code': job.failureCode,
-        'failure_reason': job.reason,
-        'queued_at': job.queuedAt,
-        'last_attempt_at': job.lastAttemptAt,
-        'next_retry_at': job.nextRetryAt,
-        'attempt_count': job.attemptCount,
-        'is_reprint': job.isReprint ? 1 : 0,
-        'printed_at': job.printedAt,
-        'completed_at': job.status == _jobStatusSuccess ? job.printedAt : null,
-        'updated_at': job.updatedAt,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'print_jobs',
+        {
+          'job_id': job.jobId,
+          'participant_id': job.participant.id,
+          'participant_name': job.participant.fullName,
+          'participant_json': jsonEncode(job.participant.toJson()),
+          'device_id': job.deviceId,
+          'printer_address': job.printerAddress,
+          'status': job.status,
+          'failure_code': job.failureCode,
+          'failure_reason': job.reason,
+          'queued_at': job.queuedAt,
+          'last_attempt_at': job.lastAttemptAt,
+          'next_retry_at': job.nextRetryAt,
+          'attempt_count': job.attemptCount,
+          'is_reprint': job.isReprint ? 1 : 0,
+          'printed_at': job.printedAt,
+          'completed_at':
+              job.status == _jobStatusSuccess ? job.printedAt : null,
+          'updated_at': job.updatedAt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<void> _markJobSuccessful(
@@ -1185,25 +1188,24 @@ class PrinterService {
     final startedAt = job.lastAttemptAt ?? job.queuedAt;
     final db = await DatabaseHelper.database;
     await db.insert(
-      'print_job_attempts',
-      {
-        'job_id': job.jobId,
-        'participant_id': job.participant.id,
-        'participant_name': job.participant.fullName,
-        'device_id': job.deviceId,
-        'printer_address': job.printerAddress,
-        'attempt_number': job.attemptCount,
-        'outcome': outcome,
-        'failure_code':
-            outcome == _attemptOutcomeSuccess ? '' : job.failureCode,
-        'failure_reason': outcome == _attemptOutcomeSuccess ? '' : job.reason,
-        'is_reprint': job.isReprint ? 1 : 0,
-        'started_at': startedAt,
-        'finished_at': finishedAt,
-        'created_at': finishedAt,
-      },
-      conflictAlgorithm: ConflictAlgorithm.abort,
-    );
+        'print_job_attempts',
+        {
+          'job_id': job.jobId,
+          'participant_id': job.participant.id,
+          'participant_name': job.participant.fullName,
+          'device_id': job.deviceId,
+          'printer_address': job.printerAddress,
+          'attempt_number': job.attemptCount,
+          'outcome': outcome,
+          'failure_code':
+              outcome == _attemptOutcomeSuccess ? '' : job.failureCode,
+          'failure_reason': outcome == _attemptOutcomeSuccess ? '' : job.reason,
+          'is_reprint': job.isReprint ? 1 : 0,
+          'started_at': startedAt,
+          'finished_at': finishedAt,
+          'created_at': finishedAt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.abort);
   }
 
   static Future<void> _migrateLegacyFailedJobsToTable() async {
@@ -1226,18 +1228,22 @@ class PrinterService {
       final decoded = jsonDecode(raw) as List<dynamic>;
       for (final entry in decoded.whereType<Map<String, dynamic>>()) {
         final job = _FailedPrintJob.fromJson(entry);
-        await _upsertPrintJob(job.copyWith(
-          status: _jobStatusQueued,
-          updatedAt: job.updatedAt == 0
-              ? DateTime.now().millisecondsSinceEpoch
-              : job.updatedAt,
-        ));
+        await _upsertPrintJob(
+          job.copyWith(
+            status: _jobStatusQueued,
+            updatedAt: job.updatedAt == 0
+                ? DateTime.now().millisecondsSinceEpoch
+                : job.updatedAt,
+          ),
+        );
       }
       await db.insert(
-        'app_settings',
-        {'key': _failedPrintJobsKey, 'value': ''},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+          'app_settings',
+          {
+            'key': _failedPrintJobsKey,
+            'value': '',
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
     } catch (_) {
       // Ignore malformed legacy data and leave the old value untouched.
     }
@@ -1254,9 +1260,7 @@ class PrinterService {
         );
       }
 
-      final status = await getSelectedPrinterStatus(
-        revalidateConnection: true,
-      );
+      final status = await getSelectedPrinterStatus(revalidateConnection: true);
       if (!status.permissionsGranted) {
         return const PrintReceiptResult(
           success: false,
@@ -1523,10 +1527,9 @@ class PrinterService {
       }
     } catch (e) {
       debugPrint(
-          '[PrinterService] Cut command failed, falling back to feed: $e');
-      await _printer.writeBytes(
-        Uint8List.fromList(<int>[0x0A]),
+        '[PrinterService] Cut command failed, falling back to feed: $e',
       );
+      await _printer.writeBytes(Uint8List.fromList(<int>[0x0A]));
     }
   }
 
@@ -1535,13 +1538,7 @@ class PrinterService {
     String printerAddress,
   ) async {
     await _printer.writeBytes(
-      Uint8List.fromList(<int>[
-        0x1B,
-        0x40,
-        0x1B,
-        0x61,
-        0x00,
-      ]),
+      Uint8List.fromList(<int>[0x1B, 0x40, 0x1B, 0x61, 0x00]),
     );
 
     for (final line in lines) {
@@ -1557,15 +1554,7 @@ class PrinterService {
     }
 
     await _printer.writeBytes(
-      Uint8List.fromList(<int>[
-        0x1D,
-        0x21,
-        0x00,
-        0x1B,
-        0x61,
-        0x00,
-        0x0A,
-      ]),
+      Uint8List.fromList(<int>[0x1D, 0x21, 0x00, 0x1B, 0x61, 0x00, 0x0A]),
     );
     await _applyCutMode(printerAddress);
   }
@@ -1641,8 +1630,9 @@ class PrinterService {
         );
       }
 
-      final refreshedStatus =
-          await getSelectedPrinterStatus(requestPermissions: false);
+      final refreshedStatus = await getSelectedPrinterStatus(
+        requestPermissions: false,
+      );
       if (refreshedStatus.isConnected) {
         await _drainQueuedJobs();
       }
@@ -1664,10 +1654,7 @@ class PrinterService {
     }
 
     await saveSelectedPrinter(printers.first);
-    await _ensureConnected(
-      printers.first.address!,
-      requestPermissions: false,
-    );
+    await _ensureConnected(printers.first.address!, requestPermissions: false);
   }
 
   static Duration _retryDelayForAttempt(int attemptCount) {
@@ -1758,50 +1745,66 @@ class PrinterService {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch.toString();
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintSuccessAtKey, 'value': now},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintSuccessAtKey,
+          'value': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureAtKey, 'value': ''},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureAtKey,
+          'value': '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureReasonKey, 'value': ''},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureReasonKey,
+          'value': '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureCodeKey, 'value': ''},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureCodeKey,
+          'value': '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastConnectionVerifiedAtKey, 'value': now},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastConnectionVerifiedAtKey,
+          'value': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<void> _recordPrintFailure(_QueuedFailure failure) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch.toString();
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureAtKey, 'value': now},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureAtKey,
+          'value': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureReasonKey, 'value': failure.reason},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureReasonKey,
+          'value': failure.reason,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': _lastPrintFailureCodeKey, 'value': failure.code},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': _lastPrintFailureCodeKey,
+          'value': failure.code,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static bool _isConnectionVerificationFresh(int? verifiedAt) {
@@ -1838,13 +1841,12 @@ class PrinterService {
 
       final db = await DatabaseHelper.database;
       await db.insert(
-        'app_settings',
-        {
-          'key': _lastConnectionVerifiedAtKey,
-          'value': DateTime.now().millisecondsSinceEpoch.toString(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+          'app_settings',
+          {
+            'key': _lastConnectionVerifiedAtKey,
+            'value': DateTime.now().millisecondsSinceEpoch.toString(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
       return true;
     } finally {
       await _emitStateChanged();

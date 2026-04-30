@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app.dart';
-import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
-import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
@@ -26,9 +24,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Confirm Registration'),
-      ),
+      appBar: AppBar(title: const Text('Confirm Registration')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: SingleChildScrollView(
@@ -50,24 +46,38 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      _buildInfoRow('Stake:',
-                          widget.participant.stake ?? '(not assigned)'),
                       _buildInfoRow(
-                          'Ward:', widget.participant.ward ?? '(not assigned)'),
-                      _buildInfoRow('Room:',
-                          widget.participant.roomNumber ?? '(not assigned)'),
-                      _buildInfoRow('Table:',
-                          widget.participant.tableNumber ?? '(not assigned)'),
-                      _buildInfoRow('Gender:',
-                          widget.participant.gender ?? '(not assigned)'),
+                        'Stake:',
+                        widget.participant.stake ?? '(not assigned)',
+                      ),
                       _buildInfoRow(
-                          'Age:',
-                          widget.participant.age?.toString() ??
-                              '(not assigned)'),
-                      _buildInfoRow('Shirt:',
-                          widget.participant.tshirtSize ?? '(not assigned)'),
-                      _buildInfoRow('Medical:',
-                          widget.participant.medicalInfo ?? '(none)'),
+                        'Ward:',
+                        widget.participant.ward ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Room:',
+                        widget.participant.roomNumber ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Table:',
+                        widget.participant.tableNumber ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Gender:',
+                        widget.participant.gender ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Age:',
+                        widget.participant.age?.toString() ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Shirt:',
+                        widget.participant.tshirtSize ?? '(not assigned)',
+                      ),
+                      _buildInfoRow(
+                        'Medical:',
+                        widget.participant.medicalInfo ?? '(none)',
+                      ),
                     ],
                   ),
                 ),
@@ -164,18 +174,10 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
             width: 70,
             child: Text(
               label,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 16),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 16))),
         ],
       ),
     );
@@ -185,25 +187,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (!mounted) return;
 
     final appState = Provider.of<AppState>(context, listen: false);
-    final db = await DatabaseHelper.database;
-    final dao = ParticipantsDao(db);
     final deviceId = await DeviceId.get();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    await dao.markVerifiedLocally(
+    await ParticipantsDao.markVerifiedAndQueue(
       widget.participant.id,
       deviceId,
       now,
-    );
-
-    await SyncQueueDao.enqueueTask(
-      SyncQueueDao.typeMarkRegistered,
-      {
-        'participantId': widget.participant.id,
-        'sheetsRow': widget.participant.sheetsRow,
-        'verifiedAt': now,
-        'registeredBy': deviceId,
-      },
     );
 
     appState.addRecentScan(widget.participant);

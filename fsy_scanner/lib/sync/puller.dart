@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../db/participants_dao.dart';
+import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import '../utils/logger.dart';
 import 'sheets_api.dart';
@@ -27,13 +28,15 @@ class Puller {
       if (colMapResult.isEmpty) {
         LoggerUtil.error('[Puller] No column map found in settings');
         throw Exception(
-            'Column map not configured. Run column detection first.');
+          'Column map not configured. Run column detection first.',
+        );
       }
 
       final colMapJson = colMapResult.first['value'] as String;
       final colMap = Map<String, int>.from(jsonDecode(colMapJson));
       LoggerUtil.debug(
-          '[Puller] Loaded column map with ${colMap.length} columns');
+        '[Puller] Loaded column map with ${colMap.length} columns',
+      );
 
       final rows = await SheetsApi.fetchAllRows(token, sheetId, tabName);
       if (rows == null || rows.isEmpty) {
@@ -43,6 +46,9 @@ class Puller {
 
       final dataRows = rows.length > 1 ? rows.sublist(1) : <List<dynamic>>[];
       LoggerUtil.info('[Puller] Processing ${dataRows.length} participants');
+      final pendingParticipantIds =
+          await SyncQueueDao.getPendingParticipantIds();
+      final pullStartedAt = DateTime.now().millisecondsSinceEpoch;
 
       int upsertedCount = 0;
       int skippedCount = 0;
@@ -53,7 +59,11 @@ class Puller {
 
         final participant = _parseRow(row, colMap, sheetsRow);
         if (participant != null) {
-          await ParticipantsDao.upsert(participant);
+          await ParticipantsDao.upsertFromPull(
+            participant,
+            pendingParticipantIds: pendingParticipantIds,
+            pullStartedAt: pullStartedAt,
+          );
           upsertedCount++;
         } else {
           skippedCount++;
@@ -61,16 +71,16 @@ class Puller {
       }
 
       await db.insert(
-        'app_settings',
-        {
-          'key': 'last_pulled_at',
-          'value': DateTime.now().millisecondsSinceEpoch.toString(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+          'app_settings',
+          {
+            'key': 'last_pulled_at',
+            'value': DateTime.now().millisecondsSinceEpoch.toString(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
 
       LoggerUtil.info(
-          '[Puller] Complete: $upsertedCount upserted, $skippedCount skipped');
+        '[Puller] Complete: $upsertedCount upserted, $skippedCount skipped',
+      );
     } catch (e) {
       LoggerUtil.error('[Puller] Error during pull: $e', error: e);
       rethrow;
@@ -79,14 +89,18 @@ class Puller {
 
   /// Parse a single row from Sheets using column map
   static Participant? _parseRow(
-      List<dynamic> row, Map<String, int> colMap, int sheetsRow) {
+    List<dynamic> row,
+    Map<String, int> colMap,
+    int sheetsRow,
+  ) {
     try {
       final idIndex = colMap[SheetColumns.id];
       final nameIndex = colMap[SheetColumns.name];
 
       if (idIndex == null || nameIndex == null) {
         LoggerUtil.warn(
-            '[Puller] Missing required columns (ID or Name) in map');
+          '[Puller] Missing required columns (ID or Name) in map',
+        );
         return null;
       }
 
@@ -103,10 +117,12 @@ class Puller {
         return null;
       }
 
-      final verifiedAt =
-          _parseTimestamp(_safeString(row, colMap[SheetColumns.verifiedAt]));
-      final printedAt =
-          _parseTimestamp(_safeString(row, colMap[SheetColumns.printedAt]));
+      final verifiedAt = _parseTimestamp(
+        _safeString(row, colMap[SheetColumns.verifiedAt]),
+      );
+      final printedAt = _parseTimestamp(
+        _safeString(row, colMap[SheetColumns.printedAt]),
+      );
       final ageStr = _safeString(row, colMap[SheetColumns.age]);
       final age = ageStr != null ? int.tryParse(ageStr) : null;
       final birthday = _safeString(row, colMap[SheetColumns.birthday]);
@@ -153,7 +169,8 @@ class Puller {
       return dt.millisecondsSinceEpoch;
     } catch (e) {
       LoggerUtil.warn(
-          '[Puller] Failed to parse timestamp: "$timestampStr" - $e');
+        '[Puller] Failed to parse timestamp: "$timestampStr" - $e',
+      );
       return null;
     }
   }

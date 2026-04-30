@@ -80,10 +80,7 @@ class DatabaseHelper {
     );
     if (deviceIdResult.isEmpty) {
       final uuid = const Uuid().v4();
-      await db.insert('app_settings', {
-        'key': 'device_id',
-        'value': uuid,
-      });
+      await db.insert('app_settings', {'key': 'device_id', 'value': uuid});
     }
 
     // db_version
@@ -133,8 +130,9 @@ class DatabaseHelper {
     ''');
 
     // Seed default profile if none exist
-    final profileCount =
-        await db.rawQuery('SELECT COUNT(*) AS cnt FROM event_profiles');
+    final profileCount = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM event_profiles',
+    );
     if ((profileCount.first['cnt'] as int?) == 0) {
       await db.insert('event_profiles', {
         'name': 'Default',

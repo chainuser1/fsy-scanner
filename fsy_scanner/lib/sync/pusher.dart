@@ -26,12 +26,21 @@ class Pusher {
 
       final db = await DatabaseHelper.database;
 
-      final sheetIdResult = await db
-          .query('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-      final sheetTabResult = await db
-          .query('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-      final colMapResult = await db
-          .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+      final sheetIdResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['sheets_id'],
+      );
+      final sheetTabResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['sheets_tab'],
+      );
+      final colMapResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['col_map'],
+      );
 
       if (sheetIdResult.isEmpty ||
           sheetTabResult.isEmpty ||
@@ -43,7 +52,8 @@ class Pusher {
       final sheetId = sheetIdResult.first['value'] as String;
       final tabName = sheetTabResult.first['value'] as String;
       final colMap = Map<String, int>.from(
-          jsonDecode(colMapResult.first['value'] as String));
+        jsonDecode(colMapResult.first['value'] as String),
+      );
 
       bool anySuccess = false;
       bool anyPermanentFailure = false;
@@ -60,8 +70,14 @@ class Pusher {
             continue;
           }
 
-          final success =
-              await _processTask(db, token, sheetId, tabName, colMap, task);
+          final success = await _processTask(
+            db,
+            token,
+            sheetId,
+            tabName,
+            colMap,
+            task,
+          );
 
           if (success) {
             await SyncQueueDao.markCompleted(task.id!);
@@ -75,9 +91,11 @@ class Pusher {
             if (failedTask != null && failedTask.attempts >= 10) {
               appState.incrementFailedTaskCount();
               appState.setSyncError(
-                  '${failedTask.attempts} tasks failed after 10 attempts');
+                '${failedTask.attempts} tasks failed after 10 attempts',
+              );
               LoggerUtil.error(
-                  '[Pusher] Task ${task.id} permanently failed after 10 attempts');
+                '[Pusher] Task ${task.id} permanently failed after 10 attempts',
+              );
               anyPermanentFailure = true;
               // Don't stop; still try other tasks
             }
@@ -125,7 +143,8 @@ class Pusher {
       );
       if (currentRow == null) {
         LoggerUtil.warn(
-            '[Pusher] Participant $participantId not found in sheet');
+          '[Pusher] Participant $participantId not found in sheet',
+        );
         return false;
       }
 
@@ -134,8 +153,9 @@ class Pusher {
       if (task.type == SyncQueueDao.typeMarkRegistered) {
         final verifiedAt = payload['verifiedAt'] as int?;
         if (verifiedAt != null) {
-          values['Verified At'] =
-              DateTime.fromMillisecondsSinceEpoch(verifiedAt).toIso8601String();
+          values['Verified At'] = DateTime.fromMillisecondsSinceEpoch(
+            verifiedAt,
+          ).toIso8601String();
         }
         final registeredBy = payload['registeredBy'] as String?;
         if (registeredBy != null) {
@@ -144,8 +164,9 @@ class Pusher {
       } else if (task.type == SyncQueueDao.typeMarkPrinted) {
         final printedAt = payload['printedAt'] as int?;
         if (printedAt != null) {
-          values['Printed At'] =
-              DateTime.fromMillisecondsSinceEpoch(printedAt).toIso8601String();
+          values['Printed At'] = DateTime.fromMillisecondsSinceEpoch(
+            printedAt,
+          ).toIso8601String();
         }
       } else if (task.type == SyncQueueDao.typeMarkUnverified) {
         values['Verified At'] = '';
@@ -168,8 +189,10 @@ class Pusher {
     } on SheetsRateLimitException {
       rethrow;
     } catch (e) {
-      LoggerUtil.error('[Pusher] Error processing task ${task.id}: $e',
-          error: e);
+      LoggerUtil.error(
+        '[Pusher] Error processing task ${task.id}: $e',
+        error: e,
+      );
       return false;
     }
   }
@@ -189,10 +212,17 @@ class Pusher {
       }
 
       if (task.type == SyncQueueDao.typeMarkRegistered) {
-        return participant.verifiedAt != null;
+        final expectedVerifiedAt = payload['verifiedAt'] as int?;
+        return participant.verifiedAt != null &&
+            (expectedVerifiedAt == null ||
+                participant.verifiedAt == expectedVerifiedAt);
       }
       if (task.type == SyncQueueDao.typeMarkPrinted) {
-        return participant.verifiedAt != null && participant.printedAt != null;
+        final expectedPrintedAt = payload['printedAt'] as int?;
+        return participant.verifiedAt != null &&
+            participant.printedAt != null &&
+            (expectedPrintedAt == null ||
+                participant.printedAt == expectedPrintedAt);
       }
       if (task.type == SyncQueueDao.typeMarkUnverified) {
         return participant.verifiedAt == null;

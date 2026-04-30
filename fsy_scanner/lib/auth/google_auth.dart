@@ -25,7 +25,8 @@ class GoogleAuth {
 
     if (email == null || rawKey == null) {
       LoggerUtil.error(
-          '[GoogleAuth] Missing service account credentials in .env');
+        '[GoogleAuth] Missing service account credentials in .env',
+      );
       return null;
     }
 
@@ -64,7 +65,8 @@ class GoogleAuth {
 
       if (response.statusCode != 200) {
         LoggerUtil.error(
-            '[GoogleAuth] Token exchange failed: ${response.statusCode}');
+          '[GoogleAuth] Token exchange failed: ${response.statusCode}',
+        );
         debugPrint('[GoogleAuth] Response: ${response.body}');
         return null;
       }
@@ -85,8 +87,10 @@ class GoogleAuth {
       LoggerUtil.info('[GoogleAuth] Successfully obtained access token');
       return accessToken;
     } catch (e) {
-      LoggerUtil.error('[GoogleAuth] Error obtaining access token: $e',
-          error: e);
+      LoggerUtil.error(
+        '[GoogleAuth] Error obtaining access token: $e',
+        error: e,
+      );
       _cachedToken = null;
       _tokenExpiry = null;
       return null;

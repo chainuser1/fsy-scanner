@@ -96,8 +96,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ORDER BY created_at DESC
       ''');
       final printJobsFuture = PrinterService.getRecentPrintJobs(limit: 500);
-      final printAttemptsFuture =
-          PrinterService.getRecentPrintAttempts(limit: 1000);
+      final printAttemptsFuture = PrinterService.getRecentPrintAttempts(
+        limit: 1000,
+      );
       final savedViewsFuture = AnalyticsSavedViewsService.listViews();
 
       final participants = await participantsFuture;
@@ -107,8 +108,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final savedViews = await savedViewsFuture;
 
       participants.sort((a, b) {
-        final verifiedCompare =
-            (b.verifiedAt ?? 0).compareTo(a.verifiedAt ?? 0);
+        final verifiedCompare = (b.verifiedAt ?? 0).compareTo(
+          a.verifiedAt ?? 0,
+        );
         if (verifiedCompare != 0) {
           return verifiedCompare;
         }
@@ -131,8 +133,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 savedViews,
                 (view) => view.id == _selectedSavedViewId,
               );
-        final defaultView =
-            _firstWhereOrNull(savedViews, (view) => view.isDefault);
+        final defaultView = _firstWhereOrNull(
+          savedViews,
+          (view) => view.isDefault,
+        );
         final effectiveView = selectedView ?? defaultView;
         if (effectiveView != null) {
           _selectedSavedViewId = effectiveView.id;
@@ -246,17 +250,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Colors.grey[700]),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -299,10 +302,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             const SizedBox(height: 16),
             Text(
               'Participant, assignment, and demographic analytics reflect the latest synced event roster across devices. Printer queue, print attempts, and sync backlog remain local to this device.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Colors.grey[700]),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
             ),
             const SizedBox(height: 16),
             const Text(
@@ -314,15 +316,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               spacing: 8,
               runSpacing: 8,
               children: _CommitteeView.values
-                  .map((view) => ChoiceChip(
-                        label: Text(_committeeLabel(view)),
-                        selected: _committeeView == view,
-                        onSelected: (_) {
-                          setState(() {
-                            _committeeView = view;
-                          });
-                        },
-                      ))
+                  .map(
+                    (view) => ChoiceChip(
+                      label: Text(_committeeLabel(view)),
+                      selected: _committeeView == view,
+                      onSelected: (_) {
+                        setState(() {
+                          _committeeView = view;
+                        });
+                      },
+                    ),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 16),
@@ -331,55 +335,73 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<int?>(
-                    initialValue: _selectedSavedViewId,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      hintText: 'Choose a saved view',
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final dropdown = DropdownButtonFormField<int?>(
+                  initialValue: _selectedSavedViewId,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    hintText: 'Choose a saved view',
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      child: Text('Current unsaved view'),
                     ),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        child: Text('Current unsaved view'),
-                      ),
-                      ..._savedViews.map(
-                        (view) => DropdownMenuItem<int?>(
-                          value: view.id,
-                          child: Text(
-                            view.isDefault
-                                ? '${view.name} (Default)'
-                                : view.name,
-                          ),
+                    ..._savedViews.map(
+                      (view) => DropdownMenuItem<int?>(
+                        value: view.id,
+                        child: Text(
+                          view.isDefault ? '${view.name} (Default)' : view.name,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        setState(() {
-                          _selectedSavedViewId = null;
-                        });
-                        return;
-                      }
-                      _applySavedViewById(value);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: _saveCurrentView,
-                  tooltip: 'Save current view',
-                  icon: const Icon(Icons.bookmark_add_outlined),
-                ),
-                IconButton(
-                  onPressed:
-                      _selectedSavedViewId == null ? null : _deleteSelectedView,
-                  tooltip: 'Delete selected view',
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) {
+                      setState(() {
+                        _selectedSavedViewId = null;
+                      });
+                      return;
+                    }
+                    _applySavedViewById(value);
+                  },
+                );
+                final actions = Wrap(
+                  spacing: 4,
+                  children: [
+                    IconButton(
+                      onPressed: _saveCurrentView,
+                      tooltip: 'Save current view',
+                      icon: const Icon(Icons.bookmark_add_outlined),
+                    ),
+                    IconButton(
+                      onPressed: _selectedSavedViewId == null
+                          ? null
+                          : _deleteSelectedView,
+                      tooltip: 'Delete selected view',
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ],
+                );
+
+                if (constraints.maxWidth < 520) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [dropdown, const SizedBox(height: 8), actions],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: dropdown),
+                    const SizedBox(width: 8),
+                    actions,
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -394,20 +416,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final sections = <Widget>[
       _buildHeader(appState, analytics),
       const SizedBox(height: 12),
-      _buildDataScopeCard(appState),
+      _buildSectionHeader(
+        'People and Attendance',
+        'Prioritize who is on site, how far verification has progressed, and what attendees need next.',
+      ),
       const SizedBox(height: 12),
       _buildLiveAttendanceCard(analytics),
       const SizedBox(height: 12),
-      _buildSummaryGrid(appState, analytics),
-      const SizedBox(height: 12),
       _buildProgressCard(analytics),
+      const SizedBox(height: 12),
+      _buildSummaryGrid(appState, analytics),
       const SizedBox(height: 12),
     ];
 
     switch (_committeeView) {
       case _CommitteeView.all:
         sections.addAll([
-          _buildOperationsCommandCard(appState, analytics),
+          _buildSectionHeader(
+            'Assignments and Committees',
+            'Track readiness by room, table, stake, ward, and committee-facing participant mix.',
+          ),
           const SizedBox(height: 12),
           _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
@@ -418,6 +446,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildTimelineCard(analytics),
           const SizedBox(height: 12),
           _buildTrendCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Use these operational details to resolve printer, sync, and audit issues after reviewing people data.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
+          const SizedBox(height: 12),
+          _buildOperationsCommandCard(appState, analytics),
           const SizedBox(height: 12),
           _buildAuditTrailCard(appState, analytics),
           const SizedBox(height: 12),
@@ -426,11 +463,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         break;
       case _CommitteeView.registration:
         sections.addAll([
+          _buildSectionHeader(
+            'Assignments and Movement',
+            'See which attendees and groups are ready to move on after registration and receipt confirmation.',
+          ),
+          const SizedBox(height: 12),
           _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
           _buildGroupProgressCard(analytics),
           const SizedBox(height: 12),
           _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Use technical metrics only after confirming participant progress and readiness.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
           const SizedBox(height: 12),
           _buildAuditTrailCard(appState, analytics),
           const SizedBox(height: 12),
@@ -439,17 +488,34 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         break;
       case _CommitteeView.hotel:
         sections.addAll([
+          _buildSectionHeader(
+            'Assignments and Movement',
+            'Focus on room readiness, table readiness, and who is already on site.',
+          ),
+          const SizedBox(height: 12),
           _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
           _buildGroupProgressCard(analytics),
           const SizedBox(height: 12),
           _buildTimelineCard(analytics),
           const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Technical metrics stay below the people-facing readiness information.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
+          const SizedBox(height: 12),
           _buildExceptionsCard(appState, analytics),
         ]);
         break;
       case _CommitteeView.activity:
         sections.addAll([
+          _buildSectionHeader(
+            'Assignments and Participation Mix',
+            'Focus on tables, attendance mix, and activity-facing readiness.',
+          ),
+          const SizedBox(height: 12),
           _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
           _buildDemographicsCard(analytics),
@@ -457,35 +523,80 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildTimelineCard(analytics),
           const SizedBox(height: 12),
           _buildTrendCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Technical detail remains available, but below the participant-focused view.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
         ]);
         break;
       case _CommitteeView.food:
         sections.addAll([
+          _buildSectionHeader(
+            'Attendance Mix and Coverage',
+            'Focus on who is actually on site and the participant characteristics that affect planning.',
+          ),
+          const SizedBox(height: 12),
           _buildDemographicsCard(analytics),
           const SizedBox(height: 12),
           _buildGroupProgressCard(analytics),
           const SizedBox(height: 12),
           _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Technical information stays below the attendee and demographic view.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
         ]);
         break;
       case _CommitteeView.leaders:
         sections.addAll([
-          _buildOperationsCommandCard(appState, analytics),
+          _buildSectionHeader(
+            'Assignments and Demographics',
+            'Leadership sees participant movement, group readiness, and attendee mix before device-local technical metrics.',
+          ),
+          const SizedBox(height: 12),
+          _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
           _buildDemographicsCard(analytics),
           const SizedBox(height: 12),
           _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Use this section for operational blockers, queue health, and device-local print reliability.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
+          const SizedBox(height: 12),
+          _buildOperationsCommandCard(appState, analytics),
           const SizedBox(height: 12),
           _buildExceptionsCard(appState, analytics),
         ]);
         break;
       case _CommitteeView.operations:
         sections.addAll([
-          _buildOperationsCommandCard(appState, analytics),
+          _buildSectionHeader(
+            'Assignments and Event Flow',
+            'Operations still starts with participant movement and readiness before drilling into printer and sync diagnostics.',
+          ),
           const SizedBox(height: 12),
           _buildAssignmentReadinessCard(analytics),
           const SizedBox(height: 12),
           _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildSectionHeader(
+            'Technical and Audit',
+            'Device-local health, printer truth, and sync backlog live here.',
+          ),
+          const SizedBox(height: 12),
+          _buildDataScopeCard(appState),
+          const SizedBox(height: 12),
+          _buildOperationsCommandCard(appState, analytics),
           const SizedBox(height: 12),
           _buildAuditTrailCard(appState, analytics),
           const SizedBox(height: 12),
@@ -495,6 +606,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     return sections;
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+        ],
+      ),
+    );
   }
 
   String _committeeLabel(_CommitteeView view) {
@@ -588,7 +716,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final existing = _selectedSavedViewId == null
         ? null
         : _firstWhereOrNull(
-            _savedViews, (view) => view.id == _selectedSavedViewId);
+            _savedViews,
+            (view) => view.id == _selectedSavedViewId,
+          );
     final controller = TextEditingController(
       text: existing?.name ?? '${_committeeLabel(_committeeView)} View',
     );
@@ -666,7 +796,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final selected = _selectedSavedViewId == null
         ? null
         : _firstWhereOrNull(
-            _savedViews, (view) => view.id == _selectedSavedViewId);
+            _savedViews,
+            (view) => view.id == _selectedSavedViewId,
+          );
     if (selected == null) {
       return;
     }
@@ -844,7 +976,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         break;
       case _CommitteeView.activity:
         _appendBreakdownSection(
-            lines, 'Tables with attendees', analytics.tableRows);
+          lines,
+          'Tables with attendees',
+          analytics.tableRows,
+        );
         _appendBreakdownSection(
           lines,
           'Tables fully assembled',
@@ -878,13 +1013,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         break;
       case _CommitteeView.all:
         _appendBreakdownSection(
-            lines, 'Top stakes', analytics.stakeAttendingRows);
+          lines,
+          'Top stakes',
+          analytics.stakeAttendingRows,
+        );
         _appendBreakdownSection(
-            lines, 'Top wards', analytics.wardAttendingRows);
+          lines,
+          'Top wards',
+          analytics.wardAttendingRows,
+        );
         _appendBreakdownSection(
-            lines, 'Tables with attendees', analytics.tableRows);
+          lines,
+          'Tables with attendees',
+          analytics.tableRows,
+        );
         _appendBreakdownSection(
-            lines, 'Rooms with attendees', analytics.roomRows);
+          lines,
+          'Rooms with attendees',
+          analytics.roomRows,
+        );
         _appendAttemptSummary(lines, analytics);
         break;
     }
@@ -911,10 +1058,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     lines.add('');
   }
 
-  void _appendAttemptSummary(
-    List<String> lines,
-    _AnalyticsSnapshot analytics,
-  ) {
+  void _appendAttemptSummary(List<String> lines, _AnalyticsSnapshot analytics) {
     lines.addAll([
       'Local printer and sync operations',
       'Print attempts: ${analytics.totalPrintAttemptCount}',
@@ -927,9 +1071,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildSummaryGrid(AppState appState, _AnalyticsSnapshot analytics) {
@@ -1034,12 +1178,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       spacing: 12,
       runSpacing: 12,
       children: cards
-          .map(
-            (card) => SizedBox(
-              width: 170,
-              child: _buildMetricCard(card),
-            ),
-          )
+          .map((card) => SizedBox(width: 170, child: _buildMetricCard(card)))
           .toList(),
     );
   }
@@ -1059,10 +1198,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            Text(
-              syncedLabel,
-              style: TextStyle(color: Colors.grey[700]),
-            ),
+            Text(syncedLabel, style: TextStyle(color: Colors.grey[700])),
             const SizedBox(height: 12),
             const Text(
               'Event-wide: attendance, verification, demographics, stake, ward, room, and table analytics use the synced event roster across devices.',
@@ -1129,80 +1265,92 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${analytics.checkedInCount} live attendees',
-                        style: const TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of the roster is now on site',
-                        style: TextStyle(color: Colors.grey[700]),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildProgressRow(
-                        label: 'Checked in / attending',
-                        value: analytics.completionRate / 100,
-                        color: FSYScannerApp.accentGreen,
-                        trailing:
-                            '${analytics.checkedInCount}/${analytics.totalParticipants}',
-                      ),
-                      const SizedBox(height: 12),
-                      _buildProgressRow(
-                        label: 'Fully verified',
-                        value: analytics.fullVerificationRate / 100,
-                        color: FSYScannerApp.primaryBlue,
-                        trailing:
-                            '${analytics.fullyVerifiedCount}/${analytics.totalParticipants}',
-                      ),
-                      const SizedBox(height: 12),
-                      _buildProgressRow(
-                        label: 'Receipt completion after check-in',
-                        value: analytics.printCoverageRate / 100,
-                        color: FSYScannerApp.accentGold,
-                        trailing:
-                            '${analytics.printedCount}/${analytics.checkedInCount}',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: SizedBox(
-                    height: 120,
-                    child: PieChart(
-                      PieChartData(
-                        sectionsSpace: 2,
-                        centerSpaceRadius: 34,
-                        sections: [
-                          PieChartSectionData(
-                            value: completed <= 0 ? 0.001 : completed,
-                            color: FSYScannerApp.accentGreen,
-                            title: '',
-                            radius: 18,
-                          ),
-                          PieChartSectionData(
-                            value: remaining <= 0 ? 0.001 : remaining,
-                            color: Colors.grey.shade300,
-                            title: '',
-                            radius: 18,
-                          ),
-                        ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final summary = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${analytics.checkedInCount} live attendees',
+                      style: const TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of the roster is now on site',
+                      style: TextStyle(color: Colors.grey[700]),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildProgressRow(
+                      label: 'Checked in / attending',
+                      value: analytics.completionRate / 100,
+                      color: FSYScannerApp.accentGreen,
+                      trailing:
+                          '${analytics.checkedInCount}/${analytics.totalParticipants}',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildProgressRow(
+                      label: 'Fully verified',
+                      value: analytics.fullVerificationRate / 100,
+                      color: FSYScannerApp.primaryBlue,
+                      trailing:
+                          '${analytics.fullyVerifiedCount}/${analytics.totalParticipants}',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildProgressRow(
+                      label: 'Receipt completion after check-in',
+                      value: analytics.printCoverageRate / 100,
+                      color: FSYScannerApp.accentGold,
+                      trailing:
+                          '${analytics.printedCount}/${analytics.checkedInCount}',
+                    ),
+                  ],
+                );
+                final chart = SizedBox(
+                  height: 120,
+                  child: PieChart(
+                    PieChartData(
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 34,
+                      sections: [
+                        PieChartSectionData(
+                          value: completed <= 0 ? 0.001 : completed,
+                          color: FSYScannerApp.accentGreen,
+                          title: '',
+                          radius: 18,
+                        ),
+                        PieChartSectionData(
+                          value: remaining <= 0 ? 0.001 : remaining,
+                          color: Colors.grey.shade300,
+                          title: '',
+                          radius: 18,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                );
+
+                if (constraints.maxWidth < 720) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      summary,
+                      const SizedBox(height: 16),
+                      Center(child: SizedBox(width: 180, child: chart)),
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    Expanded(flex: 3, child: summary),
+                    const SizedBox(width: 12),
+                    Expanded(flex: 2, child: chart),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -1295,7 +1443,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
-            Text(trailing),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                trailing,
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -1325,10 +1480,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildOpsHealthCard(
-    AppState appState,
-    _AnalyticsSnapshot analytics,
-  ) {
+  Widget _buildOpsHealthCard(AppState appState, _AnalyticsSnapshot analytics) {
     final oldestTaskLabel = analytics.oldestPendingTask == null
         ? 'No queued sync tasks'
         : 'Oldest queue item ${_formatRelativeTime(analytics.oldestPendingTask!)}';
@@ -1557,10 +1709,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildExceptionsCard(
-    AppState appState,
-    _AnalyticsSnapshot analytics,
-  ) {
+  Widget _buildExceptionsCard(AppState appState, _AnalyticsSnapshot analytics) {
     final items = [
       _ExceptionData(
         label: 'Partial verification',
@@ -1861,7 +2010,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             child: Text(
                               DateFormat('ha')
                                   .format(
-                                      analytics.activityBuckets[index].start)
+                                    analytics.activityBuckets[index].start,
+                                  )
                                   .toLowerCase(),
                               style: const TextStyle(fontSize: 11),
                             ),
@@ -1999,128 +2149,141 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Gender',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 180,
-                        child: PieChart(
-                          PieChartData(
-                            sectionsSpace: 2,
-                            centerSpaceRadius: 32,
-                            sections: genderSections,
-                          ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final genderCard = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Gender',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 32,
+                          sections: genderSections,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      ...analytics.genderRows.map(
-                        (row) => Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            children: [
-                              Expanded(child: Text(row.label)),
-                              Text('${row.checkedIn}/${row.total}'),
-                            ],
-                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...analytics.genderRows.map(
+                      (row) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                row.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text('${row.checkedIn}/${row.total}'),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Age bands',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 220,
-                        child: BarChart(
-                          BarChartData(
-                            maxY: math.max(4, maxAgeValue).toDouble() * 1.25,
-                            gridData: FlGridData(
-                              drawVerticalLine: false,
-                              horizontalInterval: math
-                                  .max(
-                                    1,
-                                    (math.max(4, maxAgeValue) / 4).ceil(),
-                                  )
-                                  .toDouble(),
-                            ),
-                            borderData: FlBorderData(show: false),
-                            titlesData: FlTitlesData(
-                              topTitles: const AxisTitles(),
-                              rightTitles: const AxisTitles(),
-                              leftTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  reservedSize: 28,
-                                  interval: math
-                                      .max(
-                                        1,
-                                        (math.max(4, maxAgeValue) / 4).ceil(),
-                                      )
-                                      .toDouble(),
-                                ),
-                              ),
-                              bottomTitles: AxisTitles(
-                                sideTitles: SideTitles(
-                                  showTitles: true,
-                                  reservedSize: 28,
-                                  getTitlesWidget: (value, meta) {
-                                    final index = value.toInt();
-                                    if (index < 0 ||
-                                        index >= analytics.ageRows.length) {
-                                      return const SizedBox.shrink();
-                                    }
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Text(
-                                        analytics.ageRows[index].label,
-                                        style: const TextStyle(fontSize: 11),
-                                      ),
-                                    );
-                                  },
-                                ),
+                    ),
+                  ],
+                );
+                final ageCard = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Age bands',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 220,
+                      child: BarChart(
+                        BarChartData(
+                          maxY: math.max(4, maxAgeValue).toDouble() * 1.25,
+                          gridData: FlGridData(
+                            drawVerticalLine: false,
+                            horizontalInterval: math
+                                .max(1, (math.max(4, maxAgeValue) / 4).ceil())
+                                .toDouble(),
+                          ),
+                          borderData: FlBorderData(show: false),
+                          titlesData: FlTitlesData(
+                            topTitles: const AxisTitles(),
+                            rightTitles: const AxisTitles(),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 28,
+                                interval: math
+                                    .max(
+                                      1,
+                                      (math.max(4, maxAgeValue) / 4).ceil(),
+                                    )
+                                    .toDouble(),
                               ),
                             ),
-                            barGroups: List.generate(
-                              analytics.ageRows.length,
-                              (index) => BarChartGroupData(
-                                x: index,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: analytics.ageRows[index].checkedIn
-                                        .toDouble(),
-                                    color: FSYScannerApp.primaryBlue,
-                                    width: 22,
-                                    borderRadius: const BorderRadius.vertical(
-                                      top: Radius.circular(4),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 28,
+                                getTitlesWidget: (value, meta) {
+                                  final index = value.toInt();
+                                  if (index < 0 ||
+                                      index >= analytics.ageRows.length) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Text(
+                                      analytics.ageRows[index].label,
+                                      style: const TextStyle(fontSize: 11),
                                     ),
-                                  ),
-                                ],
+                                  );
+                                },
                               ),
+                            ),
+                          ),
+                          barGroups: List.generate(
+                            analytics.ageRows.length,
+                            (index) => BarChartGroupData(
+                              x: index,
+                              barRods: [
+                                BarChartRodData(
+                                  toY: analytics.ageRows[index].checkedIn
+                                      .toDouble(),
+                                  color: FSYScannerApp.primaryBlue,
+                                  width: 22,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(4),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ],
+                    ),
+                  ],
+                );
+
+                if (constraints.maxWidth < 720) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [genderCard, const SizedBox(height: 20), ageCard],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: genderCard),
+                    const SizedBox(width: 12),
+                    Expanded(child: ageCard),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 18),
             const Text(
@@ -2155,10 +2318,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildAuditTrailCard(
-    AppState appState,
-    _AnalyticsSnapshot analytics,
-  ) {
+  Widget _buildAuditTrailCard(AppState appState, _AnalyticsSnapshot analytics) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2244,8 +2404,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 style: TextStyle(color: Colors.grey[700]),
               )
             else
-              ...analytics.recentPrintAttempts
-                  .map(_buildRecentPrintAttemptTile),
+              ...analytics.recentPrintAttempts.map(
+                _buildRecentPrintAttemptTile,
+              ),
           ],
         ),
       ),
@@ -2307,9 +2468,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Text(
                   row.label,
                   style: const TextStyle(fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text('${row.checkedIn}/${row.total} on site'),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '${row.checkedIn}/${row.total} on site',
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -2319,7 +2488,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               value: attendanceShare,
               minHeight: 10,
               valueColor: const AlwaysStoppedAnimation<Color>(
-                  FSYScannerApp.primaryBlue),
+                FSYScannerApp.primaryBlue,
+              ),
               backgroundColor: Colors.grey.shade200,
             ),
           ),
@@ -2342,13 +2512,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: Text(
               row.label,
               style: const TextStyle(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          Text(
-            '${row.checkedIn}/${row.total} ready',
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: FSYScannerApp.accentGreen,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              '${row.checkedIn}/${row.total} ready',
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: FSYScannerApp.accentGreen,
+              ),
             ),
           ),
         ],
@@ -2369,9 +2545,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Text(
                   row.label,
                   style: const TextStyle(fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text('${row.pending} pending'),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '${row.pending} pending',
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -2380,8 +2564,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 10,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(FSYScannerApp.accentGold),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                FSYScannerApp.accentGold,
+              ),
               backgroundColor: Colors.grey.shade200,
             ),
           ),
@@ -2418,14 +2603,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       title: Text(participant.fullName),
       subtitle: Text(
         subtitleParts.isEmpty ? 'Checked in' : subtitleParts.join(' • '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
       trailing: Text(
         verifiedAt == null
             ? '-'
-            : DateFormat('h:mm a').format(
-                DateTime.fromMillisecondsSinceEpoch(verifiedAt),
-              ),
+            : DateFormat(
+                'h:mm a',
+              ).format(DateTime.fromMillisecondsSinceEpoch(verifiedAt)),
       ),
+      minVerticalPadding: 8,
     );
   }
 
@@ -2453,12 +2641,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       title: Text(job.participantName),
       subtitle: Text(
         '${job.isReprint ? 'Reprint' : 'Initial print'} • ${job.status} • attempts ${job.attemptCount}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
       trailing: Text(
-        DateFormat('h:mm a').format(
-          DateTime.fromMillisecondsSinceEpoch(when),
-        ),
+        DateFormat('h:mm a').format(DateTime.fromMillisecondsSinceEpoch(when)),
       ),
+      minVerticalPadding: 8,
     );
   }
 
@@ -2489,13 +2678,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         backgroundColor: color.withValues(alpha: 0.14),
         child: Icon(icon, color: color),
       ),
-      title: Text(attempt.participantName),
-      subtitle: Text(subtitleParts.join(' • ')),
-      trailing: Text(
-        DateFormat('h:mm a').format(
-          DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
-        ),
+      title: Text(
+        attempt.participantName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
+      subtitle: Text(
+        subtitleParts.join(' • '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Text(
+        DateFormat(
+          'h:mm a',
+        ).format(DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt)),
+      ),
+      minVerticalPadding: 8,
     );
   }
 
@@ -2524,10 +2722,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(helper, style: TextStyle(color: Colors.grey[700])),
         ],
@@ -2579,10 +2774,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            row.label,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
+          Text(row.label, style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Wrap(
             spacing: 12,
@@ -2612,17 +2804,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.w700,
-        ),
+        style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
       ),
     );
   }
 
   String _formatRelativeTime(int timestamp) {
-    final difference = DateTime.now()
-        .difference(DateTime.fromMillisecondsSinceEpoch(timestamp));
+    final difference = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(timestamp),
+    );
     if (difference.inMinutes < 1) {
       return 'was just queued';
     }
@@ -2814,14 +3004,18 @@ class _AnalyticsSnapshot {
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final recent15Minutes = checkedIn
-        .where((p) =>
-            now - (p.verifiedAt ?? 0) <=
-            const Duration(minutes: 15).inMilliseconds)
+        .where(
+          (p) =>
+              now - (p.verifiedAt ?? 0) <=
+              const Duration(minutes: 15).inMilliseconds,
+        )
         .length;
     final recentHour = checkedIn
-        .where((p) =>
-            now - (p.verifiedAt ?? 0) <=
-            const Duration(hours: 1).inMilliseconds)
+        .where(
+          (p) =>
+              now - (p.verifiedAt ?? 0) <=
+              const Duration(hours: 1).inMilliseconds,
+        )
         .length;
 
     final activityBuckets = _buildActivityBuckets(checkedIn);
@@ -2957,23 +3151,21 @@ class _AnalyticsSnapshot {
             successfulJobs.length;
     final failureCodeRows = _buildAttemptBreakdown(
       printAttempts.where((attempt) => attempt.outcome == 'failed'),
-      (attempt) => _normalizeAttemptLabel(
-        attempt.failureCode,
-        'Unknown failure',
-      ),
+      (attempt) =>
+          _normalizeAttemptLabel(attempt.failureCode, 'Unknown failure'),
     );
     final printerRows = _buildAttemptBreakdown(
       printAttempts,
-      (attempt) => _normalizeAttemptLabel(
-        attempt.printerAddress,
-        'Unknown printer',
-      ),
+      (attempt) =>
+          _normalizeAttemptLabel(attempt.printerAddress, 'Unknown printer'),
     );
     final averagePrintAttemptSeconds = printAttempts.isEmpty
         ? 0.0
         : printAttempts
-                .map((attempt) =>
-                    (attempt.finishedAt - attempt.startedAt).toDouble())
+                .map(
+                  (attempt) =>
+                      (attempt.finishedAt - attempt.startedAt).toDouble(),
+                )
                 .reduce((left, right) => left + right) /
             printAttempts.length /
             1000;
@@ -3141,7 +3333,8 @@ class _AnalyticsSnapshot {
   }
 
   static List<_BreakdownRow> _buildAgeBreakdown(
-      List<Participant> participants) {
+    List<Participant> participants,
+  ) {
     const order = ['13-14', '15-16', '17-19', '20+'];
     final grouped = <String, _BreakdownAccumulator>{
       for (final label in order) label: _BreakdownAccumulator(),
@@ -3223,7 +3416,8 @@ class _AnalyticsSnapshot {
   }
 
   static List<_BreakdownRow> _buildSyncBreakdown(
-      List<_SyncTaskEntry> syncTasks) {
+    List<_SyncTaskEntry> syncTasks,
+  ) {
     final grouped = <String, _BreakdownAccumulator>{};
     for (final task in syncTasks) {
       final accumulator = grouped.putIfAbsent(
@@ -3258,8 +3452,10 @@ class _AnalyticsSnapshot {
     final grouped = <String, _AttemptBreakdownAccumulator>{};
     for (final attempt in attempts) {
       final label = labelOf(attempt);
-      final accumulator =
-          grouped.putIfAbsent(label, _AttemptBreakdownAccumulator.new);
+      final accumulator = grouped.putIfAbsent(
+        label,
+        _AttemptBreakdownAccumulator.new,
+      );
       accumulator.total++;
       switch (attempt.outcome) {
         case 'success':
@@ -3290,7 +3486,9 @@ class _AnalyticsSnapshot {
   }
 
   static int _sortByCheckedInThenTotal(
-      _BreakdownRow left, _BreakdownRow right) {
+    _BreakdownRow left,
+    _BreakdownRow right,
+  ) {
     final checkedInCompare = right.checkedIn.compareTo(left.checkedIn);
     if (checkedInCompare != 0) {
       return checkedInCompare;
@@ -3299,16 +3497,19 @@ class _AnalyticsSnapshot {
   }
 
   static List<_ActivityBucket> _buildActivityBuckets(
-      List<Participant> checkedIn) {
+    List<Participant> checkedIn,
+  ) {
     final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day, now.hour)
-        .subtract(const Duration(hours: 7));
+    final start = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+    ).subtract(const Duration(hours: 7));
     final buckets = List.generate(
       8,
-      (index) => _ActivityBucket(
-        start: start.add(Duration(hours: index)),
-        count: 0,
-      ),
+      (index) =>
+          _ActivityBucket(start: start.add(Duration(hours: index)), count: 0),
     );
 
     for (final participant in checkedIn) {
@@ -3340,16 +3541,20 @@ class _AnalyticsSnapshot {
         final dayKey = _dayKey(
           DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!),
         );
-        final row =
-            rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        final row = rows.putIfAbsent(
+          dayKey,
+          () => _DailyActivityAccumulator(dayKey),
+        );
         row.checkedIn++;
       }
       if (participant.printedAt != null) {
         final dayKey = _dayKey(
           DateTime.fromMillisecondsSinceEpoch(participant.printedAt!),
         );
-        final row =
-            rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        final row = rows.putIfAbsent(
+          dayKey,
+          () => _DailyActivityAccumulator(dayKey),
+        );
         row.fullyVerified++;
       }
     }
@@ -3358,8 +3563,10 @@ class _AnalyticsSnapshot {
       final dayKey = _dayKey(
         DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
       );
-      final row =
-          rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+      final row = rows.putIfAbsent(
+        dayKey,
+        () => _DailyActivityAccumulator(dayKey),
+      );
       row.printAttempts++;
       if (attempt.outcome == 'failed') {
         row.printFailures++;
@@ -3513,10 +3720,7 @@ class _ActivityBucket {
   final DateTime start;
   final int count;
 
-  const _ActivityBucket({
-    required this.start,
-    required this.count,
-  });
+  const _ActivityBucket({required this.start, required this.count});
 }
 
 class _DailyActivityRow {

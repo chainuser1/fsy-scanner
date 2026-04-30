@@ -307,14 +307,17 @@ class _ScanScreenState extends State<ScanScreen>
           builder: (context) => AlertDialog(
             title: const Text('Exit Scanner?'),
             content: const Text(
-                'Are you sure you want to leave the scanning screen?'),
+              'Are you sure you want to leave the scanning screen?',
+            ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
               TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Exit')),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exit'),
+              ),
             ],
           ),
         ) ??
@@ -396,8 +399,10 @@ class _ScanScreenState extends State<ScanScreen>
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Image.asset('assets/transparent_background_fsy_logo.png',
-              height: 40),
+          title: Image.asset(
+            'assets/transparent_background_fsy_logo.png',
+            height: 40,
+          ),
           leading: IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => _navigateTo(const SettingsScreen()),
@@ -437,14 +442,18 @@ class _ScanScreenState extends State<ScanScreen>
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         ),
                       )
                     else
-                      const Icon(Icons.cloud_done,
-                          color: Colors.white70, size: 18),
+                      const Icon(
+                        Icons.cloud_done,
+                        color: Colors.white70,
+                        size: 18,
+                      ),
                     const SizedBox(width: 4),
                     Container(
                       decoration: BoxDecoration(
@@ -485,9 +494,13 @@ class _ScanScreenState extends State<ScanScreen>
                       children: [
                         Icon(Icons.cloud_off, size: 18),
                         SizedBox(width: 8),
-                        Text('OFFLINE',
-                            style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.bold)),
+                        Text(
+                          'OFFLINE',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -532,15 +545,18 @@ class _ScanScreenState extends State<ScanScreen>
                     value: _syncProgress,
                     backgroundColor: Colors.grey[300],
                     valueColor: const AlwaysStoppedAnimation<Color>(
-                        FSYScannerApp.primaryBlue),
+                      FSYScannerApp.primaryBlue,
+                    ),
                   ),
                 if (!_powerSaveMode &&
                     _isSyncingNow &&
                     _syncStatusText.isNotEmpty)
                   Container(
                     color: Colors.black54,
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 4,
+                      horizontal: 12,
+                    ),
                     child: Text(
                       _syncStatusText,
                       style: const TextStyle(color: Colors.white, fontSize: 12),
@@ -564,8 +580,9 @@ class _ScanScreenState extends State<ScanScreen>
 
                               final db = await DatabaseHelper.database;
                               final dao = ParticipantsDao(db);
-                              final participant =
-                                  await dao.getParticipantById(barcode);
+                              final participant = await dao.getParticipantById(
+                                barcode,
+                              );
 
                               if (participant == null) {
                                 _playSound(_errorSoundPath);
@@ -582,7 +599,8 @@ class _ScanScreenState extends State<ScanScreen>
                                 if (participant.verifiedAt != null) {
                                   final dt =
                                       DateTime.fromMillisecondsSinceEpoch(
-                                          participant.verifiedAt!);
+                                    participant.verifiedAt!,
+                                  );
                                   timeStr =
                                       '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
                                 }
@@ -600,40 +618,36 @@ class _ScanScreenState extends State<ScanScreen>
                                 final now =
                                     DateTime.now().millisecondsSinceEpoch;
 
-                                await dao.markVerifiedLocally(
-                                    participant.id, deviceId, now);
+                                await ParticipantsDao.markVerifiedAndQueue(
+                                  participant.id,
+                                  deviceId,
+                                  now,
+                                );
                                 appState.addRecentScan(participant);
                                 unawaited(appState.refreshParticipantsCount());
                                 SyncEngine.notifyUserActivity();
 
-                                await SyncQueueDao.enqueueTask(
-                                    SyncQueueDao.typeMarkRegistered, {
-                                  'participantId': participant.id,
-                                  'sheetsRow': participant.sheetsRow,
-                                  'verifiedAt': now,
-                                  'registeredBy': deviceId,
-                                });
-
-                                var printResult = await PrinterService.printReceipt(
+                                var printResult =
+                                    await PrinterService.printReceipt(
                                   participant,
                                   deviceId,
                                   requireOperatorConfirmation: true,
                                 );
-                                if (printResult
-                                        .requiresOperatorConfirmation &&
+                                if (printResult.requiresOperatorConfirmation &&
                                     printResult.confirmationJobId != null &&
                                     mounted) {
-                                  printResult =
-                                      await _confirmPrintedOutput(
+                                  printResult = await _confirmPrintedOutput(
                                     printResult.confirmationJobId!,
                                   );
                                 }
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(printResult.success
-                                          ? 'Receipt confirmed for ${participant.fullName}'
-                                          : printResult.message),
+                                      content: Text(
+                                        printResult.success
+                                            ? 'Receipt confirmed for ${participant.fullName}'
+                                            : printResult.message,
+                                      ),
                                       backgroundColor: printResult.success
                                           ? Colors.green
                                           : printResult.queuedForRetry
@@ -646,7 +660,8 @@ class _ScanScreenState extends State<ScanScreen>
                                 _playSound(_successSoundPath);
                                 _hapticFeedback(true);
                                 _speak(
-                                    '${participant.fullName} partially verified');
+                                  '${participant.fullName} partially verified',
+                                );
                                 _showAnimatedResult(
                                   name: participant.fullName,
                                   room: participant.roomNumber,
@@ -665,7 +680,8 @@ class _ScanScreenState extends State<ScanScreen>
                                 _ensureCameraMatchesFlag();
                               }
                               await Future.delayed(
-                                  const Duration(milliseconds: 300));
+                                const Duration(milliseconds: 300),
+                              );
                               _isCooldown = false;
                               _resetPowerSaveTimer();
                             },
@@ -682,9 +698,11 @@ class _ScanScreenState extends State<ScanScreen>
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.camera_alt,
-                                            size: 56,
-                                            color: FSYScannerApp.primaryBlue),
+                                        const Icon(
+                                          Icons.camera_alt,
+                                          size: 56,
+                                          color: FSYScannerApp.primaryBlue,
+                                        ),
                                         const SizedBox(height: 16),
                                         const Text(
                                           'Camera Permission Required',
@@ -733,13 +751,19 @@ class _ScanScreenState extends State<ScanScreen>
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.touch_app,
-                                      size: 64,
-                                      color: FSYScannerApp.accentGold),
+                                  Icon(
+                                    Icons.touch_app,
+                                    size: 64,
+                                    color: FSYScannerApp.accentGold,
+                                  ),
                                   SizedBox(height: 16),
-                                  Text('Tap to Resume',
-                                      style: TextStyle(
-                                          color: Colors.white, fontSize: 18)),
+                                  Text(
+                                    'Tap to Resume',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -760,8 +784,10 @@ class _ScanScreenState extends State<ScanScreen>
                               height: 260,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(10),
-                                border:
-                                    Border.all(color: Colors.white, width: 2),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
                               ),
                             ),
                           ),
@@ -771,7 +797,9 @@ class _ScanScreenState extends State<ScanScreen>
                         left: 20,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(20),
@@ -779,9 +807,10 @@ class _ScanScreenState extends State<ScanScreen>
                           child: Text(
                             '${appState.participantsCount} checked in',
                             style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14),
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                       ),
@@ -847,15 +876,19 @@ class _ScanScreenState extends State<ScanScreen>
                                       const SizedBox(height: 24),
                                       OutlinedButton.icon(
                                         onPressed: _undoScan,
-                                        icon: const Icon(Icons.undo,
-                                            color: Colors.white),
-                                        label: const Text('Undo',
-                                            style:
-                                                TextStyle(color: Colors.white)),
+                                        icon: const Icon(
+                                          Icons.undo,
+                                          color: Colors.white,
+                                        ),
+                                        label: const Text(
+                                          'Undo',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.white,
                                           side: const BorderSide(
-                                              color: Colors.white70),
+                                            color: Colors.white70,
+                                          ),
                                           backgroundColor:
                                               Colors.white.withAlpha(38),
                                         ),
@@ -874,31 +907,39 @@ class _ScanScreenState extends State<ScanScreen>
                           color: Colors.black.withAlpha(204),
                           child: Center(
                             child: Card(
-                              margin:
-                                  const EdgeInsets.symmetric(horizontal: 32),
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 32,
+                              ),
                               child: Padding(
                                 padding: const EdgeInsets.all(24.0),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Image.asset('assets/fsy_logo.png',
-                                        height: 80),
+                                    Image.asset(
+                                      'assets/fsy_logo.png',
+                                      height: 80,
+                                    ),
                                     const SizedBox(height: 24),
                                     const Text(
-                                        'Setting up for the first time...',
-                                        style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold)),
+                                      'Setting up for the first time...',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                     const SizedBox(height: 16),
                                     const Text('Downloading participant list'),
                                     const SizedBox(height: 24),
                                     const CircularProgressIndicator(),
                                     if (appState.syncError != null) ...[
                                       const SizedBox(height: 24),
-                                      Text('Error: ${appState.syncError}',
-                                          style: const TextStyle(
-                                              color: Colors.red),
-                                          textAlign: TextAlign.center),
+                                      Text(
+                                        'Error: ${appState.syncError}',
+                                        style: const TextStyle(
+                                          color: Colors.red,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
                                       const SizedBox(height: 16),
                                       ElevatedButton(
                                         onPressed: () => SyncEngine.retryNow(
@@ -942,9 +983,11 @@ class _ScanScreenState extends State<ScanScreen>
                       tooltip: appState.soundEnabled
                           ? 'Mute sounds'
                           : 'Enable sounds',
-                      child: Icon(appState.soundEnabled
-                          ? Icons.volume_up
-                          : Icons.volume_off),
+                      child: Icon(
+                        appState.soundEnabled
+                            ? Icons.volume_up
+                            : Icons.volume_off,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1008,16 +1051,22 @@ class _ScanScreenState extends State<ScanScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('$label: ',
-              style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500)),
-          Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold)),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );

@@ -52,8 +52,9 @@ class SheetsApi {
       final colLetter = _columnIndexToLetter(colIndex);
       final cell = '$colLetter$row';
       final range = '$tabName!$cell:$cell';
-      final url =
-          Uri.parse('$baseUrl/$sheetId/values/$range?valueInputOption=RAW');
+      final url = Uri.parse(
+        '$baseUrl/$sheetId/values/$range?valueInputOption=RAW',
+      );
 
       try {
         final response = await http
@@ -65,23 +66,28 @@ class SheetsApi {
               },
               body: jsonEncode({
                 'values': [
-                  [entry.value]
+                  [entry.value],
                 ],
               }),
             )
             .timeout(const Duration(seconds: 30));
 
-        LoggerUtil.networkRequest('PUT', url.toString(),
-            statusCode: response.statusCode);
+        LoggerUtil.networkRequest(
+          'PUT',
+          url.toString(),
+          statusCode: response.statusCode,
+        );
 
         if (response.statusCode == 429) {
           throw SheetsRateLimitException();
         } else if (response.statusCode != 200) {
           LoggerUtil.error(
-              '[SheetsApi] Cell update failed: ${response.statusCode}',
-              error: response.body);
+            '[SheetsApi] Cell update failed: ${response.statusCode}',
+            error: response.body,
+          );
           throw SheetsException(
-              'Failed to update cell $cell: ${response.statusCode}');
+            'Failed to update cell $cell: ${response.statusCode}',
+          );
         }
       } on TimeoutException {
         throw SheetsException('Timeout updating cell $cell');
@@ -110,16 +116,15 @@ class SheetsApi {
     try {
       final response = await http.get(
         url,
-        headers: {
-          HttpHeaders.authorizationHeader: 'Bearer $accessToken',
-        },
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $accessToken'},
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 429) {
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
         LoggerUtil.error(
-            '[SheetsApi] findRowByValue failed: ${response.statusCode}');
+          '[SheetsApi] findRowByValue failed: ${response.statusCode}',
+        );
         return null;
       }
 
@@ -159,20 +164,23 @@ class SheetsApi {
 
       final response = await http.get(
         url,
-        headers: {
-          HttpHeaders.authorizationHeader: 'Bearer $accessToken',
-        },
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $accessToken'},
       ).timeout(const Duration(seconds: 30));
 
-      LoggerUtil.networkRequest('GET', url.toString(),
-          statusCode: response.statusCode);
+      LoggerUtil.networkRequest(
+        'GET',
+        url.toString(),
+        statusCode: response.statusCode,
+      );
 
       if (response.statusCode == 429) {
         LoggerUtil.warn('[SheetsApi] Rate limit exceeded');
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
-        LoggerUtil.error('[SheetsApi] Fetch failed: ${response.statusCode}',
-            error: response.body);
+        LoggerUtil.error(
+          '[SheetsApi] Fetch failed: ${response.statusCode}',
+          error: response.body,
+        );
         return null;
       }
 
@@ -212,22 +220,25 @@ class SheetsApi {
 
       final response = await http.get(
         url,
-        headers: {
-          HttpHeaders.authorizationHeader: 'Bearer $accessToken',
-        },
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $accessToken'},
       ).timeout(const Duration(seconds: 30));
 
-      LoggerUtil.networkRequest('GET', url.toString(),
-          statusCode: response.statusCode);
+      LoggerUtil.networkRequest(
+        'GET',
+        url.toString(),
+        statusCode: response.statusCode,
+      );
 
       if (response.statusCode == 429) {
         LoggerUtil.warn('[SheetsApi] Rate limit exceeded');
         throw SheetsRateLimitException();
       } else if (response.statusCode != 200) {
         LoggerUtil.error(
-            '[SheetsApi] Header fetch failed: ${response.statusCode}');
+          '[SheetsApi] Header fetch failed: ${response.statusCode}',
+        );
         throw SheetsColMapException(
-            'Failed to fetch headers: ${response.statusCode}');
+          'Failed to fetch headers: ${response.statusCode}',
+        );
       }
 
       final data = jsonDecode(response.body);
@@ -247,8 +258,13 @@ class SheetsApi {
         }
       }
 
-      // Required write headers
-      const requiredHeaders = ['Verified At', 'Printed At', 'Device ID'];
+      // Required headers for reliable lookup and writeback.
+      const requiredHeaders = <String>[
+        SheetColumns.id,
+        SheetColumns.verifiedAt,
+        SheetColumns.printedAt,
+        SheetColumns.deviceId,
+      ];
       final missingHeaders = <String>[];
       for (final required in requiredHeaders) {
         if (!colMap.containsKey(required)) {
@@ -258,15 +274,18 @@ class SheetsApi {
 
       if (missingHeaders.isNotEmpty) {
         throw SheetsColMapException(
-            'Missing required columns: ${missingHeaders.join(', ')}. '
-            'Sheet headers: ${colMap.keys.join(', ')}');
+          'Missing required columns: ${missingHeaders.join(', ')}. '
+          'Sheet headers: ${colMap.keys.join(', ')}',
+        );
       }
 
       await db.insert(
-        'app_settings',
-        {'key': 'col_map', 'value': jsonEncode(colMap)},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+          'app_settings',
+          {
+            'key': 'col_map',
+            'value': jsonEncode(colMap),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
 
       LoggerUtil.info('[SheetsApi] Column map detected: $colMap');
       return colMap;

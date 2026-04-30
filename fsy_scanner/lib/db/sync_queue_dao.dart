@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:sqflite/sqflite.dart';
+
 import '../models/sync_task.dart';
 import 'database_helper.dart';
 
@@ -9,21 +11,32 @@ class SyncQueueDao {
   static const String typeMarkUnverified = 'mark_unverified';
 
   static Future<int> enqueueTask(
-      String type, Map<String, dynamic> payload) async {
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
     final db = await DatabaseHelper.database;
+    return db.transaction(
+      (txn) => enqueueTaskInTransaction(txn, type, payload),
+    );
+  }
+
+  static Future<int> enqueueTaskInTransaction(
+    DatabaseExecutor db,
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
     await _coalescePendingTasks(db, type, payload);
-    final taskId = await db.insert('sync_tasks', {
+    return db.insert('sync_tasks', {
       'type': type,
       'payload': jsonEncode(payload),
       'status': 'pending',
       'attempts': 0,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
-    return taskId;
   }
 
   static Future<void> _coalescePendingTasks(
-    dynamic db,
+    DatabaseExecutor db,
     String type,
     Map<String, dynamic> payload,
   ) async {
@@ -101,8 +114,12 @@ class SyncQueueDao {
       );
       if (results.isEmpty) return null;
       final task = SyncTask.fromJson(results.first);
-      await txn.update('sync_tasks', {'status': 'in_progress'},
-          where: 'id = ?', whereArgs: [task.id]);
+      await txn.update(
+        'sync_tasks',
+        {'status': 'in_progress'},
+        where: 'id = ?',
+        whereArgs: [task.id],
+      );
       return task;
     });
   }
@@ -122,14 +139,21 @@ class SyncQueueDao {
 
   static Future<void> resetInProgressTasks() async {
     final db = await DatabaseHelper.database;
-    await db.update('sync_tasks', {'status': 'pending'},
-        where: 'status = ?', whereArgs: ['in_progress']);
+    await db.update(
+      'sync_tasks',
+      {'status': 'pending'},
+      where: 'status = ?',
+      whereArgs: ['in_progress'],
+    );
   }
 
   static Future<SyncTask?> getTask(int taskId) async {
     final db = await DatabaseHelper.database;
-    final results =
-        await db.query('sync_tasks', where: 'id = ?', whereArgs: [taskId]);
+    final results = await db.query(
+      'sync_tasks',
+      where: 'id = ?',
+      whereArgs: [taskId],
+    );
     if (results.isEmpty) return null;
     return SyncTask.fromJson(results.first);
   }
@@ -142,6 +166,31 @@ class SyncQueueDao {
     return result.first['count'] as int? ?? 0;
   }
 
+  static Future<Set<String>> getPendingParticipantIds() async {
+    final db = await DatabaseHelper.database;
+    final results = await db.query(
+      'sync_tasks',
+      columns: ['payload'],
+      where: 'status IN (?, ?)',
+      whereArgs: ['pending', 'in_progress'],
+    );
+
+    final participantIds = <String>{};
+    for (final row in results) {
+      final rawPayload = row['payload'] as String? ?? '{}';
+      try {
+        final payload = Map<String, dynamic>.from(jsonDecode(rawPayload));
+        final participantId = payload['participantId'] as String?;
+        if (participantId != null && participantId.isNotEmpty) {
+          participantIds.add(participantId);
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    return participantIds;
+  }
+
   // For queue visualizer: get all pending tasks with payload
   static Future<List<Map<String, dynamic>>> getAllPendingTasks() async {
     final db = await DatabaseHelper.database;
@@ -149,13 +198,15 @@ class SyncQueueDao {
       "SELECT * FROM sync_tasks WHERE status IN ('pending', 'in_progress') ORDER BY created_at ASC",
     );
     return results
-        .map((row) => {
-              'id': row['id'],
-              'type': row['type'],
-              'payload': row['payload'],
-              'status': row['status'],
-              'attempts': row['attempts'],
-            })
+        .map(
+          (row) => {
+            'id': row['id'],
+            'type': row['type'],
+            'payload': row['payload'],
+            'status': row['status'],
+            'attempts': row['attempts'],
+          },
+        )
         .toList();
   }
 }

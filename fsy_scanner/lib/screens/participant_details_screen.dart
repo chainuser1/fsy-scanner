@@ -152,12 +152,18 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                 title: 'Check-In',
                 children: [
                   _infoTile(
-                      'Verification State', _participant.verificationLabel),
+                    'Verification State',
+                    _participant.verificationLabel,
+                  ),
                   _infoTile('Receipt State', _participant.receiptStatusLabel),
                   _infoTile(
-                      'Verified At', _formatTimestamp(_participant.verifiedAt)),
+                    'Verified At',
+                    _formatTimestamp(_participant.verifiedAt),
+                  ),
                   _infoTile(
-                      'Printed At', _formatTimestamp(_participant.printedAt)),
+                    'Printed At',
+                    _formatTimestamp(_participant.printedAt),
+                  ),
                   _infoTile('Registered By', _participant.registeredBy),
                   _infoTile('Sheets Row', _participant.sheetsRow.toString()),
                   if (_participant.isPartiallyVerified)
@@ -315,9 +321,9 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             ...visibleChildren,
@@ -349,10 +355,7 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
           const SizedBox(height: 4),
           Text(
             value!.trim(),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
         ],
       ),
@@ -372,10 +375,7 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontWeight: FontWeight.w700,
-          color: textColor,
-        ),
+        style: TextStyle(fontWeight: FontWeight.w700, color: textColor),
       ),
     );
   }

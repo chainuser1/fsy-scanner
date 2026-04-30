@@ -51,8 +51,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeIn);
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeIn,
+    );
     _fadeController.forward();
   }
 
@@ -66,10 +68,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Future<void> _completeOnboarding() async {
     final db = await DatabaseHelper.database;
     await db.insert(
-      'app_settings',
-      {'key': 'onboarding_complete', 'value': 'true'},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': 'onboarding_complete',
+          'value': 'true',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     if (mounted) {
       Navigator.pushReplacement(
         context,
@@ -118,8 +122,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                 ),
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 20,
+                ),
                 child: Row(
                   children: [
                     if (_currentPage > _welcomePage &&
@@ -140,7 +146,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           backgroundColor: FSYScannerApp.accentGold,
                           foregroundColor: Colors.black,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 32, vertical: 16),
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
@@ -150,9 +158,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           duration: const Duration(milliseconds: 400),
                           curve: Curves.easeInOut,
                         ),
-                        child: const Text('Get Started',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'Get Started',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       )
                     else if (_currentPage < _totalPages - 1)
                       ElevatedButton(
@@ -168,15 +180,21 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           backgroundColor: FSYScannerApp.accentGreen,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 32, vertical: 16),
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
                         onPressed: _completeOnboarding,
-                        child: const Text('Start Scanning',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'Start Scanning',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -228,8 +246,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.lightbulb_outline,
-                          color: FSYScannerApp.accentGold, size: 28),
+                      Icon(
+                        Icons.lightbulb_outline,
+                        color: FSYScannerApp.accentGold,
+                        size: 28,
+                      ),
                       SizedBox(width: 16),
                       Expanded(
                         child: Text(
@@ -259,23 +280,33 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset('assets/transparent_background_fsy_logo.png',
-                    height: 40),
+                Image.asset(
+                  'assets/transparent_background_fsy_logo.png',
+                  height: 40,
+                ),
                 const SizedBox(height: 40),
-                Icon(page['icon'] as IconData,
-                    size: 100, color: FSYScannerApp.primaryBlue),
+                Icon(
+                  page['icon'] as IconData,
+                  size: 100,
+                  color: FSYScannerApp.primaryBlue,
+                ),
                 const SizedBox(height: 40),
                 Text(
                   page['title'] as String,
                   style: const TextStyle(
-                      fontSize: 26, fontWeight: FontWeight.bold),
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 Text(
                   page['description'] as String,
                   style: const TextStyle(
-                      fontSize: 16, color: Colors.grey, height: 1.5),
+                    fontSize: 16,
+                    color: Colors.grey,
+                    height: 1.5,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],

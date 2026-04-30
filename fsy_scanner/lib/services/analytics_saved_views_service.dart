@@ -47,17 +47,16 @@ class AnalyticsSavedViewsService {
   }) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final trimmedName = name.trim();
+    late final int savedId;
 
     await db.transaction((txn) async {
       if (isDefault) {
-        await txn.update(
-          'analytics_saved_views',
-          {'is_default': 0},
-        );
+        await txn.update('analytics_saved_views', {'is_default': 0});
       }
 
       final values = <String, Object?>{
-        'name': name.trim(),
+        'name': trimmedName,
         'committee_view': committeeView,
         'is_default': isDefault ? 1 : 0,
         'updated_at': now,
@@ -65,7 +64,7 @@ class AnalyticsSavedViewsService {
 
       if (id == null) {
         values['created_at'] = now;
-        await txn.insert('analytics_saved_views', values);
+        savedId = await txn.insert('analytics_saved_views', values);
       } else {
         await txn.update(
           'analytics_saved_views',
@@ -73,26 +72,24 @@ class AnalyticsSavedViewsService {
           where: 'id = ?',
           whereArgs: [id],
         );
+        savedId = id;
       }
     });
 
-    final views = await listViews();
-    final match = views.firstWhere(
-      (view) =>
-          view.name == name.trim() &&
-          view.committeeView == committeeView &&
-          view.isDefault == isDefault,
-      orElse: () => views.first,
+    final rows = await db.query(
+      'analytics_saved_views',
+      where: 'id = ?',
+      whereArgs: [savedId],
+      limit: 1,
     );
-    return match;
+    if (rows.isEmpty) {
+      throw StateError('Saved analytics view could not be reloaded.');
+    }
+    return AnalyticsSavedView.fromDbRow(rows.first);
   }
 
   static Future<void> deleteView(int id) async {
     final db = await DatabaseHelper.database;
-    await db.delete(
-      'analytics_saved_views',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete('analytics_saved_views', where: 'id = ?', whereArgs: [id]);
   }
 }

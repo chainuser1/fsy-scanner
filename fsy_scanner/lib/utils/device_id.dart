@@ -33,20 +33,24 @@ class DeviceId {
       // Database might not be initialized yet — fall through to generate new ID
     }
 
-    // Generate new UUID and persist it
-    _cachedId = const Uuid().v4();
+    // Generate a new UUID and only cache it after it is persisted successfully.
+    final generatedId = const Uuid().v4();
 
     try {
       final db = await DatabaseHelper.database;
       await db.insert(
-        'app_settings',
-        {'key': 'device_id', 'value': _cachedId},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+          'app_settings',
+          {
+            'key': 'device_id',
+            'value': generatedId,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      _cachedId = generatedId;
+      return _cachedId!;
     } catch (e) {
-      // If save fails, at least we have the in-memory cached version
+      // If persistence fails, return a temporary ID without caching it so the
+      // next call can retry against the database-backed source of truth.
+      return generatedId;
     }
-
-    return _cachedId!;
   }
 }

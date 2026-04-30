@@ -150,8 +150,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final sheetIdError = _validateSheetId(_sheetIdController.text);
     final tabNameError = _validateTabName(_tabNameController.text);
     final eventNameError = _validateEventName(_eventNameController.text);
-    final organizationNameError =
-        _validateOrganizationName(_organizationNameController.text);
+    final organizationNameError = _validateOrganizationName(
+      _organizationNameController.text,
+    );
 
     if (sheetIdError != null) {
       if (mounted) {
@@ -190,42 +191,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     final db = await DatabaseHelper.database;
-    final previousSettings = await db.query(
-      'app_settings',
-      where: 'key IN (?, ?, ?, ?, ?)',
-      whereArgs: [
-        'sheets_id',
-        'sheets_tab',
-        'event_name',
-        'organization_name',
-        'col_map',
-      ],
-    );
-    final previousValues = <String, String?>{};
-    for (final row in previousSettings) {
-      previousValues[row['key'] as String] = row['value'] as String?;
-    }
 
     await db.insert(
-      'app_settings',
-      {'key': 'sheets_id', 'value': _sheetIdController.text},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': 'sheets_id',
+          'value': _sheetIdController.text,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': 'sheets_tab', 'value': _tabNameController.text},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': 'sheets_tab',
+          'value': _tabNameController.text,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': 'event_name', 'value': _eventNameController.text},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': 'event_name',
+          'value': _eventNameController.text,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await db.insert(
-      'app_settings',
-      {'key': 'organization_name', 'value': _organizationNameController.text},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'app_settings',
+        {
+          'key': 'organization_name',
+          'value': _organizationNameController.text,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['col_map']);
 
     if (mounted) {
       await context.read<AppState>().loadPreferences();
@@ -261,30 +256,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw Exception('Google authentication unavailable');
       }
     } catch (e) {
-      for (final key in [
-        'sheets_id',
-        'sheets_tab',
-        'event_name',
-        'organization_name',
-        'col_map',
-      ]) {
-        final previousValue = previousValues[key];
-        if (previousValue == null) {
-          await db.delete('app_settings', where: 'key = ?', whereArgs: [key]);
-        } else {
-          await db.insert(
-            'app_settings',
-            {'key': key, 'value': previousValue},
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-      }
-      await _loadSettings();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Save cancelled because validation failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'Settings saved, but column detection failed: $e. Sync will stay paused until column detection succeeds.',
+            ),
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -294,10 +272,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _resetToDefaults() async {
     final db = await DatabaseHelper.database;
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
-    await db
-        .delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
-    await db
-        .delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_tab'],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['event_name'],
+    );
     await db.delete(
       'app_settings',
       where: 'key = ?',
@@ -313,10 +297,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final entry in settingsToSeed.entries) {
       if (entry.value != null) {
         await db.insert(
-          'app_settings',
-          {'key': entry.key, 'value': entry.value},
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+            'app_settings',
+            {
+              'key': entry.key,
+              'value': entry.value,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore);
       }
     }
 
@@ -355,19 +341,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showSnackBar(
-    String message, {
-    Color? backgroundColor,
-  }) {
+  void _showSnackBar(String message, {Color? backgroundColor}) {
     if (!mounted) {
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: backgroundColor,
-      ),
+      SnackBar(content: Text(message), backgroundColor: backgroundColor),
     );
   }
 
@@ -429,9 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  Future<void> _refreshPrinterInfo({
-    bool revalidateConnection = false,
-  }) async {
+  Future<void> _refreshPrinterInfo({bool revalidateConnection = false}) async {
     final status = await PrinterService.getSelectedPrinterStatus(
       revalidateConnection: revalidateConnection,
     );
@@ -474,22 +452,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _isScanningPrinters = true);
-    final printers = await PrinterService.scanPrinters();
-    if (!mounted) {
-      return;
-    }
+    try {
+      final printers = await PrinterService.scanPrinters();
+      if (!mounted) {
+        return;
+      }
 
-    setState(() {
-      _discoveredPrinters = printers;
-      _isScanningPrinters = false;
-    });
-    await _refreshPrinterInfo();
+      setState(() {
+        _discoveredPrinters = printers;
+      });
+      await _refreshPrinterInfo();
 
-    if (printers.isEmpty) {
+      if (printers.isEmpty) {
+        _showSnackBar(
+          'No paired printers found. Pair the printer in Android Bluetooth settings first.',
+          backgroundColor: Colors.orange,
+        );
+      }
+    } catch (e) {
       _showSnackBar(
-        'No paired printers found. Pair the printer in Android Bluetooth settings first.',
-        backgroundColor: Colors.orange,
+        'Unable to load paired printers: $e',
+        backgroundColor: Colors.red,
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isScanningPrinters = false);
+      }
     }
   }
 
@@ -505,8 +493,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final result =
-        await PrinterService.connect(device, rememberSelection: true);
+    final result = await PrinterService.connect(
+      device,
+      rememberSelection: true,
+    );
     await _refreshPrinterInfo();
     _showSnackBar(
       result.message,
@@ -664,9 +654,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed == true && mounted) {
       await appState.clearAllData();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All data cleared')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('All data cleared')));
       }
     }
   }
@@ -704,8 +694,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (value == null) {
       return 'Never';
     }
-    return DateFormat('dd MMM, h:mm a')
-        .format(DateTime.fromMillisecondsSinceEpoch(value));
+    return DateFormat(
+      'dd MMM, h:mm a',
+    ).format(DateTime.fromMillisecondsSinceEpoch(value));
   }
 
   @override
@@ -735,9 +726,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Sheet Configuration',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Sheet Configuration',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _sheetIdController,
@@ -804,9 +796,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Printer Settings',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Printer Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
                   const Text(
                     'Only paired printers appear here. Pair the printer in Android Bluetooth settings first.',
@@ -818,9 +811,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: _isScanningPrinters ? null : _scanPrinters,
-                          child: Text(_isScanningPrinters
-                              ? 'Scanning...'
-                              : 'Load Paired Printers'),
+                          child: Text(
+                            _isScanningPrinters
+                                ? 'Scanning...'
+                                : 'Load Paired Printers',
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -920,8 +915,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   if (_selectedPrinterAddress != null)
                     FutureBuilder<String>(
-                      future:
-                          PrinterService.getCutMode(_selectedPrinterAddress!),
+                      future: PrinterService.getCutMode(
+                        _selectedPrinterAddress!,
+                      ),
                       builder: (context, snapshot) {
                         final currentMode =
                             snapshot.data ?? PrinterService.cutModeOff;
@@ -960,24 +956,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     selection.isEmpty) {
                                   return;
                                 }
-                                _setCutMode(
-                                  printerAddress,
-                                  selection.first,
-                                );
+                                _setCutMode(printerAddress, selection.first);
                               },
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              switch (currentMode) {
-                                PrinterService.cutModeSafe =>
-                                  'Safe Tear sends a gentler cut command for printers that may support partial cutting.',
-                                PrinterService.cutModeForce =>
-                                  'Full Cut sends the strongest cut command. Use this only on printers with an auto-cutter.',
-                                _ =>
-                                  'No Cut is safest for portable printers like the PT-200 and leaves extra paper for manual tearing.',
-                              },
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
+                                switch (currentMode) {
+                                  PrinterService.cutModeSafe =>
+                                    'Safe Tear sends a gentler cut command for printers that may support partial cutting.',
+                                  PrinterService.cutModeForce =>
+                                    'Full Cut sends the strongest cut command. Use this only on printers with an auto-cutter.',
+                                  _ =>
+                                    'No Cut is safest for portable printers like the PT-200 and leaves extra paper for manual tearing.',
+                                },
+                                style: Theme.of(context).textTheme.bodySmall),
                             const SizedBox(height: 8),
                           ],
                         );
@@ -997,14 +989,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.bluetooth_connected,
-                                    size: 20),
+                                icon: const Icon(
+                                  Icons.bluetooth_connected,
+                                  size: 20,
+                                ),
                                 tooltip: 'Select and connect',
                                 onPressed: () => _connectToPrinter(printer),
                               ),
                               if (_selectedPrinterAddress == printer.address)
-                                const Icon(Icons.check_circle,
-                                    color: Colors.green)
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                )
                               else
                                 Container(width: 24),
                             ],
@@ -1096,9 +1092,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Device Info',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Device Info',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
                   FutureBuilder<String>(
                     future: DeviceId.get(),
@@ -1119,9 +1116,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Feedback',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Feedback',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
                   SwitchListTile(
                     title: const Text('Notification Sounds'),
@@ -1135,8 +1133,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   SwitchListTile(
                     title: const Text('Voice Feedback (TTS)'),
-                    subtitle:
-                        const Text('Speak participant name after check‑in'),
+                    subtitle: const Text(
+                      'Speak participant name after check‑in',
+                    ),
                     value: appState.voiceEnabled,
                     onChanged: appState.setVoiceEnabled,
                   ),
@@ -1153,9 +1152,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Sync Status',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Sync Status',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
                   Text(_isSyncing ? 'Syncing...' : 'Ready'),
                   const SizedBox(height: 4),
@@ -1170,8 +1170,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : secondsAgo < 120
                               ? '1 min ago'
                               : '${secondsAgo ~/ 60} mins ago';
-                      return Text('Last sync: $display',
-                          style: const TextStyle(color: Colors.grey));
+                      return Text(
+                        'Last sync: $display',
+                        style: const TextStyle(color: Colors.grey),
+                      );
                     },
                   ),
                   const SizedBox(height: 16),
@@ -1205,9 +1207,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Registration Data',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Registration Data',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
                   Text('${appState.participantsCount} participants checked in'),
                   const SizedBox(height: 16),
@@ -1238,9 +1241,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('App Info',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(
+                    'App Info',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   SizedBox(height: 8),
                   Text('Version: 2.0.0', style: TextStyle(color: Colors.grey)),
                 ],

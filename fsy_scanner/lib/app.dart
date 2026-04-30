@@ -10,8 +10,11 @@ class FSYScannerApp extends StatelessWidget {
   final bool showOnboarding;
   // static const String appName = 'FSY 2026 Tacloban & Tolosa';
 
-  const FSYScannerApp(
-      {super.key, required this.appState, this.showOnboarding = false});
+  const FSYScannerApp({
+    super.key,
+    required this.appState,
+    this.showOnboarding = false,
+  });
 
   static const Color primaryBlue = Color(0xFF045782);
   static const Color accentGreen = Color(0xFFA3C997);

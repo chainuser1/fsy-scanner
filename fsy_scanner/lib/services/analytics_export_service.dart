@@ -45,9 +45,6 @@ class AnalyticsExportService {
     );
     await file.writeAsString(content, flush: true);
     final length = await file.length();
-    return AnalyticsExportResult(
-      filePath: file.path,
-      byteCount: length,
-    );
+    return AnalyticsExportResult(filePath: file.path, byteCount: length);
   }
 }

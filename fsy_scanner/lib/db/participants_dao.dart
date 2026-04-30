@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/participant.dart';
 import 'database_helper.dart';
+import 'sync_queue_dao.dart';
 
 class ParticipantQueryResult {
   final List<Participant> participants;
@@ -23,7 +24,16 @@ class ParticipantsDao {
     return ParticipantsDao(db);
   }
 
-  Future<void> upsertParticipant(Participant p) async {
+  Future<void> upsertParticipant(
+    Participant p, {
+    bool preserveLocalVerificationState = false,
+    int? pullStartedAt,
+  }) async {
+    final existing = await getParticipantById(p.id);
+    final existingUpdatedAt = existing?.updatedAt ?? 0;
+    final shouldPreserveVerificationState = existing != null &&
+        (preserveLocalVerificationState ||
+            (pullStartedAt != null && existingUpdatedAt > pullStartedAt));
     final rowsUpdated = await _db.update(
       'participants',
       {
@@ -37,12 +47,18 @@ class ParticipantsDao {
         'medical_info': p.medicalInfo,
         'note': p.note,
         'status': p.status,
-        'verified_at': p.verifiedAt,
-        'printed_at': p.printedAt,
-        'registered_by': p.registeredBy,
+        'verified_at': shouldPreserveVerificationState
+            ? existing.verifiedAt
+            : p.verifiedAt,
+        'printed_at':
+            shouldPreserveVerificationState ? existing.printedAt : p.printedAt,
+        'registered_by': shouldPreserveVerificationState
+            ? existing.registeredBy
+            : p.registeredBy,
         'sheets_row': p.sheetsRow,
         'raw_json': p.rawJson,
-        'updated_at': p.updatedAt,
+        'updated_at':
+            shouldPreserveVerificationState ? existing.updatedAt : p.updatedAt,
         'age': p.age,
         'birthday': p.birthday,
       },
@@ -83,15 +99,34 @@ class ParticipantsDao {
     await dao.upsertParticipant(p);
   }
 
+  static Future<void> upsertFromPull(
+    Participant p, {
+    required Set<String> pendingParticipantIds,
+    required int pullStartedAt,
+  }) async {
+    final dao = await getInstance();
+    await dao.upsertParticipant(
+      p,
+      preserveLocalVerificationState: pendingParticipantIds.contains(p.id),
+      pullStartedAt: pullStartedAt,
+    );
+  }
+
   Future<Participant?> getParticipantById(String id) async {
-    final List<Map<String, Object?>> results =
-        await _db.query('participants', where: 'id = ?', whereArgs: [id]);
+    final List<Map<String, Object?>> results = await _db.query(
+      'participants',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     if (results.isEmpty) return null;
     return Participant.fromDbRow(results.first);
   }
 
   Future<void> markVerifiedLocally(
-      String id, String deviceId, int verifiedAt) async {
+    String id,
+    String deviceId,
+    int verifiedAt,
+  ) async {
     await _db.update(
       'participants',
       {
@@ -130,15 +165,89 @@ class ParticipantsDao {
     );
   }
 
+  static Future<void> markVerifiedAndQueue(
+    String id,
+    String deviceId,
+    int verifiedAt,
+  ) async {
+    final db = await DatabaseHelper.database;
+    await db.transaction((txn) async {
+      final updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await txn.update(
+        'participants',
+        {
+          'verified_at': verifiedAt,
+          'registered_by': deviceId,
+          'updated_at': updatedAt,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await SyncQueueDao.enqueueTaskInTransaction(
+        txn,
+        SyncQueueDao.typeMarkRegistered,
+        {
+          'participantId': id,
+          'verifiedAt': verifiedAt,
+          'registeredBy': deviceId,
+        },
+      );
+    });
+  }
+
+  static Future<void> markUnverifiedAndQueue(String id) async {
+    final db = await DatabaseHelper.database;
+    await db.transaction((txn) async {
+      final updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await txn.update(
+        'participants',
+        {
+          'verified_at': null,
+          'printed_at': null,
+          'registered_by': null,
+          'updated_at': updatedAt,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await SyncQueueDao.enqueueTaskInTransaction(
+        txn,
+        SyncQueueDao.typeMarkUnverified,
+        {'participantId': id},
+      );
+    });
+  }
+
+  static Future<void> markPrintedAndQueue(String id, int printedAt) async {
+    final db = await DatabaseHelper.database;
+    await db.transaction((txn) async {
+      final updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await txn.update(
+        'participants',
+        {'printed_at': printedAt, 'updated_at': updatedAt},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await SyncQueueDao.enqueueTaskInTransaction(
+        txn,
+        SyncQueueDao.typeMarkPrinted,
+        {'participantId': id, 'printedAt': printedAt},
+      );
+    });
+  }
+
   Future<List<Participant>> getAllParticipants() async {
-    final List<Map<String, Object?>> results =
-        await _db.query('participants', orderBy: 'full_name ASC');
+    final List<Map<String, Object?>> results = await _db.query(
+      'participants',
+      orderBy: 'full_name ASC',
+    );
     return results.map(Participant.fromDbRow).toList();
   }
 
   Future<int> getParticipantsCount() async {
-    final result =
-        await _db.rawQuery('SELECT COUNT(*) AS count FROM participants');
+    final result = await _db.rawQuery(
+      'SELECT COUNT(*) AS count FROM participants',
+    );
     return result.first['count'] as int? ?? 0;
   }
 
@@ -148,8 +257,7 @@ class ParticipantsDao {
       return getParticipantsCount();
     }
 
-    final result = await _db.rawQuery(
-      '''
+    final result = await _db.rawQuery('''
       SELECT COUNT(*) AS count
       FROM participants p
       WHERE
@@ -165,9 +273,7 @@ class ParticipantsDao {
         LOWER(COALESCE(p.note, '')) LIKE ? OR
         LOWER(COALESCE(p.birthday, '')) LIKE ? OR
         CAST(COALESCE(p.age, '') AS TEXT) LIKE ?
-      ''',
-      List<String>.filled(12, searchTerm),
-    );
+      ''', List<String>.filled(12, searchTerm));
     return result.first['count'] as int? ?? 0;
   }
 
@@ -191,8 +297,10 @@ class ParticipantsDao {
   }) async {
     final searchTerm = _buildSearchTerm(query);
     if (searchTerm == null) {
-      final participants =
-          await getParticipantsPage(limit: limit, offset: offset);
+      final participants = await getParticipantsPage(
+        limit: limit,
+        offset: offset,
+      );
       final totalCount = await getParticipantsCount();
       return ParticipantQueryResult(
         participants: participants,

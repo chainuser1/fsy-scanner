@@ -1,8 +1,4 @@
-enum ParticipantVerificationStage {
-  pending,
-  partiallyVerified,
-  fullyVerified,
-}
+enum ParticipantVerificationStage { pending, partiallyVerified, fullyVerified }
 
 class Participant {
   final String id;
@@ -84,14 +80,14 @@ class Participant {
       medicalInfo: json['medical_info'] as String?,
       note: json['note'] as String?,
       status: json['status'] as String?,
-      age: json['age'] as int?,
+      age: _parseNullableInt(json['age']),
       birthday: json['birthday'] as String?,
-      verifiedAt: json['verified_at'] as int?,
-      printedAt: json['printed_at'] as int?,
+      verifiedAt: _parseNullableInt(json['verified_at']),
+      printedAt: _parseNullableInt(json['printed_at']),
       registeredBy: json['registered_by'] as String?,
-      sheetsRow: json['sheets_row'] as int? ?? 0,
+      sheetsRow: _parseNullableInt(json['sheets_row']) ?? 0,
       rawJson: json['raw_json'] as String?,
-      updatedAt: json['updated_at'] as int?,
+      updatedAt: _parseNullableInt(json['updated_at']),
     );
   }
 
@@ -154,5 +150,21 @@ class Participant {
       return 'Print confirmed';
     }
     return 'Print pending';
+  }
+
+  static int? _parseNullableInt(Object? value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      return int.tryParse(value.trim());
+    }
+    return null;
   }
 }

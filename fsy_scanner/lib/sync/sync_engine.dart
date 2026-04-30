@@ -53,6 +53,9 @@ class SyncEngine {
   }
 
   static Future<void> startup(AppState appState) async {
+    if (_loopStarted) {
+      return;
+    }
     if (_startupFuture != null) {
       return _startupFuture!;
     }
@@ -82,10 +85,12 @@ class SyncEngine {
       for (final entry in settingsToSeed.entries) {
         if (entry.value != null) {
           await db.insert(
-            'app_settings',
-            {'key': entry.key, 'value': entry.value},
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
+              'app_settings',
+              {
+                'key': entry.key,
+                'value': entry.value,
+              },
+              conflictAlgorithm: ConflictAlgorithm.ignore);
         }
       }
 
@@ -93,22 +98,27 @@ class SyncEngine {
       await appState.refreshParticipantsCount();
       appState.setPendingTaskCount(await SyncQueueDao.getPendingCount());
 
-      final colMapResult = await db
-          .query('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+      final colMapResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['col_map'],
+      );
       if (colMapResult.isEmpty ||
           colMapResult.first['value'] == null ||
           (colMapResult.first['value'] as String).isEmpty) {
         final token = await GoogleAuth.getValidToken();
         if (token == null) {
           appState.setSyncError(
-              'Google authentication unavailable. Check the service-account settings.');
+            'Google authentication unavailable. Check the service-account settings.',
+          );
         } else {
           try {
             final sheetId = await _getSettingValue('sheets_id');
             final sheetTab = await _getSettingValue('sheets_tab');
             if (sheetId == null || sheetTab == null) {
               appState.setSyncError(
-                  'Sheet configuration is missing. Open Settings and save the sheet details.');
+                'Sheet configuration is missing. Open Settings and save the sheet details.',
+              );
             } else {
               LoggerUtil.info('[SyncEngine] Detecting column map...');
               await SheetsApi.detectColMap(db, token, sheetId, sheetTab);
@@ -122,7 +132,8 @@ class SyncEngine {
       }
 
       LoggerUtil.info(
-          '[SyncEngine] Active interval: ${_activeIntervalMs}ms, Idle: ${_idleIntervalMs}ms');
+        '[SyncEngine] Active interval: ${_activeIntervalMs}ms, Idle: ${_idleIntervalMs}ms',
+      );
       _lastUserActivity = DateTime.now();
 
       if (_loopStarted) {
@@ -170,9 +181,13 @@ class SyncEngine {
       appState.setPendingTaskCount(pendingCount);
       if (pendingCount > 0) {
         appState.setSyncError(
-            'Pull skipped because local changes are still waiting to sync.');
-        _setSyncing(true,
-            message: 'Waiting for pending updates to sync...', progress: 0.5);
+          'Pull skipped because local changes are still waiting to sync.',
+        );
+        _setSyncing(
+          true,
+          message: 'Waiting for pending updates to sync...',
+          progress: 0.5,
+        );
         await Future.delayed(const Duration(seconds: 1));
         return false;
       }
@@ -182,7 +197,8 @@ class SyncEngine {
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
         appState.setSyncError(
-            'Google authentication unavailable. Check the service-account settings.');
+          'Google authentication unavailable. Check the service-account settings.',
+        );
         return false;
       }
 
@@ -190,7 +206,8 @@ class SyncEngine {
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
         appState.setSyncError(
-            'Sheet configuration is missing. Open Settings and save the sheet details.');
+          'Sheet configuration is missing. Open Settings and save the sheet details.',
+        );
         return false;
       }
 
@@ -207,7 +224,8 @@ class SyncEngine {
     } on SheetsRateLimitException {
       _increaseBackoff();
       LoggerUtil.warn(
-          '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
+        '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms',
+      );
       return false;
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Full sync error: $e', error: e);
@@ -229,14 +247,16 @@ class SyncEngine {
       appState.setPendingTaskCount(pendingCount);
       if (pendingCount > 0) {
         appState.setSyncError(
-            'Pull skipped because local changes are still waiting to sync.');
+          'Pull skipped because local changes are still waiting to sync.',
+        );
         return false;
       }
 
       final token = await GoogleAuth.getValidToken();
       if (token == null) {
         appState.setSyncError(
-            'Google authentication unavailable. Check the service-account settings.');
+          'Google authentication unavailable. Check the service-account settings.',
+        );
         return false;
       }
 
@@ -244,7 +264,8 @@ class SyncEngine {
       final sheetName = await _getSettingValue('sheets_tab');
       if (sheetId == null || sheetName == null) {
         appState.setSyncError(
-            'Sheet configuration is missing. Open Settings and save the sheet details.');
+          'Sheet configuration is missing. Open Settings and save the sheet details.',
+        );
         return false;
       }
 
@@ -290,8 +311,9 @@ class SyncEngine {
   // ── Adaptive background loop (text suppressed) ────────────────
   static Future<void> _syncLoop(AppState appState) async {
     final initialConnectivity = await Connectivity().checkConnectivity();
-    appState
-        .setIsOnline(!initialConnectivity.contains(ConnectivityResult.none));
+    appState.setIsOnline(
+      !initialConnectivity.contains(ConnectivityResult.none),
+    );
 
     while (true) {
       if (_isSyncing) {
@@ -300,8 +322,9 @@ class SyncEngine {
       }
 
       final connectivityResult = await Connectivity().checkConnectivity();
-      final isCurrentlyOnline =
-          !connectivityResult.contains(ConnectivityResult.none);
+      final isCurrentlyOnline = !connectivityResult.contains(
+        ConnectivityResult.none,
+      );
 
       if (isCurrentlyOnline != appState.isOnline) {
         appState.setIsOnline(isCurrentlyOnline);
@@ -315,10 +338,12 @@ class SyncEngine {
 
       if (connectivityResult.contains(ConnectivityResult.none)) {
         LoggerUtil.debug(
-            '[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...');
+          '[SyncEngine] Offline, waiting ${_offlineRetryMs}ms...',
+        );
         // Sleep in small steps so that a user scan can shorten the wait
         await _interruptibleSleep(
-            const Duration(milliseconds: _offlineRetryMs));
+          const Duration(milliseconds: _offlineRetryMs),
+        );
         continue;
       }
 
@@ -329,7 +354,8 @@ class SyncEngine {
       if (token == null) {
         LoggerUtil.warn('[SyncEngine] No auth token, waiting...');
         appState.setSyncError(
-            'Google authentication unavailable. Waiting to retry.');
+          'Google authentication unavailable. Waiting to retry.',
+        );
         if (isFirstLoad) appState.setInitialLoading(false);
         await _interruptibleSleep(const Duration(milliseconds: _noAuthRetryMs));
         continue;
@@ -340,10 +366,12 @@ class SyncEngine {
       if (sheetId == null || sheetName == null) {
         LoggerUtil.warn('[SyncEngine] Missing sheet config, waiting...');
         appState.setSyncError(
-            'Sheet configuration is missing. Open Settings and save the sheet details.');
+          'Sheet configuration is missing. Open Settings and save the sheet details.',
+        );
         if (isFirstLoad) appState.setInitialLoading(false);
         await _interruptibleSleep(
-            const Duration(milliseconds: _noConfigRetryMs));
+          const Duration(milliseconds: _noConfigRetryMs),
+        );
         continue;
       }
 
@@ -357,7 +385,8 @@ class SyncEngine {
           appState.setSyncError('Column map detection failed: $e');
           if (isFirstLoad) appState.setInitialLoading(false);
           await _interruptibleSleep(
-              const Duration(milliseconds: _noConfigRetryMs));
+            const Duration(milliseconds: _noConfigRetryMs),
+          );
           continue;
         }
       }
@@ -370,16 +399,21 @@ class SyncEngine {
       _suppressProgressText = true;
       LoggerUtil.info('[SyncEngine] Starting automatic sync tick...');
       try {
-        _setSyncing(true,
-            message: 'Pushing…', progress: 0.0); // will be suppressed
+        _setSyncing(
+          true,
+          message: 'Pushing…',
+          progress: 0.0,
+        ); // will be suppressed
         await Pusher.pushPendingUpdates(appState);
         final pendingCount = await SyncQueueDao.getPendingCount();
         appState.setPendingTaskCount(pendingCount);
         if (pendingCount > 0) {
           LoggerUtil.info(
-              '[SyncEngine] Skipping pull because $pendingCount local tasks are still pending');
+            '[SyncEngine] Skipping pull because $pendingCount local tasks are still pending',
+          );
           appState.setSyncError(
-              'Waiting for pending local updates to sync before pulling sheet data.');
+            'Waiting for pending local updates to sync before pulling sheet data.',
+          );
           if (isFirstLoad) {
             appState.setInitialLoading(false);
           }
@@ -404,13 +438,15 @@ class SyncEngine {
         if (_rateLimitBackoffMultiplier > 1) {
           _decreaseBackoff();
           LoggerUtil.info(
-              '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms');
+            '[SyncEngine] Backoff decreased to ${_currentIntervalMs()}ms',
+          );
         }
       } on SheetsRateLimitException {
         if (isFirstLoad) appState.setInitialLoading(false);
         _increaseBackoff();
         LoggerUtil.warn(
-            '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms');
+          '[SyncEngine] Rate limit, backoff: ${_currentIntervalMs()}ms',
+        );
       } catch (e) {
         if (isFirstLoad) appState.setInitialLoading(false);
         LoggerUtil.error('[SyncEngine] Sync error: $e', error: e);
@@ -422,7 +458,8 @@ class SyncEngine {
       final pendingCount = await SyncQueueDao.getPendingCount();
       appState.setPendingTaskCount(pendingCount);
       LoggerUtil.info(
-          '[SyncEngine] Sync tick complete. Pending: $pendingCount');
+        '[SyncEngine] Sync tick complete. Pending: $pendingCount',
+      );
 
       final waitMs = _currentIntervalMs();
       LoggerUtil.info('[SyncEngine] Next sync in ${waitMs}ms');
@@ -461,15 +498,19 @@ class SyncEngine {
   }
 
   static void _decreaseBackoff() {
-    _rateLimitBackoffMultiplier =
-        (_rateLimitBackoffMultiplier ~/ 2).clamp(1, 8);
+    _rateLimitBackoffMultiplier = (_rateLimitBackoffMultiplier ~/ 2).clamp(
+      1,
+      8,
+    );
   }
 
   static Future<String?> _getSettingValue(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db
-          .rawQuery('SELECT value FROM app_settings WHERE key = ?', [key]);
+      final result = await db.rawQuery(
+        'SELECT value FROM app_settings WHERE key = ?',
+        [key],
+      );
       if (result.isNotEmpty) {
         return result.first['value'] as String?;
       }
