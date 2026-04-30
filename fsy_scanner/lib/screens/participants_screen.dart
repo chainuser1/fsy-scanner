@@ -192,7 +192,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    labelText: 'Search name, ward, stake, room, or table',
+                    labelText:
+                        'Search name, ward, stake, room, table, gender, age, medical, or notes',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchController.text.isEmpty
                         ? null
@@ -277,7 +278,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
             }
 
             final participant = _visibleParticipants[participantIndex];
-            final isVerified = participant.verifiedAt != null;
+            final visualStatus = _statusVisuals(participant);
             return Card(
               margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: ListTile(
@@ -288,20 +289,16 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 leading: CircleAvatar(
-                  backgroundColor: isVerified
-                      ? FSYScannerApp.accentGreen.withValues(alpha: 0.3)
-                      : FSYScannerApp.primaryBlue.withValues(alpha: 0.12),
+                  backgroundColor: visualStatus.color.withValues(alpha: 0.18),
                   child: Icon(
-                    isVerified ? Icons.check_circle : Icons.person,
-                    color: isVerified
-                        ? FSYScannerApp.accentGreen
-                        : FSYScannerApp.primaryBlue,
+                    visualStatus.icon,
+                    color: visualStatus.color,
                   ),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isVerified)
+                    if (participant.isVerified)
                       IconButton(
                         icon: const Icon(Icons.print,
                             color: FSYScannerApp.accentGold),
@@ -333,10 +330,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                         },
                       ),
                     Icon(
-                      isVerified ? Icons.check_circle : Icons.circle_outlined,
-                      color: isVerified
-                          ? FSYScannerApp.accentGreen
-                          : Colors.grey[400],
+                      visualStatus.icon,
+                      color: visualStatus.color,
                     ),
                   ],
                 ),
@@ -361,6 +356,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
   String _participantSummary(Participant participant) {
     final values = <String>[
+      participant.verificationLabel,
       if ((participant.ward ?? '').trim().isNotEmpty) participant.ward!.trim(),
       if ((participant.stake ?? '').trim().isNotEmpty)
         participant.stake!.trim(),
@@ -368,10 +364,44 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         'Room ${participant.roomNumber!.trim()}',
       if ((participant.tableNumber ?? '').trim().isNotEmpty)
         'Table ${participant.tableNumber!.trim()}',
+      if ((participant.gender ?? '').trim().isNotEmpty)
+        participant.gender!.trim(),
+      if (participant.age != null) 'Age ${participant.age}',
+      if ((participant.medicalInfo ?? '').trim().isNotEmpty) 'Medical flag',
     ];
 
     return values.isEmpty
         ? 'Tap to view full participant details'
         : values.join(' • ');
   }
+
+  _ParticipantStatusVisual _statusVisuals(Participant participant) {
+    switch (participant.verificationStage) {
+      case ParticipantVerificationStage.pending:
+        return _ParticipantStatusVisual(
+          icon: Icons.circle_outlined,
+          color: Colors.grey.shade500,
+        );
+      case ParticipantVerificationStage.partiallyVerified:
+        return const _ParticipantStatusVisual(
+          icon: Icons.pending_actions,
+          color: FSYScannerApp.accentGold,
+        );
+      case ParticipantVerificationStage.fullyVerified:
+        return const _ParticipantStatusVisual(
+          icon: Icons.check_circle,
+          color: FSYScannerApp.accentGreen,
+        );
+    }
+  }
+}
+
+class _ParticipantStatusVisual {
+  final IconData icon;
+  final Color color;
+
+  const _ParticipantStatusVisual({
+    required this.icon,
+    required this.color,
+  });
 }

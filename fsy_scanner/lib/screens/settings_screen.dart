@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../app.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
@@ -35,8 +37,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isScanningPrinters = false;
   bool _isSyncing = false;
   String? _selectedPrinterAddress;
-  String _printerStatus = 'Not checked';
+  String? _selectedPrinterName;
+  String _printerStateLabel = 'Not checked';
+  String _printerStatus = 'Printer status not loaded';
   int _failedPrintCount = 0;
+  int _activePrintCount = 0;
+  int? _lastPrintSuccessAt;
+  int? _lastPrintFailureAt;
+  String? _lastPrintFailureReason;
+  List<PrinterQueuedJob> _queuedPrintJobs = [];
+  List<PrinterQueuedJob> _recentPrintJobs = [];
 
   @override
   void initState() {
@@ -421,18 +431,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _refreshPrinterInfo() async {
     final status = await PrinterService.getSelectedPrinterStatus();
-    final failedPrintCount = await PrinterService.getFailedJobCount();
+    final queuedPrintJobs = await PrinterService.getQueuedJobs();
+    final recentPrintJobs = await PrinterService.getRecentPrintJobs(limit: 8);
     if (!mounted) {
       return;
     }
 
-    context.read<AppState>().setPrinterAddress(status.selectedAddress);
-    context.read<AppState>().setPrinterConnected(status.isConnected);
+    context.read<AppState>().applyPrinterSnapshot(status);
 
     setState(() {
       _selectedPrinterAddress = status.selectedAddress;
+      _selectedPrinterName = status.selectedName;
+      _printerStateLabel = status.stateLabel;
       _printerStatus = status.message;
-      _failedPrintCount = failedPrintCount;
+      _failedPrintCount = status.queuedJobCount;
+      _activePrintCount = status.activeJobCount;
+      _lastPrintSuccessAt = status.lastPrintSuccessAt;
+      _lastPrintFailureAt = status.lastPrintFailureAt;
+      _lastPrintFailureReason = status.lastPrintFailureReason;
+      _queuedPrintJobs = queuedPrintJobs;
+      _recentPrintJobs = recentPrintJobs;
     });
   }
 
@@ -534,11 +552,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     await _refreshPrinterInfo();
     _showSnackBar(
-      _printerStatus,
-      backgroundColor:
-          _printerStatus == 'Connected' || _printerStatus == 'Paired and ready'
-              ? Colors.green
-              : Colors.orange,
+      '$_printerStateLabel: $_printerStatus',
+      backgroundColor: _isPrinterHealthy()
+          ? Colors.green
+          : _failedPrintCount > 0
+              ? Colors.orange
+              : Colors.red,
     );
   }
 
@@ -616,6 +635,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ) ??
         false;
+  }
+
+  bool _isPrinterHealthy() {
+    return _printerStateLabel == 'Connected' &&
+        _failedPrintCount == 0 &&
+        _activePrintCount == 0;
+  }
+
+  String _formatTimestamp(int? value) {
+    if (value == null) {
+      return 'Never';
+    }
+    return DateFormat('dd MMM, h:mm a')
+        .format(DateTime.fromMillisecondsSinceEpoch(value));
   }
 
   @override
@@ -757,12 +790,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   if (_selectedPrinterAddress != null)
-                    Text(
-                      'Selected: $_selectedPrinterAddress',
-                      style: const TextStyle(color: Colors.grey),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selected: ${_selectedPrinterName?.trim().isNotEmpty == true ? _selectedPrinterName : _selectedPrinterAddress}',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        if (_selectedPrinterName != null &&
+                            _selectedPrinterName!.trim().isNotEmpty)
+                          Text(
+                            _selectedPrinterAddress!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                      ],
                     ),
                   if (_selectedPrinterAddress != null)
                     const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _isPrinterHealthy()
+                          ? Colors.green.withValues(alpha: 0.08)
+                          : _failedPrintCount > 0
+                              ? Colors.orange.withValues(alpha: 0.08)
+                              : Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _printerStateLabel,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _printerStatus,
+                          style: const TextStyle(color: Colors.black87),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            Text('Failed queue: $_failedPrintCount'),
+                            Text('Active jobs: $_activePrintCount'),
+                            Text(
+                              'Last success: ${_formatTimestamp(_lastPrintSuccessAt)}',
+                            ),
+                            Text(
+                              'Last failure: ${_formatTimestamp(_lastPrintFailureAt)}',
+                            ),
+                          ],
+                        ),
+                        if ((_lastPrintFailureReason ?? '')
+                            .trim()
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Last failure reason: $_lastPrintFailureReason',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   if (_selectedPrinterAddress != null)
                     FutureBuilder<String>(
                       future:
@@ -858,15 +956,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Text('Status: ',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text(_printerStatus,
-                          style: const TextStyle(color: Colors.grey)),
-                    ],
-                  ),
+                  if (_queuedPrintJobs.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Queued Print Jobs',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._queuedPrintJobs.take(5).map(
+                          (job) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            leading: Icon(
+                              job.isReprint ? Icons.receipt_long : Icons.print,
+                              color: job.isReprint
+                                  ? FSYScannerApp.primaryBlue
+                                  : FSYScannerApp.accentGold,
+                            ),
+                            title: Text(job.participantName),
+                            subtitle: Text(
+                              '${job.reason} • attempts ${job.attemptCount} • next retry ${_formatTimestamp(job.nextRetryAt)}',
+                            ),
+                          ),
+                        ),
+                    if (_queuedPrintJobs.length > 5)
+                      Text(
+                        '${_queuedPrintJobs.length - 5} more queued jobs not shown',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                  if (_recentPrintJobs.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Recent Print Activity',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._recentPrintJobs.map(
+                      (job) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        leading: Icon(
+                          switch (job.status) {
+                            'success' => Icons.check_circle,
+                            'cancelled' => Icons.cancel,
+                            _ => Icons.schedule,
+                          },
+                          color: switch (job.status) {
+                            'success' => FSYScannerApp.accentGreen,
+                            'cancelled' => Colors.redAccent,
+                            _ => FSYScannerApp.accentGold,
+                          },
+                        ),
+                        title: Text(job.participantName),
+                        subtitle: Text(
+                          '${job.isReprint ? 'Reprint' : 'Initial print'} • ${job.status} • attempts ${job.attemptCount}',
+                        ),
+                        trailing: Text(
+                          _formatTimestamp(job.printedAt ?? job.lastAttemptAt),
+                          textAlign: TextAlign.end,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
                     onPressed: _retryFailedPrints,

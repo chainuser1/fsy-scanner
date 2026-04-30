@@ -88,6 +88,47 @@ const String syncTasksDDL = '''
   )
 ''';
 
+const String printJobsDDL = '''
+  CREATE TABLE IF NOT EXISTS print_jobs (
+    job_id TEXT PRIMARY KEY,
+    participant_id TEXT NOT NULL,
+    participant_name TEXT NOT NULL,
+    participant_json TEXT,
+    device_id TEXT,
+    printer_address TEXT,
+    status TEXT NOT NULL,
+    failure_code TEXT,
+    failure_reason TEXT,
+    queued_at INTEGER NOT NULL,
+    last_attempt_at INTEGER,
+    next_retry_at INTEGER,
+    attempt_count INTEGER DEFAULT 0,
+    is_reprint INTEGER DEFAULT 0,
+    printed_at INTEGER,
+    completed_at INTEGER,
+    updated_at INTEGER NOT NULL
+  )
+''';
+
+const String printJobAttemptsDDL = '''
+  CREATE TABLE IF NOT EXISTS print_job_attempts (
+    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    participant_name TEXT NOT NULL,
+    device_id TEXT,
+    printer_address TEXT,
+    attempt_number INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    failure_code TEXT,
+    failure_reason TEXT,
+    is_reprint INTEGER DEFAULT 0,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )
+''';
+
 const String appSettingsDDL = '''
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY, value TEXT

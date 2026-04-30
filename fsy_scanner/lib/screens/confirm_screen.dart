@@ -58,8 +58,16 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
                           widget.participant.roomNumber ?? '(not assigned)'),
                       _buildInfoRow('Table:',
                           widget.participant.tableNumber ?? '(not assigned)'),
+                      _buildInfoRow('Gender:',
+                          widget.participant.gender ?? '(not assigned)'),
+                      _buildInfoRow(
+                          'Age:',
+                          widget.participant.age?.toString() ??
+                              '(not assigned)'),
                       _buildInfoRow('Shirt:',
                           widget.participant.tshirtSize ?? '(not assigned)'),
+                      _buildInfoRow('Medical:',
+                          widget.participant.medicalInfo ?? '(none)'),
                     ],
                   ),
                 ),
@@ -224,7 +232,8 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Registration confirmed',
+          content: Text(
+              'Check-in recorded. Receipt will decide full verification status.',
               style: TextStyle(color: Colors.white)),
           backgroundColor: FSYScannerApp.accentGreen,
         ),

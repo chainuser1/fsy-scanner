@@ -143,19 +143,30 @@ class ParticipantsDao {
   }
 
   Future<int> getSearchParticipantsCount(String query) async {
-    final ftsQuery = _buildFtsQuery(query);
-    if (ftsQuery == null) {
+    final searchTerm = _buildSearchTerm(query);
+    if (searchTerm == null) {
       return getParticipantsCount();
     }
 
     final result = await _db.rawQuery(
       '''
       SELECT COUNT(*) AS count
-      FROM participants_search s
-      JOIN participants p ON p.id = s.id
-      WHERE participants_search MATCH ?
+      FROM participants p
+      WHERE
+        LOWER(COALESCE(p.full_name, '')) LIKE ? OR
+        LOWER(COALESCE(p.stake, '')) LIKE ? OR
+        LOWER(COALESCE(p.ward, '')) LIKE ? OR
+        LOWER(COALESCE(p.room_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.table_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.gender, '')) LIKE ? OR
+        LOWER(COALESCE(p.status, '')) LIKE ? OR
+        LOWER(COALESCE(p.tshirt_size, '')) LIKE ? OR
+        LOWER(COALESCE(p.medical_info, '')) LIKE ? OR
+        LOWER(COALESCE(p.note, '')) LIKE ? OR
+        LOWER(COALESCE(p.birthday, '')) LIKE ? OR
+        CAST(COALESCE(p.age, '') AS TEXT) LIKE ?
       ''',
-      [ftsQuery],
+      List<String>.filled(12, searchTerm),
     );
     return result.first['count'] as int? ?? 0;
   }
@@ -178,8 +189,8 @@ class ParticipantsDao {
     required int limit,
     required int offset,
   }) async {
-    final ftsQuery = _buildFtsQuery(query);
-    if (ftsQuery == null) {
+    final searchTerm = _buildSearchTerm(query);
+    if (searchTerm == null) {
       final participants =
           await getParticipantsPage(limit: limit, offset: offset);
       final totalCount = await getParticipantsCount();
@@ -193,13 +204,24 @@ class ParticipantsDao {
     final List<Map<String, Object?>> results = await _db.rawQuery(
       '''
       SELECT p.*
-      FROM participants_search s
-      JOIN participants p ON p.id = s.id
-      WHERE participants_search MATCH ?
+      FROM participants p
+      WHERE
+        LOWER(COALESCE(p.full_name, '')) LIKE ? OR
+        LOWER(COALESCE(p.stake, '')) LIKE ? OR
+        LOWER(COALESCE(p.ward, '')) LIKE ? OR
+        LOWER(COALESCE(p.room_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.table_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.gender, '')) LIKE ? OR
+        LOWER(COALESCE(p.status, '')) LIKE ? OR
+        LOWER(COALESCE(p.tshirt_size, '')) LIKE ? OR
+        LOWER(COALESCE(p.medical_info, '')) LIKE ? OR
+        LOWER(COALESCE(p.note, '')) LIKE ? OR
+        LOWER(COALESCE(p.birthday, '')) LIKE ? OR
+        CAST(COALESCE(p.age, '') AS TEXT) LIKE ?
       ORDER BY p.full_name ASC
       LIMIT ? OFFSET ?
       ''',
-      [ftsQuery, limit, offset],
+      [...List<String>.filled(12, searchTerm), limit, offset],
     );
     return ParticipantQueryResult(
       participants: results.map(Participant.fromDbRow).toList(),
@@ -207,19 +229,12 @@ class ParticipantsDao {
     );
   }
 
-  String? _buildFtsQuery(String query) {
-    final tokens = query
-        .trim()
-        .split(RegExp(r'\s+'))
-        .map((token) => token.replaceAll(RegExp(r'["*:()\-]'), ''))
-        .where((token) => token.isNotEmpty)
-        .toList();
-
-    if (tokens.isEmpty) {
+  String? _buildSearchTerm(String query) {
+    final trimmed = query.trim().toLowerCase();
+    if (trimmed.isEmpty) {
       return null;
     }
-
-    return tokens.map((token) => '$token*').join(' AND ');
+    return '%$trimmed%';
   }
 
   static Future<int> getRegisteredCount() async {

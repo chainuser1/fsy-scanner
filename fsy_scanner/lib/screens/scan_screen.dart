@@ -575,7 +575,7 @@ class _ScanScreenState extends State<ScanScreen>
                                   success: false,
                                   alreadyChecked: false,
                                 );
-                              } else if (participant.verifiedAt != null) {
+                              } else if (participant.isVerified) {
                                 _playSound(_warningSoundPath);
                                 _hapticFeedback(false);
                                 String timeStr = '';
@@ -631,7 +631,8 @@ class _ScanScreenState extends State<ScanScreen>
 
                                 _playSound(_successSoundPath);
                                 _hapticFeedback(true);
-                                _speak('${participant.fullName} checked in');
+                                _speak(
+                                    '${participant.fullName} partially verified');
                                 _showAnimatedResult(
                                   name: participant.fullName,
                                   room: participant.roomNumber,

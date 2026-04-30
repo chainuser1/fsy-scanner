@@ -1,3 +1,9 @@
+enum ParticipantVerificationStage {
+  pending,
+  partiallyVerified,
+  fullyVerified,
+}
+
 class Participant {
   final String id;
   final String fullName;
@@ -111,5 +117,42 @@ class Participant {
       rawJson: row['raw_json'] as String?,
       updatedAt: row['updated_at'] as int?,
     );
+  }
+
+  bool get isVerified => verifiedAt != null;
+
+  bool get isPartiallyVerified => verifiedAt != null && printedAt == null;
+
+  bool get isFullyVerified => verifiedAt != null && printedAt != null;
+
+  ParticipantVerificationStage get verificationStage {
+    if (!isVerified) {
+      return ParticipantVerificationStage.pending;
+    }
+    if (isFullyVerified) {
+      return ParticipantVerificationStage.fullyVerified;
+    }
+    return ParticipantVerificationStage.partiallyVerified;
+  }
+
+  String get verificationLabel {
+    switch (verificationStage) {
+      case ParticipantVerificationStage.pending:
+        return 'Pending';
+      case ParticipantVerificationStage.partiallyVerified:
+        return 'Partially Verified';
+      case ParticipantVerificationStage.fullyVerified:
+        return 'Fully Verified';
+    }
+  }
+
+  String get receiptStatusLabel {
+    if (!isVerified) {
+      return 'Not started';
+    }
+    if (isFullyVerified) {
+      return 'Print confirmed';
+    }
+    return 'Print pending';
   }
 }

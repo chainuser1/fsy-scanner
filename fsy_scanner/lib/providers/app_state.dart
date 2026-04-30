@@ -20,9 +20,19 @@ class AppState extends ChangeNotifier {
   bool _isInitialLoading = false;
   bool _isOnline = true;
   bool _printerConnected = false;
+  bool _printerHasSelection = false;
+  bool _printerPermissionsGranted = true;
+  bool _printerPaired = false;
+  bool _printerConnecting = false;
   String? _printerAddress;
+  String? _printerName;
+  String _printerStateLabel = 'No Printer Selected';
   String _printerStatusMessage = 'No printer selected';
   int _printerFailedJobCount = 0;
+  int _printerActiveJobCount = 0;
+  int? _lastPrintSuccessAt;
+  int? _lastPrintFailureAt;
+  String? _lastPrintFailureReason;
   String? _lastScanResult;
 
   bool _soundEnabled = true;
@@ -45,9 +55,19 @@ class AppState extends ChangeNotifier {
   bool get isInitialLoading => _isInitialLoading;
   bool get isOnline => _isOnline;
   bool get printerConnected => _printerConnected;
+  bool get printerHasSelection => _printerHasSelection;
+  bool get printerPermissionsGranted => _printerPermissionsGranted;
+  bool get printerPaired => _printerPaired;
+  bool get printerConnecting => _printerConnecting;
   String? get printerAddress => _printerAddress;
+  String? get printerName => _printerName;
+  String get printerStateLabel => _printerStateLabel;
   String get printerStatusMessage => _printerStatusMessage;
   int get printerFailedJobCount => _printerFailedJobCount;
+  int get printerActiveJobCount => _printerActiveJobCount;
+  int? get lastPrintSuccessAt => _lastPrintSuccessAt;
+  int? get lastPrintFailureAt => _lastPrintFailureAt;
+  String? get lastPrintFailureReason => _lastPrintFailureReason;
   String? get lastScanResult => _lastScanResult;
   bool get soundEnabled => _soundEnabled;
   bool get hapticEnabled => _hapticEnabled;
@@ -120,6 +140,24 @@ class AppState extends ChangeNotifier {
 
   void setPrinterConnected(bool val) {
     _printerConnected = val;
+    notifyListeners();
+  }
+
+  void applyPrinterSnapshot(PrinterStatusSnapshot status) {
+    _printerHasSelection = status.hasSelection;
+    _printerPermissionsGranted = status.permissionsGranted;
+    _printerPaired = status.isPaired;
+    _printerConnected = status.isConnected;
+    _printerConnecting = status.isConnecting;
+    _printerAddress = status.selectedAddress;
+    _printerName = status.selectedName;
+    _printerStateLabel = status.stateLabel;
+    _printerStatusMessage = status.message;
+    _printerFailedJobCount = status.queuedJobCount;
+    _printerActiveJobCount = status.activeJobCount;
+    _lastPrintSuccessAt = status.lastPrintSuccessAt;
+    _lastPrintFailureAt = status.lastPrintFailureAt;
+    _lastPrintFailureReason = status.lastPrintFailureReason;
     notifyListeners();
   }
 
@@ -201,10 +239,20 @@ class AppState extends ChangeNotifier {
     await _refreshPrinterSnapshot();
     await _printerSubscription?.cancel();
     _printerSubscription = PrinterService.events.listen((event) {
+      _printerHasSelection = event.hasSelection;
+      _printerPermissionsGranted = event.permissionsGranted;
+      _printerPaired = event.isPaired;
       _printerAddress = event.selectedAddress;
+      _printerName = event.selectedName;
       _printerConnected = event.isConnected;
+      _printerConnecting = event.isConnecting;
       _printerFailedJobCount = event.failedJobCount;
+      _printerActiveJobCount = event.activeJobCount;
+      _printerStateLabel = event.stateLabel;
       _printerStatusMessage = event.statusMessage;
+      _lastPrintSuccessAt = event.lastPrintSuccessAt;
+      _lastPrintFailureAt = event.lastPrintFailureAt;
+      _lastPrintFailureReason = event.lastPrintFailureReason;
       notifyListeners();
     });
   }
@@ -272,12 +320,7 @@ class AppState extends ChangeNotifier {
   Future<void> _refreshPrinterSnapshot() async {
     final status = await PrinterService.getSelectedPrinterStatus(
         requestPermissions: false);
-    final failedPrintCount = await PrinterService.getFailedJobCount();
-    _printerAddress = status.selectedAddress;
-    _printerConnected = status.isConnected;
-    _printerStatusMessage = status.message;
-    _printerFailedJobCount = failedPrintCount;
-    notifyListeners();
+    applyPrinterSnapshot(status);
   }
 
   @override

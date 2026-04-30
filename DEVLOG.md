@@ -3044,3 +3044,74 @@ Reduced unnecessary paper feed between printed receipts after live testing showe
 
 ### Deviations from Plan
 - The feed reduction favors tighter paper economy in `No Cut` mode, based on live printer behavior rather than a generic conservative default.
+
+---
+
+## 57.0 — Verification Semantics, Print Ledger Hardening, and Industry-Grade Operations Analytics
+**Date/Time:** 2026-04-30 16:30:00
+**Status:** ✅ Complete
+
+### What I Did
+Completed a broad reliability and analytics hardening pass across the scanner app. The work clarified participant verification semantics, made printer and receipt outcomes more truthful, introduced durable print-ledger auditing, improved participant search and detail coverage, and reorganized analytics into an event-operations dashboard that better supports real committee usage throughout a multi-day FSY event.
+
+### Changes Made
+**Verification and participant state semantics.**
+- Updated participant state handling so verification now distinguishes between participants who are checked in but still awaiting a successful print and participants who are fully completed.
+- Standardized the app around the rule that `printed_at` is only recorded after confirmed print success.
+- Preserved reprint behavior without rewriting the original first-success print timestamp.
+
+**Printer truthfulness and queue visibility.**
+- Expanded printer status handling so the app can communicate more honest states such as selected, connecting, queued, failed, and recent failure history rather than implying that Bluetooth availability alone means the printer is actually ready.
+- Improved printer queue observability with failed-job counts, active-job counts, and last-success / last-failure context in app surfaces.
+- Kept failed or queued jobs visible instead of allowing operational failures to disappear from view.
+
+**Durable print ledger and immutable print attempts.**
+- Added persistent `print_jobs` usage improvements and introduced immutable `print_job_attempts` storage in SQLite.
+- Recorded one immutable attempt row for each completed print attempt outcome, including success, failure, and cancellation.
+- Migrated analytics and printer reliability summaries to use the ledger and immutable attempt history instead of relying only on transient in-memory state.
+
+**Participant details and search improvements.**
+- Expanded participant search coverage to include more operationally useful fields such as gender, age, shirt size, notes, birthday, and medical information in addition to assignment and identity fields.
+- Enhanced participant-facing screens to surface more operational details and clearer verification / receipt state messaging.
+- Improved participant details so staff can resolve check-in, assignment, and printing issues with less guesswork.
+
+**Analytics redesign for real event operations.**
+- Reorganized the analytics screen into a more operations-first layout centered on live attendance and readiness rather than only raw roster totals.
+- Added committee-oriented sections for live attendance, verification funnel, operations command, assignment readiness, group progress, attendance mix, event timeline, trend analysis, audit trail, and exceptions.
+- Added committee view chips so registration, hotel, activity, food, leaders, and operations users can focus on the most relevant sections.
+- Added richer printer analytics from the ledger, including success rate, retry success, last-hour failures, average attempt time, top failure codes, and printer reliability by device.
+- Added more comprehensive demographics and readiness analytics, including live attendance by stake and ward, table and room readiness, shirt sizes, medical classifications, and day-by-day event activity.
+
+### Files Modified
+- `fsy_scanner/lib/db/database_helper.dart` – database version bump and new print attempt table migration.
+- `fsy_scanner/lib/db/participants_dao.dart` – broader participant search field coverage.
+- `fsy_scanner/lib/db/schema.dart` – immutable `print_job_attempts` table definition.
+- `fsy_scanner/lib/models/participant.dart` – shared participant verification / print state helpers.
+- `fsy_scanner/lib/print/printer_service.dart` – durable print ledger handling, immutable print attempts, and richer printer reliability data access.
+- `fsy_scanner/lib/providers/app_state.dart` – printer state exposure and queue / status propagation.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – operations dashboard redesign, committee views, richer demographics, timeline analytics, and ledger-backed printer analytics.
+- `fsy_scanner/lib/screens/confirm_screen.dart` – richer participant context during confirmation.
+- `fsy_scanner/lib/screens/participant_details_screen.dart` – clearer participant operational details and verification / print state display.
+- `fsy_scanner/lib/screens/participants_screen.dart` – improved search guidance and participant list state presentation.
+- `fsy_scanner/lib/screens/scan_screen.dart` – updated check-in messaging to reflect partial vs full completion.
+- `fsy_scanner/lib/screens/settings_screen.dart` – more truthful printer status, queue visibility, and job history context.
+
+### Verification Result
+- Diagnostics are clean for the newly updated database, printer, and analytics files.
+- The app now preserves immutable print-attempt history for auditability.
+- Analytics now better reflects live attendees, assignment readiness, and printer reliability instead of only static roster counts.
+- Committee-focused analytics views now better support operational usage across registration, hotel, activity, food, leadership, and broader event operations.
+
+### Issues Encountered
+- The existing analytics screen was originally oriented more toward static totals and did not yet expose enough live operational meaning for multi-day event use.
+- Printer hardware truth is inherently limited by plugin and device telemetry, so the UI needed to be explicit about what is known versus merely inferred.
+- The timeline additions required careful type wiring to avoid introducing model and diagnostics errors while expanding the analytics snapshot.
+
+### Corrections Made
+- Added durable, append-only print attempt tracking so retries no longer overwrite the historical truth of what happened.
+- Reworked analytics to prioritize attendees actually on site, assignment readiness, and actionable queue / printer information.
+- Added daily event activity summaries and committee-specific views so different groups can read the dashboard with less noise.
+
+### Deviations from Plan
+- The committee-specific analytics pass was implemented as view chips within the same analytics screen rather than as separate screens, which keeps the experience faster and more practical for event staff.
+- The multi-day view uses recorded local timestamps that already exist in the app rather than introducing a more complex event-day model at this stage.

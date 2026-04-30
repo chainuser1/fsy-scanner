@@ -31,7 +31,14 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isVerified = _participant.verifiedAt != null;
+    final isVerified = _participant.isVerified;
+    final isFullyVerified = _participant.isFullyVerified;
+    final statusColor = switch (_participant.verificationStage) {
+      ParticipantVerificationStage.pending => Colors.grey,
+      ParticipantVerificationStage.partiallyVerified =>
+        FSYScannerApp.accentGold,
+      ParticipantVerificationStage.fullyVerified => FSYScannerApp.accentGreen,
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -67,11 +74,20 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                         runSpacing: 8,
                         children: [
                           _statusChip(
-                            label: isVerified ? 'Checked In' : 'Pending',
-                            color: isVerified
-                                ? FSYScannerApp.accentGreen
-                                : FSYScannerApp.accentGold,
-                            textColor: isVerified ? Colors.black : Colors.black,
+                            label: _participant.verificationLabel,
+                            color: statusColor.withValues(alpha: 0.18),
+                            textColor: Colors.black87,
+                          ),
+                          _statusChip(
+                            label: _participant.receiptStatusLabel,
+                            color: isFullyVerified
+                                ? FSYScannerApp.primaryBlue.withValues(
+                                    alpha: 0.14,
+                                  )
+                                : Colors.orange.withValues(alpha: 0.18),
+                            textColor: isFullyVerified
+                                ? FSYScannerApp.primaryBlue
+                                : Colors.deepOrange,
                           ),
                           if (_hasValue(_participant.ward))
                             _statusChip(
@@ -115,7 +131,7 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                   _infoTile('Age', _participant.age?.toString()),
                   _infoTile('Birthday', _participant.birthday),
                   _infoTile('Shirt Size', _participant.tshirtSize),
-                  _infoTile('Status', _participant.status),
+                  _infoTile('Sheet Status', _participant.status),
                 ],
               ),
               if (_hasValue(_participant.medicalInfo) ||
@@ -136,11 +152,19 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                 title: 'Check-In',
                 children: [
                   _infoTile(
+                      'Verification State', _participant.verificationLabel),
+                  _infoTile('Receipt State', _participant.receiptStatusLabel),
+                  _infoTile(
                       'Verified At', _formatTimestamp(_participant.verifiedAt)),
                   _infoTile(
                       'Printed At', _formatTimestamp(_participant.printedAt)),
                   _infoTile('Registered By', _participant.registeredBy),
                   _infoTile('Sheets Row', _participant.sheetsRow.toString()),
+                  if (_participant.isPartiallyVerified)
+                    _infoTile(
+                      'Action Needed',
+                      'Receipt still needs a successful print. Retry from this screen or Settings.',
+                    ),
                 ],
               ),
               const SizedBox(height: 24),
@@ -169,11 +193,19 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
               else
                 OutlinedButton.icon(
                   onPressed: () => Navigator.pop(context, _didChange),
-                  icon: const Icon(Icons.check_circle),
+                  icon: Icon(
+                    isFullyVerified
+                        ? Icons.check_circle
+                        : Icons.pending_actions,
+                  ),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  label: const Text('Participant Already Checked In'),
+                  label: Text(
+                    isFullyVerified
+                        ? 'Participant Fully Verified'
+                        : 'Participant Partially Verified',
+                  ),
                 ),
             ],
           ),

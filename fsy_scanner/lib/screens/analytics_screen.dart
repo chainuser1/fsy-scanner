@@ -11,7 +11,18 @@ import '../app.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
+import '../print/printer_service.dart';
 import '../providers/app_state.dart';
+
+enum _CommitteeView {
+  all,
+  registration,
+  hotel,
+  activity,
+  food,
+  leaders,
+  operations,
+}
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -23,9 +34,12 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Participant> _participants = [];
   List<_SyncTaskEntry> _syncTasks = [];
+  List<PrinterQueuedJob> _printJobs = [];
+  List<PrinterJobAttempt> _printAttempts = [];
   bool _loading = true;
   String? _error;
   int _requestId = 0;
+  _CommitteeView _committeeView = _CommitteeView.all;
   int? _recentScanMarker;
   int? _pendingTaskMarker;
   int? _failedPrintMarker;
@@ -76,9 +90,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         WHERE status IN ('pending', 'in_progress')
         ORDER BY created_at DESC
       ''');
+      final printJobsFuture = PrinterService.getRecentPrintJobs(limit: 500);
+      final printAttemptsFuture =
+          PrinterService.getRecentPrintAttempts(limit: 1000);
 
       final participants = await participantsFuture;
       final taskRows = await syncTasksFuture;
+      final printJobs = await printJobsFuture;
+      final printAttempts = await printAttemptsFuture;
 
       participants.sort((a, b) {
         final verifiedCompare =
@@ -96,6 +115,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       setState(() {
         _participants = participants;
         _syncTasks = taskRows.map(_SyncTaskEntry.fromRow).toList();
+        _printJobs = printJobs;
+        _printAttempts = printAttempts;
         _loading = false;
         _error = null;
       });
@@ -116,6 +137,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final analytics = _AnalyticsSnapshot.fromData(
       participants: _participants,
       syncTasks: _syncTasks,
+      printJobs: _printJobs,
+      printAttempts: _printAttempts,
     );
 
     return Scaffold(
@@ -138,27 +161,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(12),
-                    children: [
-                      _buildHeader(appState, analytics),
-                      const SizedBox(height: 12),
-                      _buildSummaryGrid(appState, analytics),
-                      const SizedBox(height: 12),
-                      _buildProgressCard(analytics),
-                      const SizedBox(height: 12),
-                      _buildOpsHealthCard(appState, analytics),
-                      const SizedBox(height: 12),
-                      _buildExceptionsCard(appState, analytics),
-                      const SizedBox(height: 12),
-                      _buildTrendCard(analytics),
-                      const SizedBox(height: 12),
-                      _buildStakeCard(analytics),
-                      const SizedBox(height: 12),
-                      _buildOperationalMixCard(analytics),
-                      const SizedBox(height: 12),
-                      _buildDemographicsCard(analytics),
-                      const SizedBox(height: 12),
-                      _buildAuditTrailCard(appState, analytics),
-                    ],
+                    children: _buildSectionList(appState, analytics),
                   ),
                 ),
     );
@@ -255,37 +258,202 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            const Text(
+              'Committee view',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _CommitteeView.values
+                  .map((view) => ChoiceChip(
+                        label: Text(_committeeLabel(view)),
+                        selected: _committeeView == view,
+                        onSelected: (_) {
+                          setState(() {
+                            _committeeView = view;
+                          });
+                        },
+                      ))
+                  .toList(),
+            ),
           ],
         ),
       ),
     );
   }
 
+  List<Widget> _buildSectionList(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    final sections = <Widget>[
+      _buildHeader(appState, analytics),
+      const SizedBox(height: 12),
+      _buildLiveAttendanceCard(analytics),
+      const SizedBox(height: 12),
+      _buildSummaryGrid(appState, analytics),
+      const SizedBox(height: 12),
+      _buildProgressCard(analytics),
+      const SizedBox(height: 12),
+    ];
+
+    switch (_committeeView) {
+      case _CommitteeView.all:
+        sections.addAll([
+          _buildOperationsCommandCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildAssignmentReadinessCard(analytics),
+          const SizedBox(height: 12),
+          _buildGroupProgressCard(analytics),
+          const SizedBox(height: 12),
+          _buildDemographicsCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildTrendCard(analytics),
+          const SizedBox(height: 12),
+          _buildAuditTrailCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildExceptionsCard(appState, analytics),
+        ]);
+        break;
+      case _CommitteeView.registration:
+        sections.addAll([
+          _buildAssignmentReadinessCard(analytics),
+          const SizedBox(height: 12),
+          _buildGroupProgressCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildAuditTrailCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildExceptionsCard(appState, analytics),
+        ]);
+        break;
+      case _CommitteeView.hotel:
+        sections.addAll([
+          _buildAssignmentReadinessCard(analytics),
+          const SizedBox(height: 12),
+          _buildGroupProgressCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildExceptionsCard(appState, analytics),
+        ]);
+        break;
+      case _CommitteeView.activity:
+        sections.addAll([
+          _buildAssignmentReadinessCard(analytics),
+          const SizedBox(height: 12),
+          _buildDemographicsCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildTrendCard(analytics),
+        ]);
+        break;
+      case _CommitteeView.food:
+        sections.addAll([
+          _buildDemographicsCard(analytics),
+          const SizedBox(height: 12),
+          _buildGroupProgressCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+        ]);
+        break;
+      case _CommitteeView.leaders:
+        sections.addAll([
+          _buildOperationsCommandCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildDemographicsCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildExceptionsCard(appState, analytics),
+        ]);
+        break;
+      case _CommitteeView.operations:
+        sections.addAll([
+          _buildOperationsCommandCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildAssignmentReadinessCard(analytics),
+          const SizedBox(height: 12),
+          _buildTimelineCard(analytics),
+          const SizedBox(height: 12),
+          _buildAuditTrailCard(appState, analytics),
+          const SizedBox(height: 12),
+          _buildExceptionsCard(appState, analytics),
+        ]);
+        break;
+    }
+
+    return sections;
+  }
+
+  String _committeeLabel(_CommitteeView view) {
+    switch (view) {
+      case _CommitteeView.all:
+        return 'All';
+      case _CommitteeView.registration:
+        return 'Registration';
+      case _CommitteeView.hotel:
+        return 'Hotel';
+      case _CommitteeView.activity:
+        return 'Activity';
+      case _CommitteeView.food:
+        return 'Food';
+      case _CommitteeView.leaders:
+        return 'Leaders';
+      case _CommitteeView.operations:
+        return 'Operations';
+    }
+  }
+
   Widget _buildSummaryGrid(AppState appState, _AnalyticsSnapshot analytics) {
     final cards = [
       _MetricCardData(
-        label: 'Checked in',
+        label: 'Attending now',
         value: '${analytics.checkedInCount}',
         helper:
-            '${analytics.completionRate.toStringAsFixed(1)}% of ${analytics.totalParticipants}',
+            '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of roster checked in',
+        icon: Icons.groups_2,
+        color: FSYScannerApp.primaryBlue,
+      ),
+      _MetricCardData(
+        label: 'Fully verified',
+        value: '${analytics.fullyVerifiedCount}',
+        helper:
+            '${analytics.fullVerificationRate.toStringAsFixed(1)}% fully verified',
         icon: Icons.how_to_reg,
         color: FSYScannerApp.accentGreen,
+      ),
+      _MetricCardData(
+        label: 'Partial',
+        value: '${analytics.partiallyVerifiedCount}',
+        helper: analytics.partiallyVerifiedCount == 0
+            ? 'No receipt backlog'
+            : 'Verified but awaiting print success',
+        icon: Icons.pending_actions,
+        color: FSYScannerApp.accentGold,
       ),
       _MetricCardData(
         label: 'Pending',
         value: '${analytics.pendingCount}',
         helper: analytics.pendingCount == 0
-            ? 'Everyone is checked in'
+            ? 'Everyone has started verification'
             : 'Still waiting to arrive',
         icon: Icons.hourglass_bottom,
-        color: FSYScannerApp.accentGold,
+        color: Colors.grey.shade700,
       ),
       _MetricCardData(
-        label: 'Printed',
-        value: '${analytics.printedCount}',
+        label: 'Print queue',
+        value: '${appState.printerFailedJobCount}',
         helper:
-            '${analytics.printCoverageRate.toStringAsFixed(1)}% of checked in',
-        icon: Icons.print,
+            '${analytics.staleQueuedPrintCount} stale • ${appState.printerActiveJobCount} active',
+        icon: Icons.local_printshop_outlined,
         color: FSYScannerApp.primaryBlue,
       ),
       _MetricCardData(
@@ -296,7 +464,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             : '${analytics.retryingSyncTaskCount} retries in queue',
         icon: Icons.sync,
         color: analytics.pendingSyncTaskCount == 0
-            ? FSYScannerApp.primaryBlue
+            ? FSYScannerApp.accentGreen
             : FSYScannerApp.accentGold,
       ),
       _MetricCardData(
@@ -309,25 +477,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _MetricCardData(
         label: 'Exceptions',
         value: '${analytics.exceptionCount}',
-        helper: '${analytics.checkedInNotPrintedCount} checked in not printed',
+        helper:
+            '${analytics.partiallyVerifiedCount} partially verified participants',
         icon: Icons.warning_amber_rounded,
         color: analytics.exceptionCount == 0
-            ? FSYScannerApp.accentGreen
-            : Colors.redAccent,
-      ),
-      _MetricCardData(
-        label: 'Printer retries',
-        value: '${appState.printerFailedJobCount}',
-        helper: appState.printerStatusMessage,
-        icon: Icons.print_disabled,
-        color: appState.printerFailedJobCount == 0
             ? FSYScannerApp.primaryBlue
             : Colors.redAccent,
       ),
       _MetricCardData(
+        label: 'Active tables',
+        value: '${analytics.activeTableCount}',
+        helper: '${analytics.completedTableCount} tables fully assembled',
+        icon: Icons.table_restaurant,
+        color: FSYScannerApp.primaryBlue,
+      ),
+      _MetricCardData(
+        label: 'Active rooms',
+        value: '${analytics.activeRoomCount}',
+        helper: '${analytics.completedRoomCount} rooms ready',
+        icon: Icons.meeting_room,
+        color: FSYScannerApp.accentGreen,
+      ),
+      _MetricCardData(
         label: 'Medical flags',
         value: '${analytics.medicalFlagCount}',
-        helper: '${analytics.noteCount} participant notes',
+        helper:
+            '${analytics.checkedInMedicalFlagCount} checked in • ${analytics.noteCount} notes',
         icon: Icons.medical_information,
         color: analytics.medicalFlagCount == 0
             ? FSYScannerApp.primaryBlue
@@ -397,7 +572,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Executive Summary',
+              'Verification Funnel',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
@@ -409,7 +584,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${analytics.checkedInCount} of ${analytics.totalParticipants}',
+                        '${analytics.checkedInCount} live attendees',
                         style: const TextStyle(
                           fontSize: 30,
                           fontWeight: FontWeight.w800,
@@ -417,12 +592,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${analytics.completionRate.toStringAsFixed(1)}% event completion',
+                        '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of the roster is now on site',
                         style: TextStyle(color: Colors.grey[700]),
                       ),
                       const SizedBox(height: 20),
                       _buildProgressRow(
-                        label: 'Check-in progress',
+                        label: 'Checked in / attending',
                         value: analytics.completionRate / 100,
                         color: FSYScannerApp.accentGreen,
                         trailing:
@@ -430,9 +605,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ),
                       const SizedBox(height: 12),
                       _buildProgressRow(
-                        label: 'Receipt coverage',
-                        value: analytics.printCoverageRate / 100,
+                        label: 'Fully verified',
+                        value: analytics.fullVerificationRate / 100,
                         color: FSYScannerApp.primaryBlue,
+                        trailing:
+                            '${analytics.fullyVerifiedCount}/${analytics.totalParticipants}',
+                      ),
+                      const SizedBox(height: 12),
+                      _buildProgressRow(
+                        label: 'Receipt completion after check-in',
+                        value: analytics.printCoverageRate / 100,
+                        color: FSYScannerApp.accentGold,
                         trailing:
                             '${analytics.printedCount}/${analytics.checkedInCount}',
                       ),
@@ -474,6 +657,73 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildLiveAttendanceCard(_AnalyticsSnapshot analytics) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Live Attendance',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'This section prioritizes participants actually on site right now.',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildReliabilityStat(
+                  'On site',
+                  '${analytics.checkedInCount}',
+                  '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of roster',
+                  FSYScannerApp.primaryBlue,
+                ),
+                _buildReliabilityStat(
+                  'Partial',
+                  '${analytics.partiallyVerifiedCount}',
+                  '${analytics.partiallyVerifiedRate.toStringAsFixed(1)}% of attendees',
+                  FSYScannerApp.accentGold,
+                ),
+                _buildReliabilityStat(
+                  'Ready tables',
+                  '${analytics.completedTableCount}',
+                  '${analytics.activeTableCount} with attendees',
+                  FSYScannerApp.accentGreen,
+                ),
+                _buildReliabilityStat(
+                  'Ready rooms',
+                  '${analytics.completedRoomCount}',
+                  '${analytics.activeRoomCount} with attendees',
+                  FSYScannerApp.accentGreen,
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Top stakes by attendees on site',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ...analytics.stakeAttendingRows.take(5).map(_buildLiveBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Top wards by attendees on site',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ...analytics.wardAttendingRows.take(5).map(_buildLiveBreakdownRow),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildProgressRow({
     required String label,
     required double value,
@@ -505,6 +755,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             backgroundColor: Colors.grey.shade200,
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildOperationsCommandCard(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return Column(
+      children: [
+        _buildOpsHealthCard(appState, analytics),
+        const SizedBox(height: 12),
+        _buildPrinterReliabilityCard(analytics),
       ],
     );
   }
@@ -542,12 +805,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ? Icons.print
                   : Icons.print_disabled,
               label: 'Printer',
-              value:
-                  appState.printerConnected ? 'Connected' : 'Attention needed',
-              detail: appState.printerStatusMessage,
+              value: appState.printerStateLabel,
+              detail:
+                  '${appState.printerStatusMessage} • ${appState.printerFailedJobCount} queued • ${appState.printerActiveJobCount} active',
               color: appState.printerConnected
                   ? FSYScannerApp.primaryBlue
-                  : FSYScannerApp.accentGold,
+                  : appState.printerFailedJobCount > 0
+                      ? Colors.redAccent
+                      : FSYScannerApp.accentGold,
             ),
             _buildHealthRow(
               icon: Icons.sync,
@@ -624,15 +889,130 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildAssignmentReadinessCard(_AnalyticsSnapshot analytics) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Assignment Readiness',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Useful for registration, hotel, logistics, and activity committees.',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildReliabilityStat(
+                  'Missing rooms',
+                  '${analytics.missingRoomAmongCheckedInCount}',
+                  'Checked-in attendees still unassigned',
+                  analytics.missingRoomAmongCheckedInCount == 0
+                      ? FSYScannerApp.accentGreen
+                      : Colors.redAccent,
+                ),
+                _buildReliabilityStat(
+                  'Missing tables',
+                  '${analytics.missingTableAmongCheckedInCount}',
+                  'Checked-in attendees still unassigned',
+                  analytics.missingTableAmongCheckedInCount == 0
+                      ? FSYScannerApp.accentGreen
+                      : Colors.redAccent,
+                ),
+                _buildReliabilityStat(
+                  'Avg verify to print',
+                  analytics.averageVerifyToPrintMinutes == 0
+                      ? '-'
+                      : '${analytics.averageVerifyToPrintMinutes.toStringAsFixed(1)}m',
+                  'Average delay from check-in to print success',
+                  FSYScannerApp.primaryBlue,
+                ),
+                _buildReliabilityStat(
+                  'Oldest print queue',
+                  analytics.oldestQueuedPrintAgeMinutes == 0
+                      ? '0m'
+                      : '${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)}m',
+                  '${analytics.staleQueuedPrintCount} jobs waiting over 15 min',
+                  analytics.staleQueuedPrintCount == 0
+                      ? FSYScannerApp.accentGreen
+                      : Colors.redAccent,
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Tables with most attendees on site',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.tableRows.isEmpty)
+              Text(
+                'No table assignments found.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.tableRows.take(6).map(_buildLiveBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Tables fully assembled',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.readyTableRows.isEmpty)
+              Text(
+                'No tables are fully assembled yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.readyTableRows.take(6).map(_buildReadyBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Rooms with most attendees on site',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.roomRows.isEmpty)
+              Text(
+                'No room assignments found.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.roomRows.take(6).map(_buildLiveBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Rooms fully assembled',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.readyRoomRows.isEmpty)
+              Text(
+                'No rooms are fully assembled yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.readyRoomRows.take(6).map(_buildReadyBreakdownRow),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildExceptionsCard(
     AppState appState,
     _AnalyticsSnapshot analytics,
   ) {
     final items = [
       _ExceptionData(
-        label: 'Checked in not printed',
-        value: analytics.checkedInNotPrintedCount,
-        color: analytics.checkedInNotPrintedCount == 0
+        label: 'Partial verification',
+        value: analytics.partiallyVerifiedCount,
+        color: analytics.partiallyVerifiedCount == 0
             ? FSYScannerApp.accentGreen
             : Colors.redAccent,
       ),
@@ -718,6 +1098,145 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   )
                   .toList(),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupProgressCard(_AnalyticsSnapshot analytics) {
+    return Column(
+      children: [
+        _buildStakeCard(analytics),
+        const SizedBox(height: 12),
+        _buildOperationalMixCard(analytics),
+      ],
+    );
+  }
+
+  Widget _buildPrinterReliabilityCard(_AnalyticsSnapshot analytics) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Printer Reliability',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Immutable attempt history from the print ledger',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildReliabilityStat(
+                  'Attempts',
+                  '${analytics.totalPrintAttemptCount}',
+                  '${analytics.printSuccessRate.toStringAsFixed(1)}% success',
+                  FSYScannerApp.primaryBlue,
+                ),
+                _buildReliabilityStat(
+                  'Failures',
+                  '${analytics.failedPrintAttemptCount}',
+                  '${analytics.cancelledPrintAttemptCount} cancelled',
+                  analytics.failedPrintAttemptCount == 0
+                      ? FSYScannerApp.accentGreen
+                      : Colors.redAccent,
+                ),
+                _buildReliabilityStat(
+                  'Retries',
+                  '${analytics.retryAttemptCount}',
+                  '${analytics.retrySuccessRate.toStringAsFixed(1)}% retry success',
+                  FSYScannerApp.accentGold,
+                ),
+                _buildReliabilityStat(
+                  'Attempt time',
+                  analytics.averagePrintAttemptSeconds == 0
+                      ? '-'
+                      : '${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)}s',
+                  '${analytics.printAttemptsLastHour} attempts in the last hour',
+                  FSYScannerApp.primaryBlue,
+                ),
+                _buildReliabilityStat(
+                  'Last hour failures',
+                  '${analytics.printFailuresLastHour}',
+                  '${analytics.printSuccessesLastHour} successes in the last hour',
+                  analytics.printFailuresLastHour == 0
+                      ? FSYScannerApp.accentGreen
+                      : Colors.redAccent,
+                ),
+                _buildReliabilityStat(
+                  'Printers seen',
+                  '${analytics.uniquePrinterCount}',
+                  analytics.averageAttemptsPerSuccessfulJob == 0
+                      ? 'No successful jobs yet'
+                      : '${analytics.averageAttemptsPerSuccessfulJob.toStringAsFixed(2)} avg attempts per success',
+                  FSYScannerApp.accentGreen,
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Top failure codes',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.failureCodeRows.isEmpty)
+              Text(
+                'No failed attempts recorded in the ledger.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.failureCodeRows.map(_buildAttemptBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Printer reliability by device',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.printerRows.isEmpty)
+              Text(
+                'No printer addresses recorded yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.printerRows.map(_buildAttemptBreakdownRow),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimelineCard(_AnalyticsSnapshot analytics) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Event Timeline',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Day-by-day activity from recorded check-in and print timestamps.',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 14),
+            if (analytics.dailyActivityRows.isEmpty)
+              Text(
+                'No dated activity has been recorded yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.dailyActivityRows.map(_buildDailyActivityRow),
           ],
         ),
       ),
@@ -861,6 +1380,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
             const SizedBox(height: 14),
             const Text(
+              'Stakes with the largest partial verification backlog',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            ...analytics.topStakePartialRows.map(_buildPendingBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
               'Wards with the biggest pending backlog',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
@@ -872,7 +1398,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
-            ...analytics.topRoomRows.map(_buildBreakdownRow),
+            ...analytics.topRoomRows.map(_buildLiveBreakdownRow),
           ],
         ),
       ),
@@ -897,7 +1423,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Colors.purple,
             ];
             return PieChartSectionData(
-              value: entry.value.total.toDouble(),
+              value: math.max(0.001, entry.value.checkedIn.toDouble()),
               color: colors[entry.key % colors.length],
               title: '',
               radius: 22,
@@ -906,7 +1432,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final maxAgeValue = analytics.ageRows.fold<int>(
       0,
-      (current, row) => math.max(current, row.total),
+      (current, row) => math.max(current, row.checkedIn),
     );
 
     return Card(
@@ -949,7 +1475,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           child: Row(
                             children: [
                               Expanded(child: Text(row.label)),
-                              Text('${row.total}'),
+                              Text('${row.checkedIn}/${row.total}'),
                             ],
                           ),
                         ),
@@ -1024,7 +1550,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 x: index,
                                 barRods: [
                                   BarChartRodData(
-                                    toY: analytics.ageRows[index].total
+                                    toY: analytics.ageRows[index].checkedIn
                                         .toDouble(),
                                     color: FSYScannerApp.primaryBlue,
                                     width: 22,
@@ -1043,6 +1569,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 18),
+            const Text(
+              'Shirt sizes',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ...analytics.shirtSizeRows.take(6).map(_buildLiveBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Medical classifications',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.medicalCategoryRows.isEmpty)
+              Text(
+                'No medical information classified in local data.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.medicalCategoryRows.map(_buildLiveBreakdownRow),
+            const SizedBox(height: 18),
+            const Text(
+              'Gender verification progress',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ...analytics.genderRows.take(6).map(_buildLiveBreakdownRow),
           ],
         ),
       ),
@@ -1113,6 +1666,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 style: TextStyle(color: Colors.grey[700]),
               ),
             ],
+            const SizedBox(height: 18),
+            const Text(
+              'Recent print jobs',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.recentPrintJobs.isEmpty)
+              Text(
+                'No print job history recorded yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.recentPrintJobs.map(_buildRecentPrintJobTile),
+            const SizedBox(height: 18),
+            const Text(
+              'Recent print attempts',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (analytics.recentPrintAttempts.isEmpty)
+              Text(
+                'No immutable print attempts recorded yet.',
+                style: TextStyle(color: Colors.grey[700]),
+              )
+            else
+              ...analytics.recentPrintAttempts
+                  .map(_buildRecentPrintAttemptTile),
           ],
         ),
       ),
@@ -1155,6 +1735,68 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           Text(
             '${row.pending} pending',
             style: TextStyle(color: Colors.grey[700], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveBreakdownRow(_BreakdownRow row) {
+    final attendanceShare = row.total == 0 ? 0.0 : row.checkedIn / row.total;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  row.label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text('${row.checkedIn}/${row.total} on site'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: attendanceShare,
+              minHeight: 10,
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                  FSYScannerApp.primaryBlue),
+              backgroundColor: Colors.grey.shade200,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${row.printed} fully verified • ${row.partial} awaiting print',
+            style: TextStyle(color: Colors.grey[700], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadyBreakdownRow(_BreakdownRow row) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              row.label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Text(
+            '${row.checkedIn}/${row.total} ready',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: FSYScannerApp.accentGreen,
+            ),
           ),
         ],
       ),
@@ -1209,7 +1851,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         'Room ${participant.roomNumber!.trim()}',
       if (_hasValue(participant.tableNumber))
         'Table ${participant.tableNumber!.trim()}',
-      if (participant.printedAt != null) 'Printed',
+      participant.verificationLabel,
     ];
 
     return ListTile(
@@ -1230,6 +1872,176 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             : DateFormat('h:mm a').format(
                 DateTime.fromMillisecondsSinceEpoch(verifiedAt),
               ),
+      ),
+    );
+  }
+
+  Widget _buildRecentPrintJobTile(PrinterQueuedJob job) {
+    final color = switch (job.status) {
+      'success' => FSYScannerApp.accentGreen,
+      'cancelled' => Colors.redAccent,
+      _ => FSYScannerApp.accentGold,
+    };
+    final icon = switch (job.status) {
+      'success' => Icons.check_circle,
+      'cancelled' => Icons.cancel,
+      _ => Icons.schedule,
+    };
+    final when = job.printedAt ?? job.lastAttemptAt ?? job.queuedAt;
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: color.withValues(alpha: 0.14),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(job.participantName),
+      subtitle: Text(
+        '${job.isReprint ? 'Reprint' : 'Initial print'} • ${job.status} • attempts ${job.attemptCount}',
+      ),
+      trailing: Text(
+        DateFormat('h:mm a').format(
+          DateTime.fromMillisecondsSinceEpoch(when),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentPrintAttemptTile(PrinterJobAttempt attempt) {
+    final color = switch (attempt.outcome) {
+      'success' => FSYScannerApp.accentGreen,
+      'cancelled' => Colors.redAccent,
+      _ => FSYScannerApp.accentGold,
+    };
+    final icon = switch (attempt.outcome) {
+      'success' => Icons.check_circle,
+      'cancelled' => Icons.cancel,
+      _ => Icons.error_outline,
+    };
+    final subtitleParts = <String>[
+      if (attempt.isReprint) 'Reprint' else 'Initial print',
+      'Attempt ${attempt.attemptNumber}',
+      if ((attempt.printerAddress ?? '').trim().isNotEmpty)
+        attempt.printerAddress!,
+      if ((attempt.failureCode ?? '').trim().isNotEmpty) attempt.failureCode!,
+    ];
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: color.withValues(alpha: 0.14),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(attempt.participantName),
+      subtitle: Text(subtitleParts.join(' • ')),
+      trailing: Text(
+        DateFormat('h:mm a').format(
+          DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReliabilityStat(
+    String label,
+    String value,
+    String helper,
+    Color color,
+  ) {
+    return Container(
+      width: 170,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(helper, style: TextStyle(color: Colors.grey[700])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttemptBreakdownRow(_AttemptBreakdownRow row) {
+    final failureShare = row.total == 0 ? 0.0 : row.failures / row.total;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  row.label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text('${row.failures}/${row.total} failures'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: failureShare,
+              minHeight: 10,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
+              backgroundColor: Colors.grey.shade200,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${row.successes} success • ${row.cancelled} cancelled',
+            style: TextStyle(color: Colors.grey[700], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyActivityRow(_DailyActivityRow row) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            row.label,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            children: [
+              Text('Checked in: ${row.checkedIn}'),
+              Text('Fully verified: ${row.fullyVerified}'),
+              Text('Print attempts: ${row.printAttempts}'),
+              Text('Print failures: ${row.printFailures}'),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1287,12 +2099,17 @@ class _AnalyticsSnapshot {
   final int totalParticipants;
   final int checkedInCount;
   final int pendingCount;
+  final int partiallyVerifiedCount;
+  final int fullyVerifiedCount;
   final int printedCount;
   final int checkedInNotPrintedCount;
   final int medicalFlagCount;
+  final int checkedInMedicalFlagCount;
   final int noteCount;
   final int missingRoomCount;
   final int missingTableCount;
+  final int missingRoomAmongCheckedInCount;
+  final int missingTableAmongCheckedInCount;
   final int recent15MinuteCount;
   final int recentHourCount;
   final int peakHourCount;
@@ -1301,26 +2118,66 @@ class _AnalyticsSnapshot {
   final int exceptionCount;
   final int? oldestPendingTask;
   final double completionRate;
+  final double fullVerificationRate;
   final double printCoverageRate;
   final List<_BreakdownRow> topStakeRows;
+  final List<_BreakdownRow> stakeAttendingRows;
+  final List<_BreakdownRow> topStakePartialRows;
+  final List<_BreakdownRow> wardAttendingRows;
   final List<_BreakdownRow> topWardPendingRows;
   final List<_BreakdownRow> topRoomRows;
+  final List<_BreakdownRow> tableRows;
+  final List<_BreakdownRow> roomRows;
+  final List<_BreakdownRow> readyTableRows;
+  final List<_BreakdownRow> readyRoomRows;
   final List<_BreakdownRow> genderRows;
   final List<_BreakdownRow> ageRows;
+  final List<_BreakdownRow> shirtSizeRows;
+  final List<_BreakdownRow> medicalCategoryRows;
   final List<_BreakdownRow> syncTypeRows;
   final List<_ActivityBucket> activityBuckets;
+  final List<_DailyActivityRow> dailyActivityRows;
   final List<Participant> recentCheckIns;
+  final List<PrinterQueuedJob> recentPrintJobs;
+  final List<PrinterJobAttempt> recentPrintAttempts;
+  final int totalPrintAttemptCount;
+  final int successfulPrintAttemptCount;
+  final int failedPrintAttemptCount;
+  final int cancelledPrintAttemptCount;
+  final int retryAttemptCount;
+  final int retrySuccessCount;
+  final int reprintAttemptCount;
+  final int uniquePrinterCount;
+  final int activeTableCount;
+  final int completedTableCount;
+  final int activeRoomCount;
+  final int completedRoomCount;
+  final int staleQueuedPrintCount;
+  final double averageAttemptsPerSuccessfulJob;
+  final double averageVerifyToPrintMinutes;
+  final double oldestQueuedPrintAgeMinutes;
+  final double averagePrintAttemptSeconds;
+  final int printAttemptsLastHour;
+  final int printFailuresLastHour;
+  final int printSuccessesLastHour;
+  final List<_AttemptBreakdownRow> failureCodeRows;
+  final List<_AttemptBreakdownRow> printerRows;
 
   const _AnalyticsSnapshot({
     required this.totalParticipants,
     required this.checkedInCount,
     required this.pendingCount,
+    required this.partiallyVerifiedCount,
+    required this.fullyVerifiedCount,
     required this.printedCount,
     required this.checkedInNotPrintedCount,
     required this.medicalFlagCount,
+    required this.checkedInMedicalFlagCount,
     required this.noteCount,
     required this.missingRoomCount,
     required this.missingTableCount,
+    required this.missingRoomAmongCheckedInCount,
+    required this.missingTableAmongCheckedInCount,
     required this.recent15MinuteCount,
     required this.recentHourCount,
     required this.peakHourCount,
@@ -1329,33 +2186,78 @@ class _AnalyticsSnapshot {
     required this.exceptionCount,
     required this.oldestPendingTask,
     required this.completionRate,
+    required this.fullVerificationRate,
     required this.printCoverageRate,
     required this.topStakeRows,
+    required this.stakeAttendingRows,
+    required this.topStakePartialRows,
+    required this.wardAttendingRows,
     required this.topWardPendingRows,
     required this.topRoomRows,
+    required this.tableRows,
+    required this.roomRows,
+    required this.readyTableRows,
+    required this.readyRoomRows,
     required this.genderRows,
     required this.ageRows,
+    required this.shirtSizeRows,
+    required this.medicalCategoryRows,
     required this.syncTypeRows,
     required this.activityBuckets,
+    required this.dailyActivityRows,
     required this.recentCheckIns,
+    required this.recentPrintJobs,
+    required this.recentPrintAttempts,
+    required this.totalPrintAttemptCount,
+    required this.successfulPrintAttemptCount,
+    required this.failedPrintAttemptCount,
+    required this.cancelledPrintAttemptCount,
+    required this.retryAttemptCount,
+    required this.retrySuccessCount,
+    required this.reprintAttemptCount,
+    required this.uniquePrinterCount,
+    required this.activeTableCount,
+    required this.completedTableCount,
+    required this.activeRoomCount,
+    required this.completedRoomCount,
+    required this.staleQueuedPrintCount,
+    required this.averageAttemptsPerSuccessfulJob,
+    required this.averageVerifyToPrintMinutes,
+    required this.oldestQueuedPrintAgeMinutes,
+    required this.averagePrintAttemptSeconds,
+    required this.printAttemptsLastHour,
+    required this.printFailuresLastHour,
+    required this.printSuccessesLastHour,
+    required this.failureCodeRows,
+    required this.printerRows,
   });
 
   factory _AnalyticsSnapshot.fromData({
     required List<Participant> participants,
     required List<_SyncTaskEntry> syncTasks,
+    required List<PrinterQueuedJob> printJobs,
+    required List<PrinterJobAttempt> printAttempts,
   }) {
     final checkedIn = participants.where((p) => p.verifiedAt != null).toList();
+    final partiallyVerified =
+        checkedIn.where((p) => p.printedAt == null).toList();
+    final fullyVerified = checkedIn.where((p) => p.printedAt != null).toList();
     final printed = participants.where((p) => p.printedAt != null).length;
     final pending = participants.length - checkedIn.length;
-    final checkedInNotPrinted =
-        checkedIn.where((p) => p.printedAt == null).length;
+    final checkedInNotPrinted = partiallyVerified.length;
     final medicalFlags =
         participants.where((p) => _hasText(p.medicalInfo)).length;
+    final checkedInMedicalFlags =
+        checkedIn.where((p) => _hasText(p.medicalInfo)).length;
     final notes = participants.where((p) => _hasText(p.note)).length;
     final missingRooms =
         participants.where((p) => !_hasText(p.roomNumber)).length;
     final missingTables =
         participants.where((p) => !_hasText(p.tableNumber)).length;
+    final missingRoomAmongCheckedIn =
+        checkedIn.where((p) => !_hasText(p.roomNumber)).length;
+    final missingTableAmongCheckedIn =
+        checkedIn.where((p) => !_hasText(p.tableNumber)).length;
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final recent15Minutes = checkedIn
@@ -1370,6 +2272,10 @@ class _AnalyticsSnapshot {
         .length;
 
     final activityBuckets = _buildActivityBuckets(checkedIn);
+    final dailyActivityRows = _buildDailyActivityRows(
+      participants: participants,
+      printAttempts: printAttempts,
+    );
     final peakHour = activityBuckets.fold<int>(
       0,
       (current, bucket) => math.max(current, bucket.count),
@@ -1379,16 +2285,49 @@ class _AnalyticsSnapshot {
       participants,
       (participant) => _normalizeLabel(participant.stake, 'Unknown stake'),
     )..sort((a, b) => b.total.compareTo(a.total));
+    final stakeAttendingRows = [...stakeRows]..sort(_sortByCheckedInThenTotal);
+    final stakePartialRows = [...stakeRows]
+      ..sort((a, b) => b.partial.compareTo(a.partial));
 
     final wardRows = _buildBreakdown(
       participants,
       (participant) => _normalizeLabel(participant.ward, 'Unknown ward'),
     )..sort((a, b) => b.pending.compareTo(a.pending));
+    final wardAttendingRows = [...wardRows]..sort(_sortByCheckedInThenTotal);
 
     final roomRows = _buildBreakdown(
       participants,
       (participant) => _normalizeLabel(participant.roomNumber, 'No room'),
-    )..sort((a, b) => b.total.compareTo(a.total));
+    )..sort(_sortByCheckedInThenTotal);
+    final activeRoomRows = roomRows
+        .where((row) => row.label != 'No room' && row.checkedIn > 0)
+        .toList();
+    final readyRoomRows = roomRows
+        .where(
+          (row) =>
+              row.label != 'No room' &&
+              row.total > 0 &&
+              row.checkedIn == row.total,
+        )
+        .toList()
+      ..sort(_sortByCheckedInThenTotal);
+
+    final tableRows = _buildBreakdown(
+      participants,
+      (participant) => _normalizeLabel(participant.tableNumber, 'No table'),
+    )..sort(_sortByCheckedInThenTotal);
+    final activeTableRows = tableRows
+        .where((row) => row.label != 'No table' && row.checkedIn > 0)
+        .toList();
+    final readyTableRows = tableRows
+        .where(
+          (row) =>
+              row.label != 'No table' &&
+              row.total > 0 &&
+              row.checkedIn == row.total,
+        )
+        .toList()
+      ..sort(_sortByCheckedInThenTotal);
 
     final genderRows = _buildBreakdown(
       participants,
@@ -1396,6 +2335,11 @@ class _AnalyticsSnapshot {
     )..sort((a, b) => b.total.compareTo(a.total));
 
     final ageRows = _buildAgeBreakdown(participants);
+    final shirtSizeRows = _buildBreakdown(
+      participants,
+      (participant) => _normalizeLabel(participant.tshirtSize, 'Unknown size'),
+    )..sort((a, b) => b.total.compareTo(a.total));
+    final medicalCategoryRows = _buildMedicalBreakdown(participants);
     final syncTypeRows = _buildSyncBreakdown(syncTasks);
     final retryingSyncCount =
         syncTasks.where((task) => task.attempts > 0).length;
@@ -1404,23 +2348,129 @@ class _AnalyticsSnapshot {
         : syncTasks.map((task) => task.createdAt).reduce(math.min);
     final recentCheckIns = [...checkedIn]
       ..sort((a, b) => (b.verifiedAt ?? 0).compareTo(a.verifiedAt ?? 0));
+    final recentPrintAttempts = [...printAttempts]
+      ..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
+    final successfulAttempts =
+        printAttempts.where((attempt) => attempt.outcome == 'success').length;
+    final failedAttempts =
+        printAttempts.where((attempt) => attempt.outcome == 'failed').length;
+    final cancelledAttempts =
+        printAttempts.where((attempt) => attempt.outcome == 'cancelled').length;
+    final retryAttempts =
+        printAttempts.where((attempt) => attempt.attemptNumber > 1).length;
+    final retrySuccesses = printAttempts
+        .where(
+          (attempt) =>
+              attempt.attemptNumber > 1 && attempt.outcome == 'success',
+        )
+        .length;
+    final reprintAttempts =
+        printAttempts.where((attempt) => attempt.isReprint).length;
+    final uniquePrinterCount = printAttempts
+        .map((attempt) => attempt.printerAddress?.trim() ?? '')
+        .where((address) => address.isNotEmpty)
+        .toSet()
+        .length;
+    final queuedPrintJobs =
+        printJobs.where((job) => job.status == 'queued').toList();
+    final staleQueuedPrintCount = queuedPrintJobs
+        .where(
+          (job) =>
+              now - job.queuedAt > const Duration(minutes: 15).inMilliseconds,
+        )
+        .length;
+    final oldestQueuedPrintAgeMinutes = queuedPrintJobs.isEmpty
+        ? 0.0
+        : (now - queuedPrintJobs.map((job) => job.queuedAt).reduce(math.min)) /
+            const Duration(minutes: 1).inMilliseconds;
+    final printedParticipants = participants
+        .where((p) => p.verifiedAt != null && p.printedAt != null)
+        .toList();
+    final averageVerifyToPrintMinutes = printedParticipants.isEmpty
+        ? 0.0
+        : printedParticipants
+                .map((p) => (p.printedAt! - p.verifiedAt!).toDouble())
+                .reduce((left, right) => left + right) /
+            printedParticipants.length /
+            const Duration(minutes: 1).inMilliseconds;
+    final successfulJobs = printJobs
+        .where((job) => job.status == 'success' && job.attemptCount > 0)
+        .toList();
+    final averageAttemptsPerSuccessfulJob = successfulJobs.isEmpty
+        ? 0.0
+        : successfulJobs
+                .map((job) => job.attemptCount)
+                .reduce((left, right) => left + right) /
+            successfulJobs.length;
+    final failureCodeRows = _buildAttemptBreakdown(
+      printAttempts.where((attempt) => attempt.outcome == 'failed'),
+      (attempt) => _normalizeAttemptLabel(
+        attempt.failureCode,
+        'Unknown failure',
+      ),
+    );
+    final printerRows = _buildAttemptBreakdown(
+      printAttempts,
+      (attempt) => _normalizeAttemptLabel(
+        attempt.printerAddress,
+        'Unknown printer',
+      ),
+    );
+    final averagePrintAttemptSeconds = printAttempts.isEmpty
+        ? 0.0
+        : printAttempts
+                .map((attempt) =>
+                    (attempt.finishedAt - attempt.startedAt).toDouble())
+                .reduce((left, right) => left + right) /
+            printAttempts.length /
+            1000;
+    final printAttemptsLastHour = printAttempts
+        .where(
+          (attempt) =>
+              now - attempt.finishedAt <=
+              const Duration(hours: 1).inMilliseconds,
+        )
+        .length;
+    final printFailuresLastHour = printAttempts
+        .where(
+          (attempt) =>
+              attempt.outcome == 'failed' &&
+              now - attempt.finishedAt <=
+                  const Duration(hours: 1).inMilliseconds,
+        )
+        .length;
+    final printSuccessesLastHour = printAttempts
+        .where(
+          (attempt) =>
+              attempt.outcome == 'success' &&
+              now - attempt.finishedAt <=
+                  const Duration(hours: 1).inMilliseconds,
+        )
+        .length;
 
     final exceptionCount = checkedInNotPrinted +
-        missingRooms +
-        missingTables +
+        missingRoomAmongCheckedIn +
+        missingTableAmongCheckedIn +
         retryingSyncCount +
-        medicalFlags;
+        medicalFlags +
+        syncTasks.length +
+        staleQueuedPrintCount;
 
     return _AnalyticsSnapshot(
       totalParticipants: participants.length,
       checkedInCount: checkedIn.length,
       pendingCount: pending,
+      partiallyVerifiedCount: partiallyVerified.length,
+      fullyVerifiedCount: fullyVerified.length,
       printedCount: printed,
       checkedInNotPrintedCount: checkedInNotPrinted,
       medicalFlagCount: medicalFlags,
+      checkedInMedicalFlagCount: checkedInMedicalFlags,
       noteCount: notes,
       missingRoomCount: missingRooms,
       missingTableCount: missingTables,
+      missingRoomAmongCheckedInCount: missingRoomAmongCheckedIn,
+      missingTableAmongCheckedInCount: missingTableAmongCheckedIn,
       recent15MinuteCount: recent15Minutes,
       recentHourCount: recentHour,
       peakHourCount: peakHour,
@@ -1431,17 +2481,77 @@ class _AnalyticsSnapshot {
       completionRate: participants.isEmpty
           ? 0
           : checkedIn.length / participants.length * 100,
+      fullVerificationRate: participants.isEmpty
+          ? 0
+          : fullyVerified.length / participants.length * 100,
       printCoverageRate:
           checkedIn.isEmpty ? 0 : printed / checkedIn.length * 100,
       topStakeRows: stakeRows.take(6).toList(),
+      stakeAttendingRows: stakeAttendingRows,
+      topStakePartialRows: stakePartialRows.take(6).toList(),
+      wardAttendingRows: wardAttendingRows,
       topWardPendingRows: wardRows.take(6).toList(),
       topRoomRows: roomRows.take(6).toList(),
+      tableRows: activeTableRows,
+      roomRows: activeRoomRows,
+      readyTableRows: readyTableRows,
+      readyRoomRows: readyRoomRows,
       genderRows: genderRows,
       ageRows: ageRows,
+      shirtSizeRows: shirtSizeRows,
+      medicalCategoryRows: medicalCategoryRows,
       syncTypeRows: syncTypeRows,
       activityBuckets: activityBuckets,
+      dailyActivityRows: dailyActivityRows,
       recentCheckIns: recentCheckIns.take(8).toList(),
+      recentPrintJobs: printJobs.take(8).toList(),
+      recentPrintAttempts: recentPrintAttempts.take(8).toList(),
+      totalPrintAttemptCount: printAttempts.length,
+      successfulPrintAttemptCount: successfulAttempts,
+      failedPrintAttemptCount: failedAttempts,
+      cancelledPrintAttemptCount: cancelledAttempts,
+      retryAttemptCount: retryAttempts,
+      retrySuccessCount: retrySuccesses,
+      reprintAttemptCount: reprintAttempts,
+      uniquePrinterCount: uniquePrinterCount,
+      activeTableCount: activeTableRows.length,
+      completedTableCount: readyTableRows.length,
+      activeRoomCount: activeRoomRows.length,
+      completedRoomCount: readyRoomRows.length,
+      staleQueuedPrintCount: staleQueuedPrintCount,
+      averageAttemptsPerSuccessfulJob: averageAttemptsPerSuccessfulJob,
+      averageVerifyToPrintMinutes: averageVerifyToPrintMinutes,
+      oldestQueuedPrintAgeMinutes: oldestQueuedPrintAgeMinutes,
+      averagePrintAttemptSeconds: averagePrintAttemptSeconds,
+      printAttemptsLastHour: printAttemptsLastHour,
+      printFailuresLastHour: printFailuresLastHour,
+      printSuccessesLastHour: printSuccessesLastHour,
+      failureCodeRows: failureCodeRows.take(6).toList(),
+      printerRows: printerRows.take(6).toList(),
     );
+  }
+
+  double get liveAttendanceRate => completionRate;
+
+  double get partiallyVerifiedRate {
+    if (checkedInCount == 0) {
+      return 0;
+    }
+    return partiallyVerifiedCount / checkedInCount * 100;
+  }
+
+  double get printSuccessRate {
+    if (totalPrintAttemptCount == 0) {
+      return 0;
+    }
+    return successfulPrintAttemptCount / totalPrintAttemptCount * 100;
+  }
+
+  double get retrySuccessRate {
+    if (retryAttemptCount == 0) {
+      return 0;
+    }
+    return retrySuccessCount / retryAttemptCount * 100;
   }
 
   static List<_BreakdownRow> _buildBreakdown(
@@ -1456,6 +2566,9 @@ class _AnalyticsSnapshot {
       if (participant.verifiedAt != null) {
         accumulator.checkedIn++;
       }
+      if (participant.verifiedAt != null && participant.printedAt == null) {
+        accumulator.partial++;
+      }
       if (participant.printedAt != null) {
         accumulator.printed++;
       }
@@ -1467,6 +2580,7 @@ class _AnalyticsSnapshot {
             label: entry.key,
             total: entry.value.total,
             checkedIn: entry.value.checkedIn,
+            partial: entry.value.partial,
             printed: entry.value.printed,
           ),
         )
@@ -1497,6 +2611,12 @@ class _AnalyticsSnapshot {
       if (participant.verifiedAt != null) {
         accumulator.checkedIn++;
       }
+      if (participant.verifiedAt != null && participant.printedAt == null) {
+        accumulator.partial++;
+      }
+      if (participant.printedAt != null) {
+        accumulator.printed++;
+      }
     }
 
     return order
@@ -1505,10 +2625,48 @@ class _AnalyticsSnapshot {
             label: label,
             total: grouped[label]!.total,
             checkedIn: grouped[label]!.checkedIn,
+            partial: grouped[label]!.partial,
             printed: grouped[label]!.printed,
           ),
         )
         .toList();
+  }
+
+  static List<_BreakdownRow> _buildMedicalBreakdown(
+    List<Participant> participants,
+  ) {
+    final grouped = <String, _BreakdownAccumulator>{};
+    for (final participant in participants) {
+      if (!_hasText(participant.medicalInfo)) {
+        continue;
+      }
+      final label = _classifyMedicalInfo(participant.medicalInfo!);
+      final accumulator = grouped.putIfAbsent(label, _BreakdownAccumulator.new);
+      accumulator.total++;
+      if (participant.verifiedAt != null) {
+        accumulator.checkedIn++;
+      }
+      if (participant.verifiedAt != null && participant.printedAt == null) {
+        accumulator.partial++;
+      }
+      if (participant.printedAt != null) {
+        accumulator.printed++;
+      }
+    }
+
+    final rows = grouped.entries
+        .map(
+          (entry) => _BreakdownRow(
+            label: entry.key,
+            total: entry.value.total,
+            checkedIn: entry.value.checkedIn,
+            partial: entry.value.partial,
+            printed: entry.value.printed,
+          ),
+        )
+        .toList()
+      ..sort((a, b) => b.total.compareTo(a.total));
+    return rows.take(6).toList();
   }
 
   static List<_BreakdownRow> _buildSyncBreakdown(
@@ -1531,12 +2689,60 @@ class _AnalyticsSnapshot {
             label: entry.key,
             total: entry.value.total,
             checkedIn: entry.value.checkedIn,
+            partial: 0,
             printed: 0,
           ),
         )
         .toList();
     rows.sort((a, b) => b.total.compareTo(a.total));
     return rows;
+  }
+
+  static List<_AttemptBreakdownRow> _buildAttemptBreakdown(
+    Iterable<PrinterJobAttempt> attempts,
+    String Function(PrinterJobAttempt attempt) labelOf,
+  ) {
+    final grouped = <String, _AttemptBreakdownAccumulator>{};
+    for (final attempt in attempts) {
+      final label = labelOf(attempt);
+      final accumulator =
+          grouped.putIfAbsent(label, _AttemptBreakdownAccumulator.new);
+      accumulator.total++;
+      switch (attempt.outcome) {
+        case 'success':
+          accumulator.successes++;
+          break;
+        case 'cancelled':
+          accumulator.cancelled++;
+          break;
+        default:
+          accumulator.failures++;
+          break;
+      }
+    }
+
+    final rows = grouped.entries
+        .map(
+          (entry) => _AttemptBreakdownRow(
+            label: entry.key,
+            total: entry.value.total,
+            successes: entry.value.successes,
+            failures: entry.value.failures,
+            cancelled: entry.value.cancelled,
+          ),
+        )
+        .toList();
+    rows.sort((a, b) => b.total.compareTo(a.total));
+    return rows;
+  }
+
+  static int _sortByCheckedInThenTotal(
+      _BreakdownRow left, _BreakdownRow right) {
+    final checkedInCompare = right.checkedIn.compareTo(left.checkedIn);
+    if (checkedInCompare != 0) {
+      return checkedInCompare;
+    }
+    return right.total.compareTo(left.total);
   }
 
   static List<_ActivityBucket> _buildActivityBuckets(
@@ -1570,11 +2776,70 @@ class _AnalyticsSnapshot {
     return buckets;
   }
 
+  static List<_DailyActivityRow> _buildDailyActivityRows({
+    required List<Participant> participants,
+    required List<PrinterJobAttempt> printAttempts,
+  }) {
+    final rows = <String, _DailyActivityAccumulator>{};
+
+    for (final participant in participants) {
+      if (participant.verifiedAt != null) {
+        final dayKey = _dayKey(
+          DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!),
+        );
+        final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        row.checkedIn++;
+      }
+      if (participant.printedAt != null) {
+        final dayKey = _dayKey(
+          DateTime.fromMillisecondsSinceEpoch(participant.printedAt!),
+        );
+        final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        row.fullyVerified++;
+      }
+    }
+
+    for (final attempt in printAttempts) {
+      final dayKey = _dayKey(
+        DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
+      );
+      final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+      row.printAttempts++;
+      if (attempt.outcome == 'failed') {
+        row.printFailures++;
+      }
+    }
+
+    final result = rows.values.map((row) => row.toRow()).toList();
+    result.sort((a, b) => b.date.compareTo(a.date));
+    return result.take(7).toList();
+  }
+
   static String _normalizeLabel(String? raw, String fallback) {
     if (!_hasText(raw)) {
       return fallback;
     }
     return raw!.trim();
+  }
+
+  static String _normalizeAttemptLabel(String? raw, String fallback) {
+    if (raw == null) {
+      return fallback;
+    }
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return fallback;
+    }
+    return trimmed;
+  }
+
+  static DateTime _startOfDay(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  static String _dayKey(DateTime value) {
+    final day = _startOfDay(value);
+    return DateFormat('yyyy-MM-dd').format(day);
   }
 
   static bool _hasText(String? value) {
@@ -1587,6 +2852,28 @@ class _AnalyticsSnapshot {
     }
     final lower = trimmed.toLowerCase();
     return lower != 'none' && lower != 'n/a' && lower != 'null';
+  }
+
+  static String _classifyMedicalInfo(String value) {
+    final normalized = value.toLowerCase();
+    if (normalized.contains('allerg')) {
+      return 'Allergies';
+    }
+    if (normalized.contains('asthma') ||
+        normalized.contains('inhaler') ||
+        normalized.contains('respir')) {
+      return 'Respiratory';
+    }
+    if (normalized.contains('diet') ||
+        normalized.contains('gluten') ||
+        normalized.contains('lactose') ||
+        normalized.contains('food')) {
+      return 'Dietary';
+    }
+    if (normalized.contains('med') || normalized.contains('medicine')) {
+      return 'Medication';
+    }
+    return 'Other medical';
   }
 }
 
@@ -1622,12 +2909,14 @@ class _BreakdownRow {
   final String label;
   final int total;
   final int checkedIn;
+  final int partial;
   final int printed;
 
   const _BreakdownRow({
     required this.label,
     required this.total,
     required this.checkedIn,
+    required this.partial,
     required this.printed,
   });
 
@@ -1637,7 +2926,31 @@ class _BreakdownRow {
 class _BreakdownAccumulator {
   int total = 0;
   int checkedIn = 0;
+  int partial = 0;
   int printed = 0;
+}
+
+class _AttemptBreakdownRow {
+  final String label;
+  final int total;
+  final int successes;
+  final int failures;
+  final int cancelled;
+
+  const _AttemptBreakdownRow({
+    required this.label,
+    required this.total,
+    required this.successes,
+    required this.failures,
+    required this.cancelled,
+  });
+}
+
+class _AttemptBreakdownAccumulator {
+  int total = 0;
+  int successes = 0;
+  int failures = 0;
+  int cancelled = 0;
 }
 
 class _ActivityBucket {
@@ -1648,6 +2961,46 @@ class _ActivityBucket {
     required this.start,
     required this.count,
   });
+}
+
+class _DailyActivityRow {
+  final DateTime date;
+  final String label;
+  final int checkedIn;
+  final int fullyVerified;
+  final int printAttempts;
+  final int printFailures;
+
+  const _DailyActivityRow({
+    required this.date,
+    required this.label,
+    required this.checkedIn,
+    required this.fullyVerified,
+    required this.printAttempts,
+    required this.printFailures,
+  });
+}
+
+class _DailyActivityAccumulator {
+  final String key;
+  int checkedIn = 0;
+  int fullyVerified = 0;
+  int printAttempts = 0;
+  int printFailures = 0;
+
+  _DailyActivityAccumulator(this.key);
+
+  _DailyActivityRow toRow() {
+    final date = DateTime.parse(key);
+    return _DailyActivityRow(
+      date: date,
+      label: DateFormat('EEE, MMM d').format(date),
+      checkedIn: checkedIn,
+      fullyVerified: fullyVerified,
+      printAttempts: printAttempts,
+      printFailures: printFailures,
+    );
+  }
 }
 
 class _SyncTaskEntry {

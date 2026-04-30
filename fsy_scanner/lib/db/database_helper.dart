@@ -6,7 +6,7 @@ import 'schema.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
-  static const String _dbVersion = '3';
+  static const String _dbVersion = '5';
   static Database? _database;
 
   static Future<Database> get database async {
@@ -19,7 +19,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 3,
+      version: 5,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
@@ -28,6 +28,8 @@ class DatabaseHelper {
         await db.execute(participantsSearchUpdateTriggerDDL);
         await db.execute(participantsSearchDeleteTriggerDDL);
         await db.execute(syncTasksDDL);
+        await db.execute(printJobsDDL);
+        await db.execute(printJobAttemptsDDL);
         await db.execute(eventProfilesDDL);
         await runMigrations(db);
       },
@@ -41,6 +43,12 @@ class DatabaseHelper {
           await db.execute(participantsSearchUpdateTriggerDDL);
           await db.execute(participantsSearchDeleteTriggerDDL);
         }
+        if (oldVersion < 4) {
+          await db.execute(printJobsDDL);
+        }
+        if (oldVersion < 5) {
+          await db.execute(printJobAttemptsDDL);
+        }
         if (oldVersion < 1) {
           await db.execute(appSettingsDDL);
           await db.execute(participantsDDL);
@@ -49,6 +57,8 @@ class DatabaseHelper {
           await db.execute(participantsSearchUpdateTriggerDDL);
           await db.execute(participantsSearchDeleteTriggerDDL);
           await db.execute(syncTasksDDL);
+          await db.execute(printJobsDDL);
+          await db.execute(printJobAttemptsDDL);
           await db.execute(eventProfilesDDL);
           await runMigrations(db);
         }
@@ -94,6 +104,8 @@ class DatabaseHelper {
     await db.execute(participantsSearchInsertTriggerDDL);
     await db.execute(participantsSearchUpdateTriggerDDL);
     await db.execute(participantsSearchDeleteTriggerDDL);
+    await db.execute(printJobsDDL);
+    await db.execute(printJobAttemptsDDL);
     await db.delete('participants_search');
     await db.execute('''
       INSERT INTO participants_search (

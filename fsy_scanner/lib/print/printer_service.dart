@@ -18,6 +18,12 @@ class PrinterService {
   static const String _organizationNameKey = 'organization_name';
   static const String _printerAddressKey = 'printer_address';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
+  static const String _lastPrintSuccessAtKey = 'printer_last_print_success_at';
+  static const String _lastPrintFailureAtKey = 'printer_last_print_failure_at';
+  static const String _lastPrintFailureReasonKey =
+      'printer_last_print_failure_reason';
+  static const String _lastPrintFailureCodeKey =
+      'printer_last_print_failure_code';
 
   static const String cutModeOff = 'off';
   static const String cutModeSafe = 'safe';
@@ -29,6 +35,13 @@ class PrinterService {
   static const String _failureNotPaired = 'printer_not_paired';
   static const String _failureConnectFailed = 'connect_failed';
   static const String _failureWriteFailed = 'write_failed';
+  static const String _jobStatusQueued = 'queued';
+  static const String _jobStatusPrinting = 'printing';
+  static const String _jobStatusSuccess = 'success';
+  static const String _jobStatusCancelled = 'cancelled';
+  static const String _attemptOutcomeSuccess = 'success';
+  static const String _attemptOutcomeFailed = 'failed';
+  static const String _attemptOutcomeCancelled = 'cancelled';
   static const Duration _monitorInterval = Duration(seconds: 8);
 
   static final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
@@ -336,13 +349,28 @@ class PrinterService {
   static Future<PrinterStatusSnapshot> getSelectedPrinterStatus({
     bool requestPermissions = true,
   }) async {
+    await _loadFailedJobs();
     final address = await getSelectedPrinterAddress();
+    final lastPrintSuccessAt = await _readIntSetting(_lastPrintSuccessAtKey);
+    final lastPrintFailureAt = await _readIntSetting(_lastPrintFailureAtKey);
+    final lastPrintFailureReason =
+        await _readStringSetting(_lastPrintFailureReasonKey);
+    final queuedJobCount = _failedJobs.length;
+    final activeJobCount = _pendingPrints.length;
+
     if (address == null) {
-      return const PrinterStatusSnapshot(
+      return PrinterStatusSnapshot(
         hasSelection: false,
+        stateLabel: 'No Printer Selected',
         permissionsGranted: true,
         isPaired: false,
         isConnected: false,
+        isConnecting: _isConnecting,
+        queuedJobCount: queuedJobCount,
+        activeJobCount: activeJobCount,
+        lastPrintSuccessAt: lastPrintSuccessAt,
+        lastPrintFailureAt: lastPrintFailureAt,
+        lastPrintFailureReason: lastPrintFailureReason,
         message: 'No printer selected',
       );
     }
@@ -354,9 +382,16 @@ class PrinterService {
       return PrinterStatusSnapshot(
         hasSelection: true,
         selectedAddress: address,
+        stateLabel: 'Bluetooth Permission Required',
         permissionsGranted: false,
         isPaired: false,
         isConnected: false,
+        isConnecting: _isConnecting,
+        queuedJobCount: queuedJobCount,
+        activeJobCount: activeJobCount,
+        lastPrintSuccessAt: lastPrintSuccessAt,
+        lastPrintFailureAt: lastPrintFailureAt,
+        lastPrintFailureReason: lastPrintFailureReason,
         message: 'Bluetooth permission required',
       );
     }
@@ -368,31 +403,62 @@ class PrinterService {
         return PrinterStatusSnapshot(
           hasSelection: true,
           selectedAddress: address,
+          stateLabel: 'Paired Device Missing',
           permissionsGranted: true,
           isPaired: false,
           isConnected: false,
+          isConnecting: _isConnecting,
+          queuedJobCount: queuedJobCount,
+          activeJobCount: activeJobCount,
+          lastPrintSuccessAt: lastPrintSuccessAt,
+          lastPrintFailureAt: lastPrintFailureAt,
+          lastPrintFailureReason: lastPrintFailureReason,
           message: 'Selected printer is not paired in Android settings',
         );
       }
 
       final connected =
           _connectedDevice?.address == address && await isConnected;
+      final stateLabel = _isConnecting
+          ? 'Connecting'
+          : connected
+              ? 'Connected'
+              : 'Paired, Not Connected';
       return PrinterStatusSnapshot(
         hasSelection: true,
         selectedAddress: address,
+        selectedName: device.name,
+        stateLabel: stateLabel,
         permissionsGranted: true,
         isPaired: true,
         isConnected: connected,
+        isConnecting: _isConnecting,
+        queuedJobCount: queuedJobCount,
+        activeJobCount: activeJobCount,
+        lastPrintSuccessAt: lastPrintSuccessAt,
+        lastPrintFailureAt: lastPrintFailureAt,
+        lastPrintFailureReason: lastPrintFailureReason,
         device: device,
-        message: connected ? 'Connected' : 'Paired and ready',
+        message: connected
+            ? 'Connected. Printer readiness beyond the Bluetooth link is only confirmed when a print succeeds.'
+            : _isConnecting
+                ? 'Connecting to the selected printer'
+                : 'Paired, but not currently connected',
       );
     } catch (e) {
       return PrinterStatusSnapshot(
         hasSelection: true,
         selectedAddress: address,
+        stateLabel: 'Status Check Failed',
         permissionsGranted: true,
         isPaired: false,
         isConnected: false,
+        isConnecting: _isConnecting,
+        queuedJobCount: queuedJobCount,
+        activeJobCount: activeJobCount,
+        lastPrintSuccessAt: lastPrintSuccessAt,
+        lastPrintFailureAt: lastPrintFailureAt,
+        lastPrintFailureReason: lastPrintFailureReason,
         message: 'Unable to check printer status: $e',
       );
     }
@@ -419,6 +485,12 @@ class PrinterService {
     await _loadFailedJobs();
     _cancelledPrints.remove(participant.id);
     _pendingPrints[participant.id] = false;
+    final printJob = await _beginPrintAttempt(
+      participant,
+      deviceId,
+      isReprint: isReprint,
+      retryJob: retryJob,
+    );
 
     try {
       debugPrint('[PrinterService] Starting print for ${participant.fullName}');
@@ -430,7 +502,7 @@ class PrinterService {
           participant,
           deviceId,
           isReprint: isReprint,
-          retryJob: retryJob,
+          retryJob: printJob,
           failure: const _QueuedFailure(
             code: _failureNoPrinter,
             reason: 'No printer selected',
@@ -446,7 +518,7 @@ class PrinterService {
           participant,
           deviceId,
           isReprint: isReprint,
-          retryJob: retryJob,
+          retryJob: printJob,
           failure: const _QueuedFailure(
             code: _failurePermissionRequired,
             reason: 'Bluetooth permission required',
@@ -461,7 +533,7 @@ class PrinterService {
           participant,
           deviceId,
           isReprint: isReprint,
-          retryJob: retryJob,
+          retryJob: printJob,
           failure: const _QueuedFailure(
             code: _failureNotPaired,
             reason: 'Selected printer is not paired',
@@ -472,6 +544,11 @@ class PrinterService {
       }
 
       if (_wasPrintCancelled(participant.id)) {
+        await _cancelQueuedJob(
+          printJob,
+          reason:
+              'Cancelled before printing because the participant was de-verified.',
+        );
         return const PrintReceiptResult(
           success: false,
           queuedForRetry: false,
@@ -486,7 +563,7 @@ class PrinterService {
           participant,
           deviceId,
           isReprint: isReprint,
-          retryJob: retryJob,
+          retryJob: printJob.copyWith(printerAddress: printerAddress),
           failure: const _QueuedFailure(
             code: _failureConnectFailed,
             reason: 'Could not connect to the selected printer',
@@ -497,6 +574,11 @@ class PrinterService {
       }
 
       if (_wasPrintCancelled(participant.id)) {
+        await _cancelQueuedJob(
+          printJob,
+          reason:
+              'Cancelled before printing because the participant was de-verified.',
+        );
         return const PrintReceiptResult(
           success: false,
           queuedForRetry: false,
@@ -515,10 +597,12 @@ class PrinterService {
       await _printReceiptLines(receiptLines, printerAddress);
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final recorded = await _onPrintSuccess(participant, now);
-      if (retryJob != null) {
-        await _removeQueuedJob(retryJob.jobId);
-      }
+      final recorded = await _onPrintSuccess(
+        participant,
+        now,
+        job: printJob,
+        isReprint: isReprint,
+      );
 
       debugPrint('[PrinterService] Print successful');
       if (!recorded) {
@@ -532,10 +616,12 @@ class PrinterService {
       }
 
       await _emitStateChanged();
-      return const PrintReceiptResult(
+      return PrintReceiptResult(
         success: true,
         queuedForRetry: false,
-        message: 'Receipt printed successfully.',
+        message: isReprint
+            ? 'Receipt reprinted successfully.'
+            : 'Receipt printed successfully.',
       );
     } catch (e) {
       debugPrint('[PrinterService] Print failed: $e');
@@ -543,7 +629,7 @@ class PrinterService {
         participant,
         deviceId,
         isReprint: isReprint,
-        retryJob: retryJob,
+        retryJob: printJob,
         failure: _failureFromException(e),
       );
     } finally {
@@ -568,50 +654,9 @@ class PrinterService {
       return;
     }
 
-    final db = await DatabaseHelper.database;
-    final result = await db.query(
-      'app_settings',
-      where: 'key = ?',
-      whereArgs: [_failedPrintJobsKey],
-      limit: 1,
-    );
-
-    _failedJobs
-      ..clear()
-      ..addAll(() {
-        if (result.isEmpty) {
-          return const <_FailedPrintJob>[];
-        }
-
-        final raw = result.first['value'] as String?;
-        if (raw == null || raw.isEmpty) {
-          return const <_FailedPrintJob>[];
-        }
-
-        try {
-          final decoded = jsonDecode(raw) as List<dynamic>;
-          return decoded
-              .whereType<Map<String, dynamic>>()
-              .map(_FailedPrintJob.fromJson)
-              .toList();
-        } catch (_) {
-          return const <_FailedPrintJob>[];
-        }
-      }());
-
+    await _migrateLegacyFailedJobsToTable();
+    await _refreshQueuedJobsCache();
     _failedJobsLoaded = true;
-  }
-
-  static Future<void> _saveFailedJobs() async {
-    final db = await DatabaseHelper.database;
-    await db.insert(
-      'app_settings',
-      {
-        'key': _failedPrintJobsKey,
-        'value': jsonEncode(_failedJobs.map((job) => job.toJson()).toList()),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
   }
 
   static Future<void> _queueFailedJob(
@@ -623,13 +668,7 @@ class PrinterService {
   }) async {
     await _loadFailedJobs();
     final now = DateTime.now().millisecondsSinceEpoch;
-    final existingIndex = _failedJobs.indexWhere((job) =>
-        job.matchesParticipant(participant.id, isReprint: isReprint) ||
-        job.jobId == retryJob?.jobId);
-
-    final previous =
-        existingIndex == -1 ? retryJob : _failedJobs[existingIndex];
-    final attemptCount = (previous?.attemptCount ?? 0) + 1;
+    final previous = retryJob ?? _findOpenJob(participant.id, isReprint);
     final queuedJob =
         (previous ?? _FailedPrintJob.newJob(participant, deviceId)).copyWith(
       participant: participant,
@@ -637,25 +676,28 @@ class PrinterService {
       failureCode: failure.code,
       reason: failure.reason,
       isReprint: isReprint,
-      lastAttemptAt: now,
-      attemptCount: attemptCount,
-      nextRetryAt: now + _retryDelayForAttempt(attemptCount).inMilliseconds,
+      status: PrinterService._jobStatusQueued,
+      lastAttemptAt: previous?.lastAttemptAt ?? now,
+      attemptCount: previous?.attemptCount ?? 1,
+      nextRetryAt: now +
+          _retryDelayForAttempt(previous?.attemptCount ?? 1).inMilliseconds,
+      updatedAt: now,
     );
 
-    if (existingIndex == -1) {
-      _failedJobs.add(queuedJob);
-    } else {
-      _failedJobs[existingIndex] = queuedJob;
-    }
-
-    await _saveFailedJobs();
+    await _upsertPrintJob(queuedJob);
+    await _recordAttemptOutcome(
+      queuedJob,
+      outcome: _attemptOutcomeFailed,
+      finishedAt: now,
+    );
+    await _replaceQueuedJob(queuedJob);
+    await _recordPrintFailure(failure);
     await _emitStateChanged();
   }
 
   static Future<void> _removeQueuedJob(String jobId) async {
     await _loadFailedJobs();
     _failedJobs.removeWhere((job) => job.jobId == jobId);
-    await _saveFailedJobs();
     await _emitStateChanged();
   }
 
@@ -722,9 +764,90 @@ class PrinterService {
     return _failedJobs.length;
   }
 
+  static Future<List<PrinterQueuedJob>> getQueuedJobs() async {
+    await _loadFailedJobs();
+    final jobs = [..._failedJobs]
+      ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+    return jobs
+        .map(
+          (job) => PrinterQueuedJob(
+            jobId: job.jobId,
+            participantId: job.participant.id,
+            participantName: job.participant.fullName,
+            isReprint: job.isReprint,
+            status: job.status,
+            failureCode: job.failureCode,
+            reason: job.reason,
+            queuedAt: job.queuedAt,
+            lastAttemptAt: job.lastAttemptAt,
+            nextRetryAt: job.nextRetryAt,
+            attemptCount: job.attemptCount,
+            printedAt: job.printedAt,
+          ),
+        )
+        .toList();
+  }
+
+  static Future<List<PrinterQueuedJob>> getRecentPrintJobs(
+      {int limit = 20}) async {
+    final db = await DatabaseHelper.database;
+    final rows = await db.query(
+      'print_jobs',
+      orderBy: 'updated_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map(_FailedPrintJob.fromDbRow)
+        .map(
+          (job) => PrinterQueuedJob(
+            jobId: job.jobId,
+            participantId: job.participant.id,
+            participantName: job.participant.fullName,
+            isReprint: job.isReprint,
+            failureCode: job.failureCode,
+            reason: job.reason,
+            queuedAt: job.queuedAt,
+            lastAttemptAt: job.lastAttemptAt,
+            nextRetryAt: job.nextRetryAt,
+            attemptCount: job.attemptCount,
+            status: job.status,
+            printedAt: job.printedAt,
+          ),
+        )
+        .toList();
+  }
+
+  static Future<List<PrinterJobAttempt>> getRecentPrintAttempts({
+    int limit = 100,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final rows = await db.query(
+      'print_job_attempts',
+      orderBy: 'finished_at DESC, attempt_id DESC',
+      limit: limit,
+    );
+    return rows.map(PrinterJobAttempt.fromDbRow).toList();
+  }
+
   static Future<bool> _onPrintSuccess(
-      Participant participant, int printedAt) async {
+    Participant participant,
+    int printedAt, {
+    required _FailedPrintJob job,
+    required bool isReprint,
+  }) async {
     try {
+      await _recordPrintSuccess();
+      await _markJobSuccessful(job.jobId, printedAt: printedAt);
+      await _recordAttemptOutcome(
+        job,
+        outcome: _attemptOutcomeSuccess,
+        finishedAt: printedAt,
+      );
+      await _removeQueuedJob(job.jobId);
+      if (isReprint) {
+        return true;
+      }
+
       final db = await DatabaseHelper.database;
       final dao = ParticipantsDao(db);
       final currentParticipant = await dao.getParticipantById(participant.id);
@@ -748,6 +871,200 @@ class PrinterService {
     } catch (e) {
       debugPrint('[PrinterService] Error recording print: $e');
       return false;
+    }
+  }
+
+  static Future<_FailedPrintJob> _beginPrintAttempt(
+    Participant participant,
+    String deviceId, {
+    required bool isReprint,
+    _FailedPrintJob? retryJob,
+  }) async {
+    await _loadFailedJobs();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final baseJob = retryJob ??
+        _findOpenJob(participant.id, isReprint) ??
+        _FailedPrintJob.newJob(participant, deviceId);
+    final startedJob = baseJob.copyWith(
+      participant: participant,
+      deviceId: deviceId,
+      status: _jobStatusPrinting,
+      lastAttemptAt: now,
+      attemptCount: baseJob.attemptCount + 1,
+      updatedAt: now,
+      printerAddress: await getSelectedPrinterAddress(),
+    );
+    await _upsertPrintJob(startedJob);
+    return startedJob;
+  }
+
+  static Future<void> _cancelQueuedJob(
+    _FailedPrintJob job, {
+    required String reason,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'print_jobs',
+      {
+        'status': _jobStatusCancelled,
+        'failure_reason': reason,
+        'completed_at': now,
+        'updated_at': now,
+      },
+      where: 'job_id = ?',
+      whereArgs: [job.jobId],
+    );
+    await _recordAttemptOutcome(
+      job.copyWith(reason: reason, updatedAt: now),
+      outcome: _attemptOutcomeCancelled,
+      finishedAt: now,
+    );
+    await _removeQueuedJob(job.jobId);
+  }
+
+  static Future<void> _refreshQueuedJobsCache() async {
+    final db = await DatabaseHelper.database;
+    final rows = await db.query(
+      'print_jobs',
+      where: 'status = ?',
+      whereArgs: [_jobStatusQueued],
+      orderBy: 'queued_at ASC',
+    );
+    _failedJobs
+      ..clear()
+      ..addAll(rows.map(_FailedPrintJob.fromDbRow));
+  }
+
+  static _FailedPrintJob? _findOpenJob(String participantId, bool isReprint) {
+    for (final job in _failedJobs) {
+      if (job.matchesParticipant(participantId, isReprint: isReprint)) {
+        return job;
+      }
+    }
+    return null;
+  }
+
+  static Future<void> _replaceQueuedJob(_FailedPrintJob job) async {
+    final index = _failedJobs.indexWhere((entry) => entry.jobId == job.jobId);
+    if (index == -1) {
+      _failedJobs.add(job);
+    } else {
+      _failedJobs[index] = job;
+    }
+  }
+
+  static Future<void> _upsertPrintJob(_FailedPrintJob job) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'print_jobs',
+      {
+        'job_id': job.jobId,
+        'participant_id': job.participant.id,
+        'participant_name': job.participant.fullName,
+        'participant_json': jsonEncode(job.participant.toJson()),
+        'device_id': job.deviceId,
+        'printer_address': job.printerAddress,
+        'status': job.status,
+        'failure_code': job.failureCode,
+        'failure_reason': job.reason,
+        'queued_at': job.queuedAt,
+        'last_attempt_at': job.lastAttemptAt,
+        'next_retry_at': job.nextRetryAt,
+        'attempt_count': job.attemptCount,
+        'is_reprint': job.isReprint ? 1 : 0,
+        'printed_at': job.printedAt,
+        'completed_at': job.status == _jobStatusSuccess ? job.printedAt : null,
+        'updated_at': job.updatedAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> _markJobSuccessful(
+    String jobId, {
+    required int printedAt,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final db = await DatabaseHelper.database;
+    await db.update(
+      'print_jobs',
+      {
+        'status': _jobStatusSuccess,
+        'printed_at': printedAt,
+        'completed_at': now,
+        'updated_at': now,
+        'failure_code': '',
+        'failure_reason': '',
+      },
+      where: 'job_id = ?',
+      whereArgs: [jobId],
+    );
+  }
+
+  static Future<void> _recordAttemptOutcome(
+    _FailedPrintJob job, {
+    required String outcome,
+    required int finishedAt,
+  }) async {
+    final startedAt = job.lastAttemptAt ?? job.queuedAt;
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'print_job_attempts',
+      {
+        'job_id': job.jobId,
+        'participant_id': job.participant.id,
+        'participant_name': job.participant.fullName,
+        'device_id': job.deviceId,
+        'printer_address': job.printerAddress,
+        'attempt_number': job.attemptCount,
+        'outcome': outcome,
+        'failure_code':
+            outcome == _attemptOutcomeSuccess ? '' : job.failureCode,
+        'failure_reason': outcome == _attemptOutcomeSuccess ? '' : job.reason,
+        'is_reprint': job.isReprint ? 1 : 0,
+        'started_at': startedAt,
+        'finished_at': finishedAt,
+        'created_at': finishedAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.abort,
+    );
+  }
+
+  static Future<void> _migrateLegacyFailedJobsToTable() async {
+    final db = await DatabaseHelper.database;
+    final result = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_failedPrintJobsKey],
+      limit: 1,
+    );
+    if (result.isEmpty) {
+      return;
+    }
+    final raw = result.first['value'] as String?;
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      for (final entry in decoded.whereType<Map<String, dynamic>>()) {
+        final job = _FailedPrintJob.fromJson(entry);
+        await _upsertPrintJob(job.copyWith(
+          status: _jobStatusQueued,
+          updatedAt: job.updatedAt == 0
+              ? DateTime.now().millisecondsSinceEpoch
+              : job.updatedAt,
+        ));
+      }
+      await db.insert(
+        'app_settings',
+        {'key': _failedPrintJobsKey, 'value': ''},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {
+      // Ignore malformed legacy data and leave the old value untouched.
     }
   }
 
@@ -1073,11 +1390,93 @@ class PrinterService {
     _eventController.add(
       PrinterServiceEvent(
         selectedAddress: status.selectedAddress,
+        selectedName: status.selectedName,
+        hasSelection: status.hasSelection,
+        permissionsGranted: status.permissionsGranted,
+        isPaired: status.isPaired,
         isConnected: status.isConnected,
+        isConnecting: status.isConnecting,
         failedJobCount: _failedJobs.length,
+        activeJobCount: status.activeJobCount,
+        stateLabel: status.stateLabel,
         statusMessage: status.message,
+        lastPrintSuccessAt: status.lastPrintSuccessAt,
+        lastPrintFailureAt: status.lastPrintFailureAt,
+        lastPrintFailureReason: status.lastPrintFailureReason,
       ),
     );
+  }
+
+  static Future<void> _recordPrintSuccess() async {
+    final db = await DatabaseHelper.database;
+    final now = DateTime.now().millisecondsSinceEpoch.toString();
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintSuccessAtKey, 'value': now},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureAtKey, 'value': ''},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureReasonKey, 'value': ''},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureCodeKey, 'value': ''},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> _recordPrintFailure(_QueuedFailure failure) async {
+    final db = await DatabaseHelper.database;
+    final now = DateTime.now().millisecondsSinceEpoch.toString();
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureAtKey, 'value': now},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureReasonKey, 'value': failure.reason},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': _lastPrintFailureCodeKey, 'value': failure.code},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<String?> _readStringSetting(String key) async {
+    final db = await DatabaseHelper.database;
+    final result = await db.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (result.isEmpty) {
+      return null;
+    }
+    final value = result.first['value'] as String?;
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return value;
+  }
+
+  static Future<int?> _readIntSetting(String key) async {
+    final raw = await _readStringSetting(key);
+    if (raw == null) {
+      return null;
+    }
+    return int.tryParse(raw);
   }
 }
 
@@ -1096,18 +1495,34 @@ class PrinterConnectionResult {
 class PrinterStatusSnapshot {
   final bool hasSelection;
   final String? selectedAddress;
+  final String? selectedName;
+  final String stateLabel;
   final bool permissionsGranted;
   final bool isPaired;
   final bool isConnected;
+  final bool isConnecting;
+  final int queuedJobCount;
+  final int activeJobCount;
+  final int? lastPrintSuccessAt;
+  final int? lastPrintFailureAt;
+  final String? lastPrintFailureReason;
   final BluetoothDevice? device;
   final String message;
 
   const PrinterStatusSnapshot({
     required this.hasSelection,
     this.selectedAddress,
+    this.selectedName,
+    required this.stateLabel,
     required this.permissionsGranted,
     required this.isPaired,
     required this.isConnected,
+    required this.isConnecting,
+    required this.queuedJobCount,
+    required this.activeJobCount,
+    this.lastPrintSuccessAt,
+    this.lastPrintFailureAt,
+    this.lastPrintFailureReason,
     this.device,
     required this.message,
   });
@@ -1115,16 +1530,116 @@ class PrinterStatusSnapshot {
 
 class PrinterServiceEvent {
   final String? selectedAddress;
+  final String? selectedName;
+  final bool hasSelection;
+  final bool permissionsGranted;
+  final bool isPaired;
   final bool isConnected;
+  final bool isConnecting;
   final int failedJobCount;
+  final int activeJobCount;
+  final String stateLabel;
   final String statusMessage;
+  final int? lastPrintSuccessAt;
+  final int? lastPrintFailureAt;
+  final String? lastPrintFailureReason;
 
   const PrinterServiceEvent({
     required this.selectedAddress,
+    required this.selectedName,
+    required this.hasSelection,
+    required this.permissionsGranted,
+    required this.isPaired,
     required this.isConnected,
+    required this.isConnecting,
     required this.failedJobCount,
+    required this.activeJobCount,
+    required this.stateLabel,
     required this.statusMessage,
+    required this.lastPrintSuccessAt,
+    required this.lastPrintFailureAt,
+    required this.lastPrintFailureReason,
   });
+}
+
+class PrinterQueuedJob {
+  final String jobId;
+  final String participantId;
+  final String participantName;
+  final bool isReprint;
+  final String status;
+  final String failureCode;
+  final String reason;
+  final int queuedAt;
+  final int? lastAttemptAt;
+  final int nextRetryAt;
+  final int attemptCount;
+  final int? printedAt;
+
+  const PrinterQueuedJob({
+    required this.jobId,
+    required this.participantId,
+    required this.participantName,
+    required this.isReprint,
+    required this.status,
+    required this.failureCode,
+    required this.reason,
+    required this.queuedAt,
+    required this.lastAttemptAt,
+    required this.nextRetryAt,
+    required this.attemptCount,
+    required this.printedAt,
+  });
+}
+
+class PrinterJobAttempt {
+  final int attemptId;
+  final String jobId;
+  final String participantId;
+  final String participantName;
+  final String? deviceId;
+  final String? printerAddress;
+  final int attemptNumber;
+  final String outcome;
+  final String? failureCode;
+  final String? failureReason;
+  final bool isReprint;
+  final int startedAt;
+  final int finishedAt;
+
+  const PrinterJobAttempt({
+    required this.attemptId,
+    required this.jobId,
+    required this.participantId,
+    required this.participantName,
+    required this.deviceId,
+    required this.printerAddress,
+    required this.attemptNumber,
+    required this.outcome,
+    required this.failureCode,
+    required this.failureReason,
+    required this.isReprint,
+    required this.startedAt,
+    required this.finishedAt,
+  });
+
+  factory PrinterJobAttempt.fromDbRow(Map<String, Object?> row) {
+    return PrinterJobAttempt(
+      attemptId: row['attempt_id'] as int? ?? 0,
+      jobId: row['job_id'] as String? ?? '',
+      participantId: row['participant_id'] as String? ?? '',
+      participantName: row['participant_name'] as String? ?? '',
+      deviceId: row['device_id'] as String?,
+      printerAddress: row['printer_address'] as String?,
+      attemptNumber: row['attempt_number'] as int? ?? 0,
+      outcome: row['outcome'] as String? ?? '',
+      failureCode: row['failure_code'] as String?,
+      failureReason: row['failure_reason'] as String?,
+      isReprint: (row['is_reprint'] as int? ?? 0) == 1,
+      startedAt: row['started_at'] as int? ?? 0,
+      finishedAt: row['finished_at'] as int? ?? 0,
+    );
+  }
 }
 
 class PrintReceiptResult {
@@ -1177,6 +1692,8 @@ class _FailedPrintJob {
   final String jobId;
   final Participant participant;
   final String deviceId;
+  final String? printerAddress;
+  final String status;
   final String failureCode;
   final String reason;
   final int queuedAt;
@@ -1184,11 +1701,15 @@ class _FailedPrintJob {
   final int? lastAttemptAt;
   final int nextRetryAt;
   final bool isReprint;
+  final int? printedAt;
+  final int updatedAt;
 
   const _FailedPrintJob({
     required this.jobId,
     required this.participant,
     required this.deviceId,
+    required this.printerAddress,
+    required this.status,
     required this.failureCode,
     required this.reason,
     required this.queuedAt,
@@ -1196,6 +1717,8 @@ class _FailedPrintJob {
     required this.lastAttemptAt,
     required this.nextRetryAt,
     required this.isReprint,
+    required this.printedAt,
+    required this.updatedAt,
   });
 
   factory _FailedPrintJob.newJob(Participant participant, String deviceId) {
@@ -1204,6 +1727,8 @@ class _FailedPrintJob {
       jobId: '${DateTime.now().microsecondsSinceEpoch}-${participant.id}',
       participant: participant,
       deviceId: deviceId,
+      printerAddress: null,
+      status: PrinterService._jobStatusQueued,
       failureCode: '',
       reason: '',
       queuedAt: now,
@@ -1211,6 +1736,8 @@ class _FailedPrintJob {
       lastAttemptAt: null,
       nextRetryAt: now,
       isReprint: false,
+      printedAt: null,
+      updatedAt: now,
     );
   }
 
@@ -1223,17 +1750,23 @@ class _FailedPrintJob {
   _FailedPrintJob copyWith({
     Participant? participant,
     String? deviceId,
+    String? printerAddress,
+    String? status,
     String? failureCode,
     String? reason,
     int? attemptCount,
     int? lastAttemptAt,
     int? nextRetryAt,
     bool? isReprint,
+    int? printedAt,
+    int? updatedAt,
   }) {
     return _FailedPrintJob(
       jobId: jobId,
       participant: participant ?? this.participant,
       deviceId: deviceId ?? this.deviceId,
+      printerAddress: printerAddress ?? this.printerAddress,
+      status: status ?? this.status,
       failureCode: failureCode ?? this.failureCode,
       reason: reason ?? this.reason,
       queuedAt: queuedAt,
@@ -1241,6 +1774,8 @@ class _FailedPrintJob {
       lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
       nextRetryAt: nextRetryAt ?? this.nextRetryAt,
       isReprint: isReprint ?? this.isReprint,
+      printedAt: printedAt ?? this.printedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -1249,6 +1784,8 @@ class _FailedPrintJob {
       'job_id': jobId,
       'participant': participant.toJson(),
       'device_id': deviceId,
+      'printer_address': printerAddress,
+      'status': status,
       'failure_code': failureCode,
       'reason': reason,
       'queued_at': queuedAt,
@@ -1256,7 +1793,43 @@ class _FailedPrintJob {
       'last_attempt_at': lastAttemptAt,
       'next_retry_at': nextRetryAt,
       'is_reprint': isReprint,
+      'printed_at': printedAt,
+      'updated_at': updatedAt,
     };
+  }
+
+  factory _FailedPrintJob.fromDbRow(Map<String, Object?> row) {
+    final participantJson = row['participant_json'] as String?;
+    Participant participant;
+    if (participantJson != null && participantJson.isNotEmpty) {
+      participant = Participant.fromJson(
+        Map<String, dynamic>.from(
+          jsonDecode(participantJson) as Map<String, dynamic>,
+        ),
+      );
+    } else {
+      participant = Participant(
+        id: row['participant_id'] as String? ?? '',
+        fullName: row['participant_name'] as String? ?? '',
+        sheetsRow: 0,
+      );
+    }
+    return _FailedPrintJob(
+      jobId: row['job_id'] as String? ?? '',
+      participant: participant,
+      deviceId: row['device_id'] as String? ?? '',
+      printerAddress: row['printer_address'] as String?,
+      status: row['status'] as String? ?? PrinterService._jobStatusQueued,
+      failureCode: row['failure_code'] as String? ?? '',
+      reason: row['failure_reason'] as String? ?? '',
+      queuedAt: row['queued_at'] as int? ?? 0,
+      attemptCount: row['attempt_count'] as int? ?? 0,
+      lastAttemptAt: row['last_attempt_at'] as int?,
+      nextRetryAt: row['next_retry_at'] as int? ?? 0,
+      isReprint: (row['is_reprint'] as int? ?? 0) == 1,
+      printedAt: row['printed_at'] as int?,
+      updatedAt: row['updated_at'] as int? ?? 0,
+    );
   }
 
   factory _FailedPrintJob.fromJson(Map<String, dynamic> json) {
@@ -1269,6 +1842,8 @@ class _FailedPrintJob {
         Map<String, dynamic>.from(json['participant'] as Map<dynamic, dynamic>),
       ),
       deviceId: json['device_id'] as String? ?? '',
+      printerAddress: json['printer_address'] as String?,
+      status: json['status'] as String? ?? PrinterService._jobStatusQueued,
       failureCode: json['failure_code'] as String? ?? '',
       reason: json['reason'] as String? ?? '',
       queuedAt: queuedAt,
@@ -1276,6 +1851,8 @@ class _FailedPrintJob {
       lastAttemptAt: json['last_attempt_at'] as int?,
       nextRetryAt: nextRetryAt,
       isReprint: json['is_reprint'] as bool? ?? false,
+      printedAt: json['printed_at'] as int?,
+      updatedAt: json['updated_at'] as int? ?? queuedAt,
     );
   }
 }
