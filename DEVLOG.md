@@ -3115,3 +3115,58 @@ Completed a broad reliability and analytics hardening pass across the scanner ap
 ### Deviations from Plan
 - The committee-specific analytics pass was implemented as view chips within the same analytics screen rather than as separate screens, which keeps the experience faster and more practical for event staff.
 - The multi-day view uses recorded local timestamps that already exist in the app rather than introducing a more complex event-day model at this stage.
+
+---
+
+## 58.0 — Event-Global Analytics, Saved Committee Views, and Briefing Exports
+**Date/Time:** 2026-04-30 18:10:00
+**Status:** ✅ Complete
+
+### What I Did
+Completed the next analytics maturity pass by making the analytics screen more useful for real event leadership and committee operations. The work adds event-global participant analytics refresh behavior, persistent saved committee views, and export / printable briefing summaries, while keeping device-local printer and sync metrics clearly separated from event-wide attendee data.
+
+### Changes Made
+**Event-global analytics refresh.**
+- Updated the analytics refresh behavior so the screen now uses the existing full-sync pipeline before recomputing analytics, allowing the dashboard to reflect the latest synced event roster data across devices.
+- Updated pull-to-refresh to use the same event-wide refresh path.
+- Added explicit `Data Scope` messaging so users understand which analytics are event-global and which remain local to the current device.
+
+**Clear global-vs-local analytics boundaries.**
+- Event-wide participant metrics now explicitly cover attendance, verification, demographics, stake, ward, room, and table analytics based on the synced roster.
+- Device-local operational metrics remain clearly scoped to the current device for printer queue, print attempts, and sync backlog, avoiding false claims of event-wide printer telemetry.
+
+**Saved committee views.**
+- Added a new `analytics_saved_views` SQLite table and migration support.
+- Added a dedicated analytics saved-views service for listing, saving, updating, deleting, and setting default views.
+- Added saved-view UI to the analytics header so committee-specific view presets can be reused without reselecting the same dashboard perspective every time.
+
+**Briefing exports and printable summaries.**
+- Added a lightweight analytics export service that writes text briefing summaries into the app documents directory.
+- Added analytics AppBar actions for saving the current view, exporting a briefing summary, and printing a briefing summary.
+- Added summary-print support through the existing Bluetooth printer pipeline so meeting briefs and operational summaries can be printed from the selected printer.
+
+### Files Modified
+- `fsy_scanner/lib/db/database_helper.dart` – database version bump and migration for analytics saved views.
+- `fsy_scanner/lib/db/schema.dart` – new `analytics_saved_views` table.
+- `fsy_scanner/lib/print/printer_service.dart` – printable analytics briefing summary support.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – event-global refresh behavior, saved-view UI, export/print actions, and data-scope messaging.
+- `fsy_scanner/lib/services/analytics_export_service.dart` – text briefing export service.
+- `fsy_scanner/lib/services/analytics_saved_views_service.dart` – analytics saved-view persistence service.
+
+### Verification Result
+- Diagnostics are clean for the updated analytics, printer, database, and service files.
+- The analytics screen now refreshes through the event-wide sync path instead of only reloading local screen state.
+- Committee views can now be saved and restored.
+- Briefing summaries can now be exported to text files and sent to the selected Bluetooth printer.
+
+### Issues Encountered
+- The existing architecture supports event-global participant truth through the synced roster, but printer attempt and queue telemetry still exists only on each local device.
+- The analytics screen needed a clear UX distinction between event-wide and device-local metrics so operators do not overtrust the wrong numbers.
+
+### Corrections Made
+- Added a dedicated scope card and explanatory messaging to make global-vs-local boundaries explicit.
+- Reused the existing sync engine and printer pipeline instead of introducing a parallel reporting path, which reduced risk and kept the implementation consistent with the current architecture.
+
+### Deviations from Plan
+- The event-global implementation uses the latest synced roster data already available in the app rather than introducing a new backend service.
+- Exports were implemented as durable text briefing files and printer-friendly summaries instead of a heavier PDF workflow at this stage.

@@ -13,6 +13,9 @@ import '../db/participants_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
+import '../services/analytics_export_service.dart';
+import '../services/analytics_saved_views_service.dart';
+import '../sync/sync_engine.dart';
 
 enum _CommitteeView {
   all,
@@ -36,10 +39,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<_SyncTaskEntry> _syncTasks = [];
   List<PrinterQueuedJob> _printJobs = [];
   List<PrinterJobAttempt> _printAttempts = [];
+  List<AnalyticsSavedView> _savedViews = [];
   bool _loading = true;
   String? _error;
   int _requestId = 0;
   _CommitteeView _committeeView = _CommitteeView.all;
+  int? _selectedSavedViewId;
   int? _recentScanMarker;
   int? _pendingTaskMarker;
   int? _failedPrintMarker;
@@ -93,11 +98,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final printJobsFuture = PrinterService.getRecentPrintJobs(limit: 500);
       final printAttemptsFuture =
           PrinterService.getRecentPrintAttempts(limit: 1000);
+      final savedViewsFuture = AnalyticsSavedViewsService.listViews();
 
       final participants = await participantsFuture;
       final taskRows = await syncTasksFuture;
       final printJobs = await printJobsFuture;
       final printAttempts = await printAttemptsFuture;
+      final savedViews = await savedViewsFuture;
 
       participants.sort((a, b) {
         final verifiedCompare =
@@ -117,6 +124,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _syncTasks = taskRows.map(_SyncTaskEntry.fromRow).toList();
         _printJobs = printJobs;
         _printAttempts = printAttempts;
+        _savedViews = savedViews;
+        final selectedView = _selectedSavedViewId == null
+            ? null
+            : _firstWhereOrNull(
+                savedViews,
+                (view) => view.id == _selectedSavedViewId,
+              );
+        final defaultView =
+            _firstWhereOrNull(savedViews, (view) => view.isDefault);
+        final effectiveView = selectedView ?? defaultView;
+        if (effectiveView != null) {
+          _selectedSavedViewId = effectiveView.id;
+          _committeeView = _committeeViewFromKey(effectiveView.committeeView);
+        }
         _loading = false;
         _error = null;
       });
@@ -146,9 +167,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: const Text('Analytics'),
         actions: [
           IconButton(
-            onPressed: _loading ? null : _load,
+            onPressed: _loading ? null : _refreshEventWideData,
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh analytics',
+            tooltip: 'Refresh event-wide analytics',
+          ),
+          PopupMenuButton<String>(
+            onSelected: _handleAnalyticsAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'save_view',
+                child: Text('Save current view'),
+              ),
+              PopupMenuItem(
+                value: 'export_summary',
+                child: Text('Export briefing summary'),
+              ),
+              PopupMenuItem(
+                value: 'print_summary',
+                child: Text('Print briefing summary'),
+              ),
+            ],
           ),
         ],
       ),
@@ -157,7 +195,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           : _error != null
               ? _buildErrorState()
               : RefreshIndicator(
-                  onRefresh: _load,
+                  onRefresh: _refreshEventWideData,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(12),
@@ -259,6 +297,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            Text(
+              'Participant, assignment, and demographic analytics reflect the latest synced event roster across devices. Printer queue, print attempts, and sync backlog remain local to this device.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 16),
             const Text(
               'Committee view',
               style: TextStyle(fontWeight: FontWeight.w700),
@@ -279,6 +325,60 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ))
                   .toList(),
             ),
+            const SizedBox(height: 16),
+            const Text(
+              'Saved views',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int?>(
+                    initialValue: _selectedSavedViewId,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      hintText: 'Choose a saved view',
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        child: Text('Current unsaved view'),
+                      ),
+                      ..._savedViews.map(
+                        (view) => DropdownMenuItem<int?>(
+                          value: view.id,
+                          child: Text(
+                            view.isDefault ? '${view.name} (Default)' : view.name,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        setState(() {
+                          _selectedSavedViewId = null;
+                        });
+                        return;
+                      }
+                      _applySavedViewById(value);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _saveCurrentView,
+                  tooltip: 'Save current view',
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                ),
+                IconButton(
+                  onPressed:
+                      _selectedSavedViewId == null ? null : _deleteSelectedView,
+                  tooltip: 'Delete selected view',
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -291,6 +391,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   ) {
     final sections = <Widget>[
       _buildHeader(appState, analytics),
+      const SizedBox(height: 12),
+      _buildDataScopeCard(appState),
       const SizedBox(height: 12),
       _buildLiveAttendanceCard(analytics),
       const SizedBox(height: 12),
@@ -412,6 +514,382 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  String _committeeViewKey(_CommitteeView view) {
+    return view.name;
+  }
+
+  _CommitteeView _committeeViewFromKey(String key) {
+    return _CommitteeView.values.firstWhere(
+      (view) => view.name == key,
+      orElse: () => _CommitteeView.all,
+    );
+  }
+
+  T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T value) test) {
+    for (final value in values) {
+      if (test(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  _AnalyticsSnapshot _currentAnalyticsSnapshot() {
+    return _AnalyticsSnapshot.fromData(
+      participants: _participants,
+      syncTasks: _syncTasks,
+      printJobs: _printJobs,
+      printAttempts: _printAttempts,
+    );
+  }
+
+  Future<void> _handleAnalyticsAction(String action) async {
+    switch (action) {
+      case 'save_view':
+        await _saveCurrentView();
+        break;
+      case 'export_summary':
+        await _exportBriefingSummary();
+        break;
+      case 'print_summary':
+        await _printBriefingSummary();
+        break;
+    }
+  }
+
+  Future<void> _refreshEventWideData() async {
+    final appState = context.read<AppState>();
+    final success = await SyncEngine.performFullSync(appState);
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      success
+          ? 'Event-wide roster refreshed from the latest synced sheet data.'
+          : 'Used the latest local data. Full event-wide refresh did not complete.',
+    );
+  }
+
+  Future<void> _applySavedViewById(int id) async {
+    final view = _firstWhereOrNull(_savedViews, (entry) => entry.id == id);
+    if (view == null) {
+      return;
+    }
+    setState(() {
+      _selectedSavedViewId = view.id;
+      _committeeView = _committeeViewFromKey(view.committeeView);
+    });
+  }
+
+  Future<void> _saveCurrentView() async {
+    final existing = _selectedSavedViewId == null
+        ? null
+        : _firstWhereOrNull(_savedViews, (view) => view.id == _selectedSavedViewId);
+    final controller = TextEditingController(
+      text: existing?.name ?? '${_committeeLabel(_committeeView)} View',
+    );
+    var markDefault = existing?.isDefault ?? _savedViews.isEmpty;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          title: Text(existing == null ? 'Save view' : 'Update view'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'View name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                value: markDefault,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Set as default view'),
+                onChanged: (value) {
+                  setStateDialog(() {
+                    markDefault = value;
+                  });
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    final name = controller.text.trim();
+    if (name.isEmpty) {
+      _showMessage('Enter a name before saving the view.');
+      return;
+    }
+
+    final saved = await AnalyticsSavedViewsService.saveView(
+      id: existing?.id,
+      name: name,
+      committeeView: _committeeViewKey(_committeeView),
+      isDefault: markDefault,
+    );
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _selectedSavedViewId = saved.id;
+    });
+    _showMessage('Saved view "$name".');
+  }
+
+  Future<void> _deleteSelectedView() async {
+    final selected = _selectedSavedViewId == null
+        ? null
+        : _firstWhereOrNull(_savedViews, (view) => view.id == _selectedSavedViewId);
+    if (selected == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete saved view?'),
+        content: Text('Remove "${selected.name}" from saved analytics views?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await AnalyticsSavedViewsService.deleteView(selected.id);
+    setState(() {
+      _selectedSavedViewId = null;
+    });
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage('Deleted saved view "${selected.name}".');
+  }
+
+  Future<void> _exportBriefingSummary() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final result = await AnalyticsExportService.exportTextReport(
+      baseName:
+          '${appState.eventName.isEmpty ? 'event' : appState.eventName}_${_committeeViewKey(_committeeView)}_briefing',
+      content: _buildBriefingText(appState, analytics),
+    );
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      'Briefing summary exported to ${result.filePath} (${result.byteCount} bytes).',
+    );
+  }
+
+  Future<void> _printBriefingSummary() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final result = await PrinterService.printSummaryReport(
+      title: _buildBriefingTitle(appState),
+      bodyLines: _buildBriefingLines(appState, analytics),
+    );
+    if (!mounted) {
+      return;
+    }
+    _showMessage(result.message);
+  }
+
+  String _buildBriefingTitle(AppState appState) {
+    final eventTitle =
+        appState.eventName.trim().isEmpty ? 'FSY Event' : appState.eventName.trim();
+    return '$eventTitle ${_committeeLabel(_committeeView)} Briefing';
+  }
+
+  String _buildBriefingText(AppState appState, _AnalyticsSnapshot analytics) {
+    final lines = _buildBriefingLines(appState, analytics);
+    return lines.join('\n');
+  }
+
+  List<String> _buildBriefingLines(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    final lines = <String>[
+      _buildBriefingTitle(appState),
+      if (appState.organizationName.trim().isNotEmpty)
+        appState.organizationName.trim(),
+      'Generated: ${DateFormat('dd MMM yyyy h:mm a').format(DateTime.now())}',
+      'View: ${_committeeLabel(_committeeView)}',
+      'Event-wide participant data comes from the latest synced roster.',
+      'Printer queue and sync backlog are local to this device.',
+      '',
+      'Registration/Verification Operations',
+      'Attending now: ${analytics.checkedInCount}/${analytics.totalParticipants}',
+      'Fully verified: ${analytics.fullyVerifiedCount}',
+      'Partially verified: ${analytics.partiallyVerifiedCount}',
+      'Pending: ${analytics.pendingCount}',
+      '',
+      'Current Attendance',
+      'Active tables: ${analytics.activeTableCount}',
+      'Ready tables: ${analytics.completedTableCount}',
+      'Active rooms: ${analytics.activeRoomCount}',
+      'Ready rooms: ${analytics.completedRoomCount}',
+      'Medical flags: ${analytics.checkedInMedicalFlagCount} checked in',
+      '',
+    ];
+
+    switch (_committeeView) {
+      case _CommitteeView.registration:
+        _appendBreakdownSection(
+          lines,
+          'Stakes by attendees on site',
+          analytics.stakeAttendingRows,
+        );
+        _appendBreakdownSection(
+          lines,
+          'Wards by attendees on site',
+          analytics.wardAttendingRows,
+        );
+        lines.addAll([
+          '',
+          'Local device operations',
+          'Queued print jobs: ${analytics.staleQueuedPrintCount} stale of ${_printJobs.where((job) => job.status == 'queued').length}',
+          'Pending sync tasks: ${analytics.pendingSyncTaskCount}',
+        ]);
+        break;
+      case _CommitteeView.hotel:
+        _appendBreakdownSection(
+          lines,
+          'Rooms with attendees on site',
+          analytics.roomRows,
+        );
+        _appendBreakdownSection(
+          lines,
+          'Rooms fully assembled',
+          analytics.readyRoomRows,
+        );
+        lines.addAll([
+          '',
+          'Unresolved assignments',
+          'Missing room assignments among checked in: ${analytics.missingRoomAmongCheckedInCount}',
+          'Missing table assignments among checked in: ${analytics.missingTableAmongCheckedInCount}',
+        ]);
+        break;
+      case _CommitteeView.activity:
+        _appendBreakdownSection(lines, 'Tables with attendees', analytics.tableRows);
+        _appendBreakdownSection(
+          lines,
+          'Tables fully assembled',
+          analytics.readyTableRows,
+        );
+        _appendBreakdownSection(lines, 'Age bands', analytics.ageRows);
+        break;
+      case _CommitteeView.food:
+        _appendBreakdownSection(lines, 'Shirt sizes', analytics.shirtSizeRows);
+        _appendBreakdownSection(
+          lines,
+          'Medical classifications',
+          analytics.medicalCategoryRows,
+        );
+        _appendBreakdownSection(lines, 'Stakes', analytics.stakeAttendingRows);
+        break;
+      case _CommitteeView.leaders:
+        _appendBreakdownSection(lines, 'Stakes', analytics.stakeAttendingRows);
+        _appendBreakdownSection(lines, 'Wards', analytics.wardAttendingRows);
+        _appendAttemptSummary(lines, analytics);
+        break;
+      case _CommitteeView.operations:
+        _appendAttemptSummary(lines, analytics);
+        lines.addAll([
+          '',
+          'Queue health',
+          'Oldest queued print age: ${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)} min',
+          'Pending sync tasks: ${analytics.pendingSyncTaskCount}',
+          'Retrying sync tasks: ${analytics.retryingSyncTaskCount}',
+        ]);
+        break;
+      case _CommitteeView.all:
+        _appendBreakdownSection(lines, 'Top stakes', analytics.stakeAttendingRows);
+        _appendBreakdownSection(lines, 'Top wards', analytics.wardAttendingRows);
+        _appendBreakdownSection(lines, 'Tables with attendees', analytics.tableRows);
+        _appendBreakdownSection(lines, 'Rooms with attendees', analytics.roomRows);
+        _appendAttemptSummary(lines, analytics);
+        break;
+    }
+
+    return lines;
+  }
+
+  void _appendBreakdownSection(
+    List<String> lines,
+    String title,
+    List<_BreakdownRow> rows,
+  ) {
+    lines.add(title);
+    if (rows.isEmpty) {
+      lines.add('- No data available');
+      lines.add('');
+      return;
+    }
+    for (final row in rows.take(6)) {
+      lines.add(
+        '- ${row.label}: ${row.checkedIn}/${row.total} on site, ${row.printed} fully verified',
+      );
+    }
+    lines.add('');
+  }
+
+  void _appendAttemptSummary(
+    List<String> lines,
+    _AnalyticsSnapshot analytics,
+  ) {
+    lines.addAll([
+      'Local printer and sync operations',
+      'Print attempts: ${analytics.totalPrintAttemptCount}',
+      'Print success rate: ${analytics.printSuccessRate.toStringAsFixed(1)}%',
+      'Retry success rate: ${analytics.retrySuccessRate.toStringAsFixed(1)}%',
+      'Last-hour print failures: ${analytics.printFailuresLastHour}',
+      'Average attempt time: ${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)} sec',
+      '',
+    ]);
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   Widget _buildSummaryGrid(AppState appState, _AnalyticsSnapshot analytics) {
     final cards = [
       _MetricCardData(
@@ -524,6 +1002,39 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  Widget _buildDataScopeCard(AppState appState) {
+    final syncedLabel = appState.lastSyncedAt == null
+        ? 'No successful sync recorded yet'
+        : 'Last successful sync: ${DateFormat('dd MMM h:mm a').format(appState.lastSyncedAt!)}';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Data Scope',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              syncedLabel,
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Event-wide: attendance, verification, demographics, stake, ward, room, and table analytics use the synced event roster across devices.',
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This device only: printer queues, print attempts, and sync backlog reflect the current scanner and its selected printer.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMetricCard(_MetricCardData data) {
     return Card(
       child: Padding(
@@ -572,7 +1083,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Verification Funnel',
+              'Registration/Verification Operations',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
@@ -665,7 +1176,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Live Attendance',
+              'Current Attendance',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
@@ -787,7 +1298,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Ops Health',
+              'Operations Health',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 14),

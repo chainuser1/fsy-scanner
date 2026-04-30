@@ -6,7 +6,7 @@ import 'schema.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
-  static const String _dbVersion = '5';
+  static const String _dbVersion = '6';
   static Database? _database;
 
   static Future<Database> get database async {
@@ -19,7 +19,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
@@ -31,6 +31,7 @@ class DatabaseHelper {
         await db.execute(printJobsDDL);
         await db.execute(printJobAttemptsDDL);
         await db.execute(eventProfilesDDL);
+        await db.execute(analyticsSavedViewsDDL);
         await runMigrations(db);
       },
       onUpgrade: (Database db, int oldVersion, int newVersion) async {
@@ -49,6 +50,9 @@ class DatabaseHelper {
         if (oldVersion < 5) {
           await db.execute(printJobAttemptsDDL);
         }
+        if (oldVersion < 6) {
+          await db.execute(analyticsSavedViewsDDL);
+        }
         if (oldVersion < 1) {
           await db.execute(appSettingsDDL);
           await db.execute(participantsDDL);
@@ -60,6 +64,7 @@ class DatabaseHelper {
           await db.execute(printJobsDDL);
           await db.execute(printJobAttemptsDDL);
           await db.execute(eventProfilesDDL);
+          await db.execute(analyticsSavedViewsDDL);
           await runMigrations(db);
         }
         await runMigrations(db);
@@ -106,6 +111,7 @@ class DatabaseHelper {
     await db.execute(participantsSearchDeleteTriggerDDL);
     await db.execute(printJobsDDL);
     await db.execute(printJobAttemptsDDL);
+    await db.execute(analyticsSavedViewsDDL);
     await db.delete('participants_search');
     await db.execute('''
       INSERT INTO participants_search (

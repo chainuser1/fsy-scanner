@@ -1156,6 +1156,135 @@ class PrinterService {
     }
   }
 
+  static Future<PrintReceiptResult> printSummaryReport({
+    required String title,
+    required List<String> bodyLines,
+  }) async {
+    try {
+      final printerAddress = await getSelectedPrinterAddress();
+      if (printerAddress == null) {
+        const failure = _QueuedFailure(
+          code: _failureNoPrinter,
+          reason: 'No printer selected for summary printing',
+          userMessage: 'Select a printer before printing a summary.',
+        );
+        await _recordPrintFailure(failure);
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'Select a printer before printing a summary.',
+        );
+      }
+
+      final permissionsGranted = await ensureBluetoothPermissions();
+      if (!permissionsGranted) {
+        const failure = _QueuedFailure(
+          code: _failurePermissionRequired,
+          reason: 'Bluetooth permission is required for summary printing',
+          userMessage:
+              'Bluetooth permission is required before printing a summary.',
+        );
+        await _recordPrintFailure(failure);
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'Bluetooth permission is required before printing a summary.',
+        );
+      }
+
+      final status = await getSelectedPrinterStatus(requestPermissions: false);
+      if (!status.isPaired) {
+        const failure = _QueuedFailure(
+          code: _failureNotPaired,
+          reason: 'The selected printer is not paired for summary printing',
+          userMessage: 'The selected printer is not paired in Android settings.',
+        );
+        await _recordPrintFailure(failure);
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'The selected printer is not paired in Android settings.',
+        );
+      }
+
+      final connected = await _ensureConnected(printerAddress);
+      if (!connected) {
+        const failure = _QueuedFailure(
+          code: _failureConnectFailed,
+          reason: 'Could not connect to the selected printer for summary printing',
+          userMessage: 'Could not connect to the selected printer.',
+        );
+        await _recordPrintFailure(failure);
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'Could not connect to the selected printer.',
+        );
+      }
+
+      final lines = <ReceiptLine>[
+        for (final line in _wrapSummaryLine(title.toUpperCase(), align: 1))
+          line,
+        const ReceiptLine('--------------------------------', align: 1),
+        for (final line in bodyLines)
+          ..._wrapSummaryLine(line, align: 0),
+      ];
+
+      await _printReceiptLines(lines, printerAddress);
+      await _recordPrintSuccess();
+      await _emitStateChanged();
+      return const PrintReceiptResult(
+        success: true,
+        queuedForRetry: false,
+        message: 'Summary sent to the selected printer.',
+      );
+    } catch (e) {
+      final failure = _failureFromException(e);
+      await _recordPrintFailure(failure);
+      await _emitStateChanged();
+      return PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'Summary print failed: $e',
+      );
+    }
+  }
+
+  static List<ReceiptLine> _wrapSummaryLine(
+    String value, {
+    required int align,
+    int width = 32,
+  }) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return [ReceiptLine('', align: align)];
+    }
+
+    final words = normalized.split(RegExp(r'\s+'));
+    final lines = <String>[];
+    var current = '';
+    for (final word in words) {
+      if (current.isEmpty) {
+        current = word;
+        continue;
+      }
+      final candidate = '$current $word';
+      if (candidate.length <= width) {
+        current = candidate;
+      } else {
+        lines.add(current);
+        current = word;
+      }
+    }
+    if (current.isNotEmpty) {
+      lines.add(current);
+    }
+
+    return lines
+        .map((line) => ReceiptLine(line, align: align))
+        .toList();
+  }
+
   static Future<void> _applyCutMode(String printerAddress) async {
     final cutMode = await getCutMode(printerAddress);
     try {

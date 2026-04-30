@@ -144,3 +144,14 @@ const String eventProfilesDDL = '''
     event_name TEXT NOT NULL
   )
 ''';
+
+const String analyticsSavedViewsDDL = '''
+  CREATE TABLE IF NOT EXISTS analytics_saved_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    committee_view TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )
+''';
