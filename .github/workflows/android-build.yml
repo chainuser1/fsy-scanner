@@ -38,6 +38,7 @@ jobs:
           echo "SHEETS_ID=fake" >> assets/.env
           echo "SHEETS_TAB=fake" >> assets/.env
           echo "EVENT_NAME=Test" >> assets/.env
+          echo "ORGANIZATION_NAME=Test Organization" >> assets/.env
         working-directory: fsy_scanner
 
       - name: Dart analyze (linting)
@@ -100,6 +101,7 @@ jobs:
               'SHEETS_ID':                          os.environ.get('EXPO_PUBLIC_SHEETS_ID', ''),
               'SHEETS_TAB':                         os.environ.get('EXPO_PUBLIC_SHEETS_TAB', ''),
               'EVENT_NAME':                         os.environ.get('EXPO_PUBLIC_EVENT_NAME', ''),
+              'ORGANIZATION_NAME':                  os.environ.get('EXPO_PUBLIC_ORGANIZATION_NAME', ''),
           }
 
           with open('assets/.env', 'w') as f:
@@ -115,6 +117,7 @@ jobs:
           EXPO_PUBLIC_SHEETS_ID:              ${{ secrets.EXPO_PUBLIC_SHEETS_ID }}
           EXPO_PUBLIC_SHEETS_TAB:             ${{ secrets.EXPO_PUBLIC_SHEETS_TAB }}
           EXPO_PUBLIC_EVENT_NAME:             ${{ secrets.EXPO_PUBLIC_EVENT_NAME }}
+          EXPO_PUBLIC_ORGANIZATION_NAME:      ${{ secrets.EXPO_PUBLIC_ORGANIZATION_NAME }}
 
       - name: Verify .env file integrity
         run: |
@@ -132,7 +135,7 @@ jobs:
 
           echo "Checking required keys and non-empty values..."
           MISSING=""
-          for key in GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY SHEETS_ID SHEETS_TAB EVENT_NAME; do
+          for key in GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY SHEETS_ID SHEETS_TAB EVENT_NAME ORGANIZATION_NAME; do
             VALUE=$(grep "^${key}=" "$FILE" | cut -d'=' -f2-)
             if [ -z "$VALUE" ] || [ "$VALUE" = '""' ]; then
               MISSING="$MISSING $key"

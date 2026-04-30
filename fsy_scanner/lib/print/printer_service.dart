@@ -14,6 +14,7 @@ import 'receipt_builder.dart';
 
 class PrinterService {
   static const String _eventNameKey = 'event_name';
+  static const String _organizationNameKey = 'organization_name';
   static const String _printerAddressKey = 'printer_address';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
   static const String cutModeOff = 'off';
@@ -362,6 +363,15 @@ class PrinterService {
       final eventName = eventResult.isNotEmpty
           ? eventResult.first['value'] as String
           : 'FSY Event';
+      final organizationResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: [_organizationNameKey],
+        limit: 1,
+      );
+      final organizationName = organizationResult.isNotEmpty
+          ? organizationResult.first['value'] as String? ?? ''
+          : '';
 
       final printerAddress = await getSelectedPrinterAddress();
       if (printerAddress == null) {
@@ -442,8 +452,12 @@ class PrinterService {
       }
 
       _pendingPrints[participant.id] = true;
-      final receiptLines =
-          ReceiptBuilder.buildLines(participant, eventName, deviceId);
+      final receiptLines = ReceiptBuilder.buildLines(
+        participant,
+        eventName,
+        organizationName,
+        deviceId,
+      );
       await _printReceiptLines(receiptLines, printerAddress);
 
       final now = DateTime.now().millisecondsSinceEpoch;

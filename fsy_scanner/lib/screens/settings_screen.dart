@@ -28,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _sheetIdController = TextEditingController();
   final _tabNameController = TextEditingController();
   final _eventNameController = TextEditingController();
+  final _organizationNameController = TextEditingController();
 
   List<BluetoothDevice> _discoveredPrinters = [];
   bool _isScanningPrinters = false;
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _sheetIdController.text = '';
     _tabNameController.text = '';
     _eventNameController.text = '';
+    _organizationNameController.text = '';
     _selectedPrinterAddress = null;
 
     for (final setting in settings) {
@@ -67,6 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (key == 'sheets_id') _sheetIdController.text = value;
       if (key == 'sheets_tab') _tabNameController.text = value;
       if (key == 'event_name') _eventNameController.text = value;
+      if (key == 'organization_name') _organizationNameController.text = value;
       if (key == 'printer_address') _selectedPrinterAddress = value;
     }
 
@@ -79,6 +82,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     if (_eventNameController.text.isEmpty) {
       _eventNameController.text = dotenv.env['EVENT_NAME'] ?? '';
+    }
+    if (_organizationNameController.text.isEmpty) {
+      _organizationNameController.text = dotenv.env['ORGANIZATION_NAME'] ?? '';
     }
 
     if (!mounted) {
@@ -118,10 +124,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return null;
   }
 
+  String? _validateOrganizationName(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Organization name cannot be empty';
+    }
+    if (value.length > 150) return 'Organization name is too long';
+    return null;
+  }
+
   Future<void> _saveSheetSettings() async {
     final sheetIdError = _validateSheetId(_sheetIdController.text);
     final tabNameError = _validateTabName(_tabNameController.text);
     final eventNameError = _validateEventName(_eventNameController.text);
+    final organizationNameError =
+        _validateOrganizationName(_organizationNameController.text);
 
     if (sheetIdError != null) {
       if (mounted) {
@@ -147,12 +163,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       return;
     }
+    if (organizationNameError != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(organizationNameError),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     final db = await DatabaseHelper.database;
     final previousSettings = await db.query(
       'app_settings',
-      where: 'key IN (?, ?, ?, ?)',
-      whereArgs: ['sheets_id', 'sheets_tab', 'event_name', 'col_map'],
+      where: 'key IN (?, ?, ?, ?, ?)',
+      whereArgs: [
+        'sheets_id',
+        'sheets_tab',
+        'event_name',
+        'organization_name',
+        'col_map',
+      ],
     );
     final previousValues = <String, String?>{};
     for (final row in previousSettings) {
@@ -174,6 +207,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       {'key': 'event_name', 'value': _eventNameController.text},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await db.insert(
+      'app_settings',
+      {'key': 'organization_name', 'value': _organizationNameController.text},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    if (mounted) {
+      await context.read<AppState>().loadPreferences();
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -205,7 +247,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw Exception('Google authentication unavailable');
       }
     } catch (e) {
-      for (final key in ['sheets_id', 'sheets_tab', 'event_name', 'col_map']) {
+      for (final key in [
+        'sheets_id',
+        'sheets_tab',
+        'event_name',
+        'organization_name',
+        'col_map',
+      ]) {
         final previousValue = previousValues[key];
         if (previousValue == null) {
           await db.delete('app_settings', where: 'key = ?', whereArgs: [key]);
@@ -234,11 +282,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_tab']);
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['organization_name'],
+    );
 
     final settingsToSeed = {
       'sheets_id': dotenv.env['SHEETS_ID'],
       'sheets_tab': dotenv.env['SHEETS_TAB'],
       'event_name': dotenv.env['EVENT_NAME'],
+      'organization_name': dotenv.env['ORGANIZATION_NAME'],
     };
     for (final entry in settingsToSeed.entries) {
       if (entry.value != null) {
@@ -251,6 +305,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     await _loadSettings();
+    if (mounted) {
+      await context.read<AppState>().loadPreferences();
+    }
 
     try {
       final token = await GoogleAuth.getValidToken();
@@ -553,6 +610,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _sheetIdController.dispose();
     _tabNameController.dispose();
     _eventNameController.dispose();
+    _organizationNameController.dispose();
     super.dispose();
   }
 
@@ -599,6 +657,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Event Name',
                       hintText: 'Enter the event name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _organizationNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Organization Name',
+                      hintText: 'Enter the hosting organization name',
                       border: OutlineInputBorder(),
                     ),
                   ),

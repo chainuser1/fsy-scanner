@@ -2910,3 +2910,52 @@ Fixed a Bluetooth printer discovery gap where printers that were already paired 
 
 ### Deviations from Plan
 - Instead of replacing the plugin immediately, the fix preserves the current plugin and adapts the app to its actual permission behavior so the discovery bug is resolved with minimal surface-area change.
+
+---
+
+## 54.0 — Organization Name Branding, Receipt Output, and CI Env Support
+**Date/Time:** 2026-04-30 09:05:00
+**Status:** ✅ Complete
+
+### What I Did
+Added `organization_name` support end-to-end so the hosting organization can be configured alongside the event name, printed on receipts, loaded from app settings or `.env`, and supplied correctly during GitHub Actions builds.
+
+### Changes Made
+**Receipt branding updates.**
+- Updated `ReceiptBuilder` so receipts can accept both `event_name` and `organization_name`.
+- Added the organization name to the printed receipt when it is configured.
+- Kept the output printer-safe by reusing the existing sanitization path.
+
+**Settings and app-state support.**
+- Added an `Organization Name` field to Settings with validation and save/reset handling.
+- Updated `AppState` to load `organization_name` from `app_settings` with `.env` fallback, matching the existing `event_name` flow.
+- Updated startup seeding in `SyncEngine` so `organization_name` is inserted from `.env` the same way as the sheet and event settings.
+
+**Build workflow support.**
+- Updated the GitHub Actions placeholder `.env` used during CI analysis to include `ORGANIZATION_NAME`.
+- Updated workflow `.env` generation so `EXPO_PUBLIC_ORGANIZATION_NAME` is mapped into `ORGANIZATION_NAME`.
+- Updated workflow integrity checks so Android builds fail fast if `ORGANIZATION_NAME` is missing or empty.
+
+### Files Modified
+- `fsy_scanner/lib/print/receipt_builder.dart` – receipt layout now includes optional organization branding.
+- `fsy_scanner/lib/print/printer_service.dart` – loads `organization_name` and passes it into receipt generation.
+- `fsy_scanner/lib/screens/settings_screen.dart` – added organization field, validation, persistence, and reset behavior.
+- `fsy_scanner/lib/providers/app_state.dart` – added organization loading and getter support.
+- `fsy_scanner/lib/sync/sync_engine.dart` – seeds `organization_name` from `.env` at startup.
+- `.github/workflows/android-build.yml` – updated placeholder env creation, secret mapping, and required-key validation.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- The app now persists organization branding locally and falls back to `.env` when no saved setting exists.
+- Receipt output can now show both the event name and the hosting organization.
+- CI/build-time `.env` generation now requires organization branding to be present.
+
+### Issues Encountered
+- The existing branding/config flow only handled `event_name`, so receipt generation, settings persistence, app-state loading, and workflow env generation all needed to be updated together to avoid partial configuration.
+
+### Corrections Made
+- Extended the existing event-name configuration pattern instead of introducing a separate branding system.
+- Kept workflow variable naming consistent by mapping `EXPO_PUBLIC_ORGANIZATION_NAME` into Flutter's `ORGANIZATION_NAME`.
+
+### Deviations from Plan
+- The workflow continues using the `EXPO_PUBLIC_*` secret naming convention for GitHub Actions compatibility, while the Flutter app itself still consumes plain `.env` keys such as `ORGANIZATION_NAME`.

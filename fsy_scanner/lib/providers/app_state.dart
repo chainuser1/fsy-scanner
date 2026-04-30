@@ -26,6 +26,7 @@ class AppState extends ChangeNotifier {
   bool _voiceEnabled = false;
 
   String _eventName = '';
+  String _organizationName = '';
 
   static const int maxRecentScans = 10;
   final List<RecentScan> _recentScans = [];
@@ -45,6 +46,7 @@ class AppState extends ChangeNotifier {
   bool get hapticEnabled => _hapticEnabled;
   bool get voiceEnabled => _voiceEnabled;
   String get eventName => _eventName;
+  String get organizationName => _organizationName;
 
   void addRecentScan(Participant participant) {
     _recentScans.insert(
@@ -158,6 +160,11 @@ class AppState extends ChangeNotifier {
         .query('app_settings', where: 'key = ?', whereArgs: ['voice_enabled']);
     final eventNameResult = await db
         .query('app_settings', where: 'key = ?', whereArgs: ['event_name']);
+    final organizationNameResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['organization_name'],
+    );
 
     _soundEnabled =
         soundResult.isEmpty || soundResult.first['value'] != 'false';
@@ -172,6 +179,13 @@ class AppState extends ChangeNotifier {
       _eventName = dotenv.env['EVENT_NAME'] ?? 'FSY 2026';
     }
 
+    if (organizationNameResult.isNotEmpty) {
+      _organizationName =
+          organizationNameResult.first['value'] as String? ?? '';
+    } else {
+      _organizationName = dotenv.env['ORGANIZATION_NAME'] ?? '';
+    }
+
     notifyListeners();
   }
 
@@ -183,6 +197,16 @@ class AppState extends ChangeNotifier {
       _eventName = result.first['value'] as String? ?? '';
     } else {
       _eventName = dotenv.env['EVENT_NAME'] ?? 'FSY 2026';
+    }
+    final organizationResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['organization_name'],
+    );
+    if (organizationResult.isNotEmpty) {
+      _organizationName = organizationResult.first['value'] as String? ?? '';
+    } else {
+      _organizationName = dotenv.env['ORGANIZATION_NAME'] ?? '';
     }
     notifyListeners();
   }

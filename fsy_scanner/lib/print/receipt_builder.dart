@@ -5,22 +5,34 @@ class ReceiptBuilder {
   static const int _receiptWidth = 32;
 
   static String build(
-      Participant participant, String eventName, String deviceId) {
-    final lines = buildLines(participant, eventName, deviceId);
+    Participant participant,
+    String eventName,
+    String organizationName,
+    String deviceId,
+  ) {
+    final lines =
+        buildLines(participant, eventName, organizationName, deviceId);
     return lines.map((line) => line.text).join('\n');
   }
 
   static List<ReceiptLine> buildLines(
-      Participant participant, String eventName, String deviceId) {
+    Participant participant,
+    String eventName,
+    String organizationName,
+    String deviceId,
+  ) {
     final now = DateTime.now();
     final formatter = DateFormat('dd MMM yyyy HH:mm');
     final timestamp = formatter.format(now);
     final shortDeviceId =
         deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
+    final hasOrganization = organizationName.trim().isNotEmpty;
 
     final lines = <ReceiptLine>[
       ReceiptLine(_printerSafe('=' * _receiptWidth)),
       ReceiptLine(_printerSafe(eventName), size: 2, align: 1),
+      if (hasOrganization)
+        ReceiptLine(_printerSafe(organizationName.trim()), align: 1),
       const ReceiptLine('CHECK-IN RECEIPT', size: 1, align: 1),
       ReceiptLine(_printerSafe('=' * _receiptWidth)),
       ReceiptLine(_printerSafe('Name:  ${participant.fullName}')),
@@ -51,6 +63,8 @@ class ReceiptBuilder {
       ReceiptLine(_printerSafe('Verified: $timestamp')),
       ReceiptLine(_printerSafe('Device: $shortDeviceId')),
       ReceiptLine(_printerSafe('=' * _receiptWidth)),
+      if (hasOrganization)
+        ReceiptLine(_printerSafe('Hosted by $organizationName'), align: 1),
       ReceiptLine(_printerSafe('Welcome to $eventName!'), align: 1),
       ReceiptLine(_printerSafe('=' * _receiptWidth)),
       const ReceiptLine(''),

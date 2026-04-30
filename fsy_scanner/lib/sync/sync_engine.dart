@@ -76,6 +76,7 @@ class SyncEngine {
         'sheets_id': dotenv.env['SHEETS_ID'],
         'sheets_tab': dotenv.env['SHEETS_TAB'],
         'event_name': dotenv.env['EVENT_NAME'],
+        'organization_name': dotenv.env['ORGANIZATION_NAME'],
       };
 
       for (final entry in settingsToSeed.entries) {
