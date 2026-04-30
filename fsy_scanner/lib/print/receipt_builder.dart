@@ -106,7 +106,8 @@ class ReceiptBuilder {
     int size = 0,
   }) {
     return _wrapText(value, width)
-        .map((line) => ReceiptLine(_printerSafe(line), align: align, size: size))
+        .map(
+            (line) => ReceiptLine(_printerSafe(line), align: align, size: size))
         .toList();
   }
 
@@ -136,7 +137,8 @@ class ReceiptBuilder {
   }
 
   static List<String> _wrapText(String value, int width) {
-    final normalized = _printerSafe(value).replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normalized =
+        _printerSafe(value).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normalized.isEmpty) {
       return const <String>[];
     }

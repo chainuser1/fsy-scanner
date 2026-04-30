@@ -2959,3 +2959,52 @@ Added `organization_name` support end-to-end so the hosting organization can be 
 
 ### Deviations from Plan
 - The workflow continues using the `EXPO_PUBLIC_*` secret naming convention for GitHub Actions compatibility, while the Flutter app itself still consumes plain `.env` keys such as `ORGANIZATION_NAME`.
+
+---
+
+## 55.0 — Receipt Layout Refinement, Smart Wrapping, and Branding Cleanup
+**Date/Time:** 2026-04-30 10:20:00
+**Status:** ✅ Complete
+
+### What I Did
+Refined the printed receipt layout to improve readability on 32-character thermal paper. The changes focus on dynamic word-wrapping, better visual hierarchy, and cleaner branding placement after live device testing exposed awkward line breaks and low-value printed fields.
+
+### Changes Made
+**Smarter dynamic wrapping.**
+- Reworked `ReceiptBuilder` so long values wrap on word boundaries instead of breaking unpredictably in the middle of normal phrases.
+- Applied the wrapping logic consistently to participant name, organization name, event name, and labeled fields such as room, table, ward, and shirt.
+- Added normalization of values like `None`, `N/A`, and empty strings so they do not print as noisy placeholders.
+
+**Receipt content cleanup.**
+- Removed printed medical information from receipts.
+- Replaced the medical line with `Ward` when ward information is available, since that is more useful for event operations.
+- Removed the `Name:` label and gave the participant full name its own centered block for stronger visual emphasis.
+- Converted the participant full name to uppercase on the receipt.
+- Converted the organization name to uppercase on the receipt.
+
+**Branding placement refinement.**
+- Removed the top-of-receipt event and organization branding block.
+- Simplified the header to start directly with `CHECK-IN RECEIPT`.
+- Kept organization and event branding in the footer under `Hosted by` and `Welcome to`, where long branding text reads more naturally and does not compete with the participant details.
+
+### Files Modified
+- `fsy_scanner/lib/print/receipt_builder.dart` – dynamic wrapping helpers, uppercase name/organization handling, field cleanup, and simplified header/footer layout.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- Long organization names now wrap more cleanly on thermal paper.
+- The receipt header is shorter and clearer.
+- Participant names are easier to scan quickly during check-in.
+- Medical placeholders such as `None` no longer appear.
+
+### Issues Encountered
+- Real printer output showed that long branding lines could still look cramped even when technically printable, especially when repeated in both header and footer.
+- The original labeled name line did not give enough visual emphasis to the participant's actual name.
+
+### Corrections Made
+- Moved branding emphasis to the footer instead of duplicating it at the top.
+- Promoted the participant full name into a centered standalone section.
+- Replaced rigid line construction with reusable wrapping helpers for consistent formatting.
+
+### Deviations from Plan
+- The final receipt layout is more minimal than the earlier version because live output showed that operator clarity matters more than repeating branding in multiple sections.
