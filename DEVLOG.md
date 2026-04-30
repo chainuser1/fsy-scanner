@@ -4035,3 +4035,40 @@ Completed a consistency audit of all app printing entry points and fixed the rem
 
 ### Deviations from Plan
 - The audit showed that the diagnostic printer test should remain outside the business confirmation policy because it is a hardware probe and does not change participant or summary truth.
+
+---
+
+## 65.0 — Auto-Retry Loop Fix For Awaiting Confirmation Jobs
+**Date/Time:** 2026-04-30 23:10:00
+**Status:** ✅ Complete
+
+### What I Did
+Investigated a production-impacting printer queue bug where automatic retry could keep reprinting the same participant repeatedly even after a successful send, and fixed the queue state transition so those jobs stop retrying immediately once they move into confirmation state.
+
+### Changes Made
+**Fixed the repeated auto-retry printing loop.**
+- Traced the issue to the transition from `queued` to `awaiting_confirmation`.
+- The database row was being updated correctly after a successful retry send, but the in-memory `_failedJobs` cache was not updated at the same time.
+- Because automation drains retryable work from that cache, the job could still look `queued` on the next automation cycle and be printed again.
+
+**Synchronized cache state with the durable job state.**
+- Updated `_markJobAwaitingConfirmation(...)` in `PrinterService` so it now refreshes the in-memory queue entry immediately after the database update.
+- If the specific job cannot be reloaded directly, the service refreshes the whole unresolved queue cache as a fallback.
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – fixed cache synchronization when a job transitions into `awaiting_confirmation`.
+
+### Verification Result
+- Diagnostics are clean for the updated printer service file.
+- `flutter analyze` reports no issues.
+- Automatic retry should now stop retrying the same participant once the job has successfully moved out of the retryable queue and into pending confirmation.
+
+### Issues Encountered
+- The bug was not in the durable database state itself; it was in stale in-memory retry state used by the automation loop.
+- This made the problem easy to miss in code review because the persistent job status looked correct while the active retry source remained outdated.
+
+### Corrections Made
+- Aligned the in-memory queue state with the persisted job state at the exact transition point where successful retry sends become pending confirmations.
+
+### Deviations from Plan
+- This pass focused on the receipt auto-retry loop specifically and did not require broader UX or policy changes.

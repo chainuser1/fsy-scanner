@@ -1369,6 +1369,12 @@ class PrinterService {
       where: 'job_id = ?',
       whereArgs: [jobId],
     );
+    final refreshedJob = await _getPrintJobById(jobId);
+    if (refreshedJob != null) {
+      await _replaceQueuedJob(refreshedJob);
+    } else {
+      await _refreshQueuedJobsCache();
+    }
   }
 
   static Future<_FailedPrintJob?> _getPrintJobById(String jobId) async {
