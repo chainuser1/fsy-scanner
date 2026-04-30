@@ -10,7 +10,6 @@ import 'package:sqflite/sqflite.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
-import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../sync/sheets_api.dart';
@@ -87,6 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() {});
+    await _loadPairedPrintersSilently();
     await _refreshPrinterInfo();
   }
 
@@ -309,7 +309,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context) => AlertDialog(
             title: const Text('Bluetooth Permission Required'),
             content: const Text(
-              'Allow Bluetooth access so the app can load paired printers and print receipts.',
+              'Allow Bluetooth and location access so the app can load already paired printers and print receipts.',
             ),
             actions: [
               TextButton(
@@ -329,6 +329,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await openAppSettings();
     }
     return false;
+  }
+
+  Future<bool> _hasPrinterPermissionsGranted() async {
+    final statuses = await Future.wait<PermissionStatus>([
+      Permission.bluetoothScan.status,
+      Permission.bluetoothConnect.status,
+      Permission.location.status,
+    ]);
+    return statuses.every((status) => status.isGranted);
+  }
+
+  Future<void> _loadPairedPrintersSilently() async {
+    final granted = await _hasPrinterPermissionsGranted();
+    if (!granted) {
+      return;
+    }
+
+    final printers = await PrinterService.scanPrinters();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _discoveredPrinters = printers;
+    });
   }
 
   Future<void> _refreshPrinterInfo() async {
@@ -402,13 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final deviceId = await DeviceId.get();
-    final mockParticipant = Participant(
-      id: 'TEST-001',
-      fullName: 'Test Participant',
-      sheetsRow: 0,
-    );
-    final result = await PrinterService.printReceipt(mockParticipant, deviceId);
+    final result = await PrinterService.printDiagnosticProbe();
     await _refreshPrinterInfo();
     _showSnackBar(
       result.message,
@@ -450,6 +469,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ? Colors.green
               : Colors.orange,
     );
+  }
+
+  Future<void> _setCutMode(String printerAddress, String mode) async {
+    await PrinterService.setCutMode(printerAddress, mode);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+    final label = switch (mode) {
+      PrinterService.cutModeOff => 'No Cut',
+      PrinterService.cutModeSafe => 'Safe Tear',
+      PrinterService.cutModeForce => 'Full Cut',
+      _ => mode,
+    };
+    _showSnackBar('Paper finish mode set to $label');
   }
 
   Future<void> _startFullSync() async {
@@ -645,6 +680,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   if (_selectedPrinterAddress != null)
                     const SizedBox(height: 8),
+                  if (_selectedPrinterAddress != null)
+                    FutureBuilder<String>(
+                      future: PrinterService.getCutMode(_selectedPrinterAddress!),
+                      builder: (context, snapshot) {
+                        final currentMode =
+                            snapshot.data ?? PrinterService.cutModeOff;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Paper Finish',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Choose how the paper should end after printing on this printer.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                            const SizedBox(height: 8),
+                            SegmentedButton<String>(
+                              segments: const [
+                                ButtonSegment<String>(
+                                  value: PrinterService.cutModeOff,
+                                  label: Text('No Cut'),
+                                ),
+                                ButtonSegment<String>(
+                                  value: PrinterService.cutModeSafe,
+                                  label: Text('Safe Tear'),
+                                ),
+                                ButtonSegment<String>(
+                                  value: PrinterService.cutModeForce,
+                                  label: Text('Full Cut'),
+                                ),
+                              ],
+                              selected: {currentMode},
+                              onSelectionChanged: (selection) {
+                                final printerAddress = _selectedPrinterAddress;
+                                if (printerAddress == null ||
+                                    selection.isEmpty) {
+                                  return;
+                                }
+                                _setCutMode(
+                                  printerAddress,
+                                  selection.first,
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              switch (currentMode) {
+                                PrinterService.cutModeSafe =>
+                                  'Safe Tear sends a gentler cut command for printers that may support partial cutting.',
+                                PrinterService.cutModeForce =>
+                                  'Full Cut sends the strongest cut command. Use this only on printers with an auto-cutter.',
+                                _ =>
+                                  'No Cut is safest for portable printers like the PT-200 and leaves extra paper for manual tearing.',
+                              },
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        );
+                      },
+                    ),
                   if (_discoveredPrinters.isNotEmpty)
                     ListView.builder(
                       shrinkWrap: true,

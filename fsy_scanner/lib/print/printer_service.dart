@@ -16,6 +16,9 @@ class PrinterService {
   static const String _eventNameKey = 'event_name';
   static const String _printerAddressKey = 'printer_address';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
+  static const String cutModeOff = 'off';
+  static const String cutModeSafe = 'safe';
+  static const String cutModeForce = 'force';
 
   static final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
   static BluetoothDevice? _connectedDevice;
@@ -34,6 +37,7 @@ class PrinterService {
     final statuses = await <Permission>[
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
+      Permission.location,
     ].request();
 
     return statuses.values.every((status) => status.isGranted);
@@ -71,6 +75,44 @@ class PrinterService {
       return null;
     }
     return value;
+  }
+
+  static String _cutModeKey(String printerAddress) {
+    final safeAddress = printerAddress.replaceAll(':', '_');
+    return 'printer_cut_mode_$safeAddress';
+  }
+
+  static Future<String> getCutMode(String printerAddress) async {
+    final db = await DatabaseHelper.database;
+    final result = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_cutModeKey(printerAddress)],
+      limit: 1,
+    );
+    if (result.isEmpty) {
+      return cutModeOff;
+    }
+
+    final value = result.first['value'] as String?;
+    if (value == cutModeSafe || value == cutModeForce) {
+      return value!;
+    }
+    return cutModeOff;
+  }
+
+  static Future<void> setCutMode(String printerAddress, String mode) async {
+    if (mode != cutModeOff && mode != cutModeSafe && mode != cutModeForce) {
+      throw ArgumentError.value(mode, 'mode', 'Unsupported cut mode');
+    }
+
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'app_settings',
+      {'key': _cutModeKey(printerAddress), 'value': mode},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    debugPrint('[PrinterService] Cut mode for $printerAddress set to $mode');
   }
 
   static Future<List<BluetoothDevice>> _getBondedDevicesUnsafe() async {
@@ -400,8 +442,9 @@ class PrinterService {
       }
 
       _pendingPrints[participant.id] = true;
-      final receiptText = ReceiptBuilder.build(participant, eventName, deviceId);
-      await _printer.write(receiptText);
+      final receiptLines =
+          ReceiptBuilder.buildLines(participant, eventName, deviceId);
+      await _printReceiptLines(receiptLines, printerAddress);
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final recorded = await _onPrintSuccess(participant, now);
@@ -573,6 +616,151 @@ class PrinterService {
       debugPrint('[PrinterService] Error recording print: $e');
       return false;
     }
+  }
+
+  static Future<PrintReceiptResult> printDiagnosticProbe() async {
+    try {
+      final printerAddress = await getSelectedPrinterAddress();
+      if (printerAddress == null) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'No printer selected for the diagnostic test.',
+        );
+      }
+
+      final status = await getSelectedPrinterStatus();
+      if (!status.permissionsGranted) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'Bluetooth permission is required before the diagnostic test.',
+        );
+      }
+
+      if (!status.isPaired) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'The selected printer is not paired in Android settings.',
+        );
+      }
+
+      final connected = await _ensureConnected(printerAddress);
+      if (!connected) {
+        return const PrintReceiptResult(
+          success: false,
+          queuedForRetry: false,
+          message: 'Could not connect to the selected printer.',
+        );
+      }
+
+      await _printer.writeBytes(
+        Uint8List.fromList(<int>[
+          0x1B, 0x40,
+          0x1B, 0x61, 0x01,
+          ...ascii.encode('DIAGNOSTIC TEST'),
+          0x0D, 0x0A,
+          0x1B, 0x61, 0x00,
+          ...ascii.encode('TEST'),
+          0x0D, 0x0A,
+          ...ascii.encode('1234567890'),
+          0x0D, 0x0A,
+          ...ascii.encode('ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+          0x0D, 0x0A,
+          ...ascii.encode('abcdefghijklmnopqrstuvwxyz'),
+          0x0D, 0x0A,
+          ...ascii.encode('--------------------------------'),
+          0x0D, 0x0A,
+          0x0A, 0x0A, 0x0A,
+        ]),
+      );
+
+      return const PrintReceiptResult(
+        success: true,
+        queuedForRetry: false,
+        message:
+            'Diagnostic print sent. If the paper is still blank, the issue is likely paper orientation/type or printer hardware.',
+      );
+    } catch (e) {
+      debugPrint('[PrinterService] Diagnostic print failed: $e');
+      return PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message: 'Diagnostic print failed: $e',
+      );
+    }
+  }
+
+  static Future<void> _applyCutMode(String printerAddress) async {
+    final cutMode = await getCutMode(printerAddress);
+    try {
+      switch (cutMode) {
+        case cutModeForce:
+          await _printer.writeBytes(
+            Uint8List.fromList(<int>[0x1D, 0x56, 0x00]),
+          );
+          break;
+        case cutModeSafe:
+          await _printer.writeBytes(
+            Uint8List.fromList(<int>[0x1D, 0x56, 0x01]),
+          );
+          break;
+        case cutModeOff:
+        default:
+          await _printer.writeBytes(
+            Uint8List.fromList(<int>[0x0A, 0x0A]),
+          );
+          break;
+      }
+    } catch (e) {
+      debugPrint('[PrinterService] Cut command failed, falling back to feed: $e');
+      await _printer.writeBytes(
+        Uint8List.fromList(<int>[0x0A, 0x0A]),
+      );
+    }
+  }
+
+  static Future<void> _printReceiptLines(
+    List<ReceiptLine> lines,
+    String printerAddress,
+  ) async {
+    await _printer.writeBytes(
+      Uint8List.fromList(<int>[
+        0x1B,
+        0x40, // ESC @ initialize printer
+        0x1B,
+        0x61,
+        0x00, // left align
+      ]),
+    );
+
+    for (final line in lines) {
+      final bytes = <int>[
+        0x1B,
+        0x61,
+        line.align.clamp(0, 2),
+        ...ascii.encode(line.text),
+        0x0D,
+        0x0A,
+      ];
+      await _printer.writeBytes(Uint8List.fromList(bytes));
+    }
+
+    await _printer.writeBytes(
+      Uint8List.fromList(<int>[
+        0x1D,
+        0x21,
+        0x00,
+        0x1B,
+        0x61,
+        0x00,
+        0x0A,
+        0x0A,
+        0x0A,
+      ]),
+    );
+    await _applyCutMode(printerAddress);
   }
 }
 

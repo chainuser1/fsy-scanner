@@ -190,80 +190,99 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Widget _buildWelcomePage() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset('assets/fsy_logo.png', height: 240),
-          const SizedBox(height: 32),
-          const Text(
-            'Welcome!',
-            style: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              color: FSYScannerApp.primaryBlue,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Your dedicated check‑in scanner\nfor ${context.watch<AppState>().eventName}.',
-            textAlign: TextAlign.center,
-            style:
-                const TextStyle(fontSize: 16, color: Colors.grey, height: 1.5),
-          ),
-          const SizedBox(height: 48),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: FSYScannerApp.primaryBlue.withAlpha(25),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 48),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.lightbulb_outline,
-                    color: FSYScannerApp.accentGold, size: 28),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    'Tap "Get Started" to learn how the scanner works, or jump right in!',
-                    style: TextStyle(fontSize: 14, height: 1.4),
+                Image.asset('assets/fsy_logo.png', height: 200),
+                const SizedBox(height: 24),
+                const Text(
+                  'Welcome!',
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    color: FSYScannerApp.primaryBlue,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Your dedicated check‑in scanner\nfor ${context.watch<AppState>().eventName}.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: FSYScannerApp.primaryBlue.withAlpha(25),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline,
+                          color: FSYScannerApp.accentGold, size: 28),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Tap "Get Started" to learn how the scanner works.',
+                          style: TextStyle(fontSize: 14, height: 1.4),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildInstructionPage(int index) {
     final page = _instructionPages[index];
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset('assets/transparent_background_fsy_logo.png', height: 40),
-          const SizedBox(height: 40),
-          Icon(page['icon'] as IconData,
-              size: 100, color: FSYScannerApp.primaryBlue),
-          const SizedBox(height: 40),
-          Text(
-            page['title'] as String,
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 64),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset('assets/transparent_background_fsy_logo.png',
+                    height: 40),
+                const SizedBox(height: 40),
+                Icon(page['icon'] as IconData,
+                    size: 100, color: FSYScannerApp.primaryBlue),
+                const SizedBox(height: 40),
+                Text(
+                  page['title'] as String,
+                  style: const TextStyle(
+                      fontSize: 26, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  page['description'] as String,
+                  style: const TextStyle(
+                      fontSize: 16, color: Colors.grey, height: 1.5),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            page['description'] as String,
-            style:
-                const TextStyle(fontSize: 16, color: Colors.grey, height: 1.5),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -2818,3 +2818,95 @@ Performed a new audit focused on the remaining high-risk operational gaps outsid
 
 ### Deviations from Plan
 - Pull protection now prioritizes local pending changes before refreshing from Google Sheets. This is a safety mechanism to preserve correctness while still respecting Google Sheets as the sole source of truth once queued changes have been pushed.
+
+## 52.0 — Per-Printer Paper Finish Modes, ESC/POS Output Hardening, and Onboarding Overflow Fix
+**Date/Time:** 2026-04-30 08:10:00
+**Status:** ✅ Complete
+
+### What I Did
+Added per-printer paper finish controls for Bluetooth thermal printers, hardened the receipt output path around explicit ESC/POS byte commands, and fixed the onboarding welcome/instruction pages so they no longer throw a bottom overflow on smaller screens.
+
+### Changes Made
+**Per-printer paper finish modes.**
+- Added persistent per-printer paper finish settings in `app_settings`, scoped by printer Bluetooth address.
+- Implemented three operator-facing finish modes in `PrinterService`: `No Cut`, `Safe Tear`, and `Full Cut`.
+- Set the default behavior to `No Cut`, which is the safe choice for PT-200 class portable printers.
+- Added fallback behavior so unsupported cut commands do not break printing; the app falls back to extra feed lines.
+
+**Printer output hardening.**
+- Continued the low-level ESC/POS printing path in `PrinterService`, keeping printer initialization, alignment commands, text-size commands, and explicit line feeds under app control.
+- Wired receipt printing to pass the selected printer address into the print pipeline so the saved paper finish mode is applied per device.
+- Kept the diagnostic printer probe available from Settings so minimal test output can be sent without depending on the full receipt layout.
+
+**Settings UI for printer finish mode.**
+- Added a printer-specific segmented control in Settings for `No Cut`, `Safe Tear`, and `Full Cut`.
+- Added friendlier helper text describing when each mode should be used.
+- Added confirmation feedback when the operator changes the selected printer's paper finish mode.
+
+**Onboarding overflow fix.**
+- Refactored the onboarding welcome page to use `LayoutBuilder` plus `SingleChildScrollView` so the layout can shrink safely on smaller screens.
+- Applied the same scroll-safe layout pattern to the instruction pages.
+- Reduced the welcome logo size and trimmed the hint copy so the first page fits more reliably.
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – per-printer cut-mode persistence, safe cut handling, and paper finish application during receipt printing.
+- `fsy_scanner/lib/screens/settings_screen.dart` – friendly paper finish controls for the selected printer.
+- `fsy_scanner/lib/screens/onboarding_screen.dart` – overflow-safe welcome and instruction layouts.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- Paper finish behavior is now configurable per paired printer rather than globally or by assumption.
+- Onboarding pages are now scroll-safe and should no longer overflow vertically on smaller displays.
+
+### Issues Encountered
+- The blank-print investigation initially appeared to be a command-path problem, but the actual root cause during device testing was thermal paper loaded backwards.
+- Printer cut support cannot be reliably auto-detected over generic Bluetooth ESC/POS for low-cost printers, so the implementation avoids fake auto-detection.
+
+### Corrections Made
+- Replaced the ambiguous idea of auto-detecting cutter support with a remembered per-printer user preference.
+- Added safe fallback behavior when cut commands are unsupported.
+- Fixed the onboarding layout to adapt to constrained screen height instead of assuming ample vertical space.
+
+### Deviations from Plan
+- The middle paper finish mode was named `Safe Tear` instead of `Auto` to avoid implying capability detection that the app does not actually perform.
+
+## 53.0 — Pre-Paired Printer Discovery Fix and Permission Alignment
+**Date/Time:** 2026-04-30 08:35:00
+**Status:** ✅ Complete
+
+### What I Did
+Fixed a Bluetooth printer discovery gap where printers that were already paired before the app's first launch could remain invisible to the app until they were manually unpaired and paired again. The fix aligns the app's declared and requested permissions with what the `blue_thermal_printer` plugin actually requires to enumerate bonded devices, and it also auto-loads previously paired printers in Settings when permission is already available.
+
+### Changes Made
+**Permission alignment for bonded-printer discovery.**
+- Added `ACCESS_FINE_LOCATION` back to the Android manifest because the current `blue_thermal_printer` plugin checks for it before returning bonded devices, even on Android 12+ where the app already uses Nearby Devices permissions.
+- Updated `PrinterService.ensureBluetoothPermissions()` to request Bluetooth scan, Bluetooth connect, and location permissions together so printer enumeration is no longer blocked by a hidden plugin-level permission mismatch.
+
+**Automatic loading of already paired printers.**
+- Added a silent permission-state check in `SettingsScreen`.
+- If printer permissions are already granted, Settings now loads paired printers automatically during screen initialization instead of waiting for the operator to manually force discovery.
+- This reduces the chance that a printer paired outside the app appears to be missing on first use.
+
+**Operator messaging improvement.**
+- Updated the Bluetooth permission explanation in Settings so it clearly states that both Bluetooth and location access are needed to load already paired printers and print receipts with the current plugin.
+
+### Files Modified
+- `fsy_scanner/android/app/src/main/AndroidManifest.xml` – restored `ACCESS_FINE_LOCATION` for plugin compatibility.
+- `fsy_scanner/lib/print/printer_service.dart` – aligned runtime permission requests with plugin requirements.
+- `fsy_scanner/lib/screens/settings_screen.dart` – auto-loads paired printers when permission is already granted and clarifies permission messaging.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- The app now checks for the same permissions the printer plugin expects before bonded-device enumeration.
+- Settings now preloads already paired printers when permissions are already granted.
+
+### Issues Encountered
+- The root cause was not in the bonded-device sorting or selection logic; it was a mismatch between the app's reduced permission set and the plugin's internal requirement for location permission before returning bonded devices.
+
+### Corrections Made
+- Restored the missing manifest permission needed for plugin compatibility.
+- Updated app-side permission requests to match the plugin's behavior.
+- Added silent auto-loading of paired printers in Settings when permission is already available.
+
+### Deviations from Plan
+- Instead of replacing the plugin immediately, the fix preserves the current plugin and adapts the app to its actual permission behavior so the discovery bug is resolved with minimal surface-area change.
