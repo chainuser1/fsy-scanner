@@ -81,7 +81,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final taskRows = await syncTasksFuture;
 
       participants.sort((a, b) {
-        final verifiedCompare = (b.verifiedAt ?? 0).compareTo(a.verifiedAt ?? 0);
+        final verifiedCompare =
+            (b.verifiedAt ?? 0).compareTo(a.verifiedAt ?? 0);
         if (verifiedCompare != 0) {
           return verifiedCompare;
         }
@@ -537,9 +538,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   : Colors.redAccent,
             ),
             _buildHealthRow(
-              icon: appState.printerConnected ? Icons.print : Icons.print_disabled,
+              icon: appState.printerConnected
+                  ? Icons.print
+                  : Icons.print_disabled,
               label: 'Printer',
-              value: appState.printerConnected ? 'Connected' : 'Attention needed',
+              value:
+                  appState.printerConnected ? 'Connected' : 'Attention needed',
               detail: appState.printerStatusMessage,
               color: appState.printerConnected
                   ? FSYScannerApp.primaryBlue
@@ -635,8 +639,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _ExceptionData(
         label: 'Missing room assignment',
         value: analytics.missingRoomCount,
-        color:
-            analytics.missingRoomCount == 0 ? FSYScannerApp.primaryBlue : Colors.redAccent,
+        color: analytics.missingRoomCount == 0
+            ? FSYScannerApp.primaryBlue
+            : Colors.redAccent,
       ),
       _ExceptionData(
         label: 'Missing table assignment',
@@ -752,8 +757,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   maxY: math.max(4, maxCount).toDouble() * 1.25,
                   gridData: FlGridData(
                     drawVerticalLine: false,
-                    horizontalInterval:
-                        math.max(1, (math.max(4, maxCount) / 4).ceil()).toDouble(),
+                    horizontalInterval: math
+                        .max(1, (math.max(4, maxCount) / 4).ceil())
+                        .toDouble(),
                   ),
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
@@ -763,8 +769,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 28,
-                        interval:
-                            math.max(1, (math.max(4, maxCount) / 4).ceil()).toDouble(),
+                        interval: math
+                            .max(1, (math.max(4, maxCount) / 4).ceil())
+                            .toDouble(),
                       ),
                     ),
                     bottomTitles: AxisTitles(
@@ -773,14 +780,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         reservedSize: 28,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index < 0 || index >= analytics.activityBuckets.length) {
+                          if (index < 0 ||
+                              index >= analytics.activityBuckets.length) {
                             return const SizedBox.shrink();
                           }
                           return Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
                               DateFormat('ha')
-                                  .format(analytics.activityBuckets[index].start)
+                                  .format(
+                                      analytics.activityBuckets[index].start)
                                   .toLowerCase(),
                               style: const TextStyle(fontSize: 11),
                             ),
@@ -795,7 +804,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       x: index,
                       barRods: [
                         BarChartRodData(
-                          toY: analytics.activityBuckets[index].count.toDouble(),
+                          toY:
+                              analytics.activityBuckets[index].count.toDouble(),
                           color: FSYScannerApp.accentGold,
                           width: 18,
                           borderRadius: const BorderRadius.vertical(
@@ -964,10 +974,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             maxY: math.max(4, maxAgeValue).toDouble() * 1.25,
                             gridData: FlGridData(
                               drawVerticalLine: false,
-                              horizontalInterval: math.max(
-                                1,
-                                (math.max(4, maxAgeValue) / 4).ceil(),
-                              ).toDouble(),
+                              horizontalInterval: math
+                                  .max(
+                                    1,
+                                    (math.max(4, maxAgeValue) / 4).ceil(),
+                                  )
+                                  .toDouble(),
                             ),
                             borderData: FlBorderData(show: false),
                             titlesData: FlTitlesData(
@@ -977,10 +989,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 sideTitles: SideTitles(
                                   showTitles: true,
                                   reservedSize: 28,
-                                  interval: math.max(
-                                    1,
-                                    (math.max(4, maxAgeValue) / 4).ceil(),
-                                  ).toDouble(),
+                                  interval: math
+                                      .max(
+                                        1,
+                                        (math.max(4, maxAgeValue) / 4).ceil(),
+                                      )
+                                      .toDouble(),
                                 ),
                               ),
                               bottomTitles: AxisTitles(
@@ -1010,7 +1024,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 x: index,
                                 barRods: [
                                   BarChartRodData(
-                                    toY: analytics.ageRows[index].total.toDouble(),
+                                    toY: analytics.ageRows[index].total
+                                        .toDouble(),
                                     color: FSYScannerApp.primaryBlue,
                                     width: 22,
                                     borderRadius: const BorderRadius.vertical(
@@ -1129,7 +1144,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               value: progress,
               minHeight: 10,
               valueColor: AlwaysStoppedAnimation<Color>(
-                progress >= 1 ? FSYScannerApp.accentGreen : FSYScannerApp.accentGold,
+                progress >= 1
+                    ? FSYScannerApp.accentGreen
+                    : FSYScannerApp.accentGold,
               ),
               backgroundColor: Colors.grey.shade200,
             ),
@@ -1188,7 +1205,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final subtitleParts = <String>[
       if (_hasValue(participant.stake)) participant.stake!.trim(),
       if (_hasValue(participant.ward)) participant.ward!.trim(),
-      if (_hasValue(participant.roomNumber)) 'Room ${participant.roomNumber!.trim()}',
+      if (_hasValue(participant.roomNumber))
+        'Room ${participant.roomNumber!.trim()}',
       if (_hasValue(participant.tableNumber))
         'Table ${participant.tableNumber!.trim()}',
       if (participant.printedAt != null) 'Printed',
@@ -1207,9 +1225,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitleParts.isEmpty ? 'Checked in' : subtitleParts.join(' • '),
       ),
       trailing: Text(
-        verifiedAt == null ? '-' : DateFormat('h:mm a').format(
-          DateTime.fromMillisecondsSinceEpoch(verifiedAt),
-        ),
+        verifiedAt == null
+            ? '-'
+            : DateFormat('h:mm a').format(
+                DateTime.fromMillisecondsSinceEpoch(verifiedAt),
+              ),
       ),
     );
   }
@@ -1236,8 +1256,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   String _formatRelativeTime(int timestamp) {
-    final difference =
-        DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(timestamp));
+    final difference = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(timestamp));
     if (difference.inMinutes < 1) {
       return 'was just queued';
     }
@@ -1339,10 +1359,14 @@ class _AnalyticsSnapshot {
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final recent15Minutes = checkedIn
-        .where((p) => now - (p.verifiedAt ?? 0) <= const Duration(minutes: 15).inMilliseconds)
+        .where((p) =>
+            now - (p.verifiedAt ?? 0) <=
+            const Duration(minutes: 15).inMilliseconds)
         .length;
     final recentHour = checkedIn
-        .where((p) => now - (p.verifiedAt ?? 0) <= const Duration(hours: 1).inMilliseconds)
+        .where((p) =>
+            now - (p.verifiedAt ?? 0) <=
+            const Duration(hours: 1).inMilliseconds)
         .length;
 
     final activityBuckets = _buildActivityBuckets(checkedIn);
@@ -1373,7 +1397,8 @@ class _AnalyticsSnapshot {
 
     final ageRows = _buildAgeBreakdown(participants);
     final syncTypeRows = _buildSyncBreakdown(syncTasks);
-    final retryingSyncCount = syncTasks.where((task) => task.attempts > 0).length;
+    final retryingSyncCount =
+        syncTasks.where((task) => task.attempts > 0).length;
     final oldestPendingTask = syncTasks.isEmpty
         ? null
         : syncTasks.map((task) => task.createdAt).reduce(math.min);
@@ -1403,8 +1428,9 @@ class _AnalyticsSnapshot {
       retryingSyncTaskCount: retryingSyncCount,
       exceptionCount: exceptionCount,
       oldestPendingTask: oldestPendingTask,
-      completionRate:
-          participants.isEmpty ? 0 : checkedIn.length / participants.length * 100,
+      completionRate: participants.isEmpty
+          ? 0
+          : checkedIn.length / participants.length * 100,
       printCoverageRate:
           checkedIn.isEmpty ? 0 : printed / checkedIn.length * 100,
       topStakeRows: stakeRows.take(6).toList(),
@@ -1447,7 +1473,8 @@ class _AnalyticsSnapshot {
         .toList();
   }
 
-  static List<_BreakdownRow> _buildAgeBreakdown(List<Participant> participants) {
+  static List<_BreakdownRow> _buildAgeBreakdown(
+      List<Participant> participants) {
     const order = ['13-14', '15-16', '17-19', '20+'];
     final grouped = <String, _BreakdownAccumulator>{
       for (final label in order) label: _BreakdownAccumulator(),
@@ -1484,7 +1511,8 @@ class _AnalyticsSnapshot {
         .toList();
   }
 
-  static List<_BreakdownRow> _buildSyncBreakdown(List<_SyncTaskEntry> syncTasks) {
+  static List<_BreakdownRow> _buildSyncBreakdown(
+      List<_SyncTaskEntry> syncTasks) {
     final grouped = <String, _BreakdownAccumulator>{};
     for (final task in syncTasks) {
       final accumulator = grouped.putIfAbsent(
@@ -1511,7 +1539,8 @@ class _AnalyticsSnapshot {
     return rows;
   }
 
-  static List<_ActivityBucket> _buildActivityBuckets(List<Participant> checkedIn) {
+  static List<_ActivityBucket> _buildActivityBuckets(
+      List<Participant> checkedIn) {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, now.hour)
         .subtract(const Duration(hours: 7));
