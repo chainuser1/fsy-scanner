@@ -1188,7 +1188,8 @@ class PrinterService {
         return const PrintReceiptResult(
           success: false,
           queuedForRetry: false,
-          message: 'Bluetooth permission is required before printing a summary.',
+          message:
+              'Bluetooth permission is required before printing a summary.',
         );
       }
 
@@ -1197,7 +1198,8 @@ class PrinterService {
         const failure = _QueuedFailure(
           code: _failureNotPaired,
           reason: 'The selected printer is not paired for summary printing',
-          userMessage: 'The selected printer is not paired in Android settings.',
+          userMessage:
+              'The selected printer is not paired in Android settings.',
         );
         await _recordPrintFailure(failure);
         return const PrintReceiptResult(
@@ -1211,7 +1213,8 @@ class PrinterService {
       if (!connected) {
         const failure = _QueuedFailure(
           code: _failureConnectFailed,
-          reason: 'Could not connect to the selected printer for summary printing',
+          reason:
+              'Could not connect to the selected printer for summary printing',
           userMessage: 'Could not connect to the selected printer.',
         );
         await _recordPrintFailure(failure);
@@ -1226,8 +1229,7 @@ class PrinterService {
         for (final line in _wrapSummaryLine(title.toUpperCase(), align: 1))
           line,
         const ReceiptLine('--------------------------------', align: 1),
-        for (final line in bodyLines)
-          ..._wrapSummaryLine(line, align: 0),
+        for (final line in bodyLines) ..._wrapSummaryLine(line, align: 0),
       ];
 
       await _printReceiptLines(lines, printerAddress);
@@ -1280,9 +1282,7 @@ class PrinterService {
       lines.add(current);
     }
 
-    return lines
-        .map((line) => ReceiptLine(line, align: align))
-        .toList();
+    return lines.map((line) => ReceiptLine(line, align: align)).toList();
   }
 
   static Future<void> _applyCutMode(String printerAddress) async {

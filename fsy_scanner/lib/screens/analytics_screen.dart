@@ -349,7 +349,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         (view) => DropdownMenuItem<int?>(
                           value: view.id,
                           child: Text(
-                            view.isDefault ? '${view.name} (Default)' : view.name,
+                            view.isDefault
+                                ? '${view.name} (Default)'
+                                : view.name,
                           ),
                         ),
                       ),
@@ -585,7 +587,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _saveCurrentView() async {
     final existing = _selectedSavedViewId == null
         ? null
-        : _firstWhereOrNull(_savedViews, (view) => view.id == _selectedSavedViewId);
+        : _firstWhereOrNull(
+            _savedViews, (view) => view.id == _selectedSavedViewId);
     final controller = TextEditingController(
       text: existing?.name ?? '${_committeeLabel(_committeeView)} View',
     );
@@ -662,7 +665,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _deleteSelectedView() async {
     final selected = _selectedSavedViewId == null
         ? null
-        : _firstWhereOrNull(_savedViews, (view) => view.id == _selectedSavedViewId);
+        : _firstWhereOrNull(
+            _savedViews, (view) => view.id == _selectedSavedViewId);
     if (selected == null) {
       return;
     }
@@ -730,8 +734,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   String _buildBriefingTitle(AppState appState) {
-    final eventTitle =
-        appState.eventName.trim().isEmpty ? 'FSY Event' : appState.eventName.trim();
+    final eventTitle = appState.eventName.trim().isEmpty
+        ? 'FSY Event'
+        : appState.eventName.trim();
     return '$eventTitle ${_committeeLabel(_committeeView)} Briefing';
   }
 
@@ -806,7 +811,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ]);
         break;
       case _CommitteeView.activity:
-        _appendBreakdownSection(lines, 'Tables with attendees', analytics.tableRows);
+        _appendBreakdownSection(
+            lines, 'Tables with attendees', analytics.tableRows);
         _appendBreakdownSection(
           lines,
           'Tables fully assembled',
@@ -839,10 +845,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ]);
         break;
       case _CommitteeView.all:
-        _appendBreakdownSection(lines, 'Top stakes', analytics.stakeAttendingRows);
-        _appendBreakdownSection(lines, 'Top wards', analytics.wardAttendingRows);
-        _appendBreakdownSection(lines, 'Tables with attendees', analytics.tableRows);
-        _appendBreakdownSection(lines, 'Rooms with attendees', analytics.roomRows);
+        _appendBreakdownSection(
+            lines, 'Top stakes', analytics.stakeAttendingRows);
+        _appendBreakdownSection(
+            lines, 'Top wards', analytics.wardAttendingRows);
+        _appendBreakdownSection(
+            lines, 'Tables with attendees', analytics.tableRows);
+        _appendBreakdownSection(
+            lines, 'Rooms with attendees', analytics.roomRows);
         _appendAttemptSummary(lines, analytics);
         break;
     }
@@ -3298,14 +3308,16 @@ class _AnalyticsSnapshot {
         final dayKey = _dayKey(
           DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!),
         );
-        final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        final row =
+            rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
         row.checkedIn++;
       }
       if (participant.printedAt != null) {
         final dayKey = _dayKey(
           DateTime.fromMillisecondsSinceEpoch(participant.printedAt!),
         );
-        final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+        final row =
+            rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
         row.fullyVerified++;
       }
     }
@@ -3314,7 +3326,8 @@ class _AnalyticsSnapshot {
       final dayKey = _dayKey(
         DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
       );
-      final row = rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
+      final row =
+          rows.putIfAbsent(dayKey, () => _DailyActivityAccumulator(dayKey));
       row.printAttempts++;
       if (attempt.outcome == 'failed') {
         row.printFailures++;
