@@ -18,7 +18,7 @@ import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../sync/sync_engine.dart';
 import '../utils/device_id.dart';
-import 'dashboard_screen.dart';
+import 'analytics_screen.dart';
 import 'participants_screen.dart';
 import 'settings_screen.dart';
 
@@ -417,7 +417,7 @@ class _ScanScreenState extends State<ScanScreen>
             ),
             IconButton(
               icon: const Icon(Icons.dashboard),
-              onPressed: () => _navigateTo(const DashboardScreen()),
+              onPressed: () => _navigateTo(const AnalyticsScreen()),
             ),
             Padding(
               padding: const EdgeInsets.only(right: 12.0),
