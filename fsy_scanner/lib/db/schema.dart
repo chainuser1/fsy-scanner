@@ -12,6 +12,72 @@ const String participantsDDL = '''
   )
 ''';
 
+const String participantsSearchDDL = '''
+  CREATE VIRTUAL TABLE IF NOT EXISTS participants_search
+  USING fts4(
+    id UNINDEXED,
+    full_name,
+    stake,
+    ward,
+    room_number,
+    table_number,
+    tokenize=unicode61
+  )
+''';
+
+const String participantsSearchInsertTriggerDDL = '''
+  CREATE TRIGGER IF NOT EXISTS participants_search_ai
+  AFTER INSERT ON participants
+  BEGIN
+    INSERT INTO participants_search (
+      id,
+      full_name,
+      stake,
+      ward,
+      room_number,
+      table_number
+    ) VALUES (
+      NEW.id,
+      COALESCE(NEW.full_name, ''),
+      COALESCE(NEW.stake, ''),
+      COALESCE(NEW.ward, ''),
+      COALESCE(NEW.room_number, ''),
+      COALESCE(NEW.table_number, '')
+    );
+  END;
+''';
+
+const String participantsSearchUpdateTriggerDDL = '''
+  CREATE TRIGGER IF NOT EXISTS participants_search_au
+  AFTER UPDATE ON participants
+  BEGIN
+    DELETE FROM participants_search WHERE id = OLD.id;
+    INSERT INTO participants_search (
+      id,
+      full_name,
+      stake,
+      ward,
+      room_number,
+      table_number
+    ) VALUES (
+      NEW.id,
+      COALESCE(NEW.full_name, ''),
+      COALESCE(NEW.stake, ''),
+      COALESCE(NEW.ward, ''),
+      COALESCE(NEW.room_number, ''),
+      COALESCE(NEW.table_number, '')
+    );
+  END;
+''';
+
+const String participantsSearchDeleteTriggerDDL = '''
+  CREATE TRIGGER IF NOT EXISTS participants_search_ad
+  AFTER DELETE ON participants
+  BEGIN
+    DELETE FROM participants_search WHERE id = OLD.id;
+  END;
+''';
+
 const String syncTasksDDL = '''
   CREATE TABLE IF NOT EXISTS sync_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

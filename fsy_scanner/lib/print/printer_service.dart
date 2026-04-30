@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,31 +18,59 @@ class PrinterService {
   static const String _organizationNameKey = 'organization_name';
   static const String _printerAddressKey = 'printer_address';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
+
   static const String cutModeOff = 'off';
   static const String cutModeSafe = 'safe';
   static const String cutModeForce = 'force';
 
+  static const String _failureNoPrinter = 'no_printer_selected';
+  static const String _failurePermissionRequired = 'bluetooth_permission_required';
+  static const String _failureNotPaired = 'printer_not_paired';
+  static const String _failureConnectFailed = 'connect_failed';
+  static const String _failureWriteFailed = 'write_failed';
+  static const Duration _monitorInterval = Duration(seconds: 8);
+
   static final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
+  static final StreamController<PrinterServiceEvent> _eventController =
+      StreamController<PrinterServiceEvent>.broadcast();
+
   static BluetoothDevice? _connectedDevice;
   static bool _isConnecting = false;
   static bool _failedJobsLoaded = false;
+  static bool _automationStarted = false;
+  static bool _automationCycleRunning = false;
+  static bool _isQueueDraining = false;
   static final Map<String, bool> _pendingPrints = <String, bool>{};
   static final Set<String> _cancelledPrints = <String>{};
+  static final List<_FailedPrintJob> _failedJobs = <_FailedPrintJob>[];
+  static Timer? _monitorTimer;
 
-  static final List<_FailedPrintJob> _failedJobs = [];
+  static Stream<PrinterServiceEvent> get events => _eventController.stream;
+
+  static Future<void> startAutomation() async {
+    await _loadFailedJobs();
+    if (!_automationStarted) {
+      _automationStarted = true;
+      _monitorTimer?.cancel();
+      _monitorTimer = Timer.periodic(_monitorInterval, (_) {
+        unawaited(_runAutomationCycle());
+      });
+    }
+    await _runAutomationCycle();
+  }
+
+  static Future<void> stopAutomation() async {
+    _monitorTimer?.cancel();
+    _monitorTimer = null;
+    _automationStarted = false;
+  }
 
   static Future<bool> ensureBluetoothPermissions() async {
-    if (!Platform.isAndroid) {
-      return true;
-    }
+    return _checkBluetoothPermissions(requestIfMissing: true);
+  }
 
-    final statuses = await <Permission>[
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-    ].request();
-
-    return statuses.values.every((status) => status.isGranted);
+  static Future<bool> hasBluetoothPermissionsGranted() async {
+    return _checkBluetoothPermissions(requestIfMissing: false);
   }
 
   static Future<void> saveSelectedPrinter(BluetoothDevice device) async {
@@ -56,6 +85,7 @@ class PrinterService {
       {'key': _printerAddressKey, 'value': address},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    await _emitStateChanged();
   }
 
   static Future<String?> getSelectedPrinterAddress() async {
@@ -138,27 +168,30 @@ class PrinterService {
     return null;
   }
 
-  /// Load paired Bluetooth printers from Android.
   static Future<List<BluetoothDevice>> scanPrinters() async {
     final granted = await ensureBluetoothPermissions();
     if (!granted) {
       debugPrint('[PrinterService] Bluetooth permission not granted');
-      return [];
+      return <BluetoothDevice>[];
     }
+    return _scanPrintersWithoutPrompt();
+  }
 
+  static Future<List<BluetoothDevice>> _scanPrintersWithoutPrompt() async {
     try {
       final devices = await _getBondedDevicesUnsafe();
       debugPrint('[PrinterService] Found ${devices.length} bonded devices');
       return devices;
     } catch (e) {
       debugPrint('[PrinterService] Scan error: $e');
-      return [];
+      return <BluetoothDevice>[];
     }
   }
 
   static Future<PrinterConnectionResult> connect(
     BluetoothDevice device, {
     bool rememberSelection = false,
+    bool requestPermissions = true,
   }) async {
     final address = device.address;
     if (address == null || address.isEmpty) {
@@ -169,7 +202,9 @@ class PrinterService {
       );
     }
 
-    final granted = await ensureBluetoothPermissions();
+    final granted = await _checkBluetoothPermissions(
+      requestIfMissing: requestPermissions,
+    );
     if (!granted) {
       return const PrinterConnectionResult(
         success: false,
@@ -195,6 +230,8 @@ class PrinterService {
       if (connected) {
         _connectedDevice = device;
         debugPrint('[PrinterService] Connected to ${device.name}');
+        await _emitStateChanged();
+        unawaited(_drainQueuedJobs());
         return PrinterConnectionResult(
           success: true,
           message: rememberSelection
@@ -204,6 +241,7 @@ class PrinterService {
         );
       }
 
+      await _emitStateChanged();
       return PrinterConnectionResult(
         success: false,
         message: 'Could not connect to ${device.name ?? 'the printer'}.',
@@ -211,6 +249,7 @@ class PrinterService {
       );
     } catch (e) {
       debugPrint('[PrinterService] Connection error: $e');
+      await _emitStateChanged();
       return PrinterConnectionResult(
         success: false,
         message: 'Connection failed: $e',
@@ -221,7 +260,6 @@ class PrinterService {
     }
   }
 
-  /// Whether we are currently connected to a printer.
   static Future<bool> get isConnected async {
     try {
       return (await _printer.isConnected) == true;
@@ -230,7 +268,10 @@ class PrinterService {
     }
   }
 
-  static Future<bool> _ensureConnected(String address) async {
+  static Future<bool> _ensureConnected(
+    String address, {
+    bool requestPermissions = true,
+  }) async {
     if (_connectedDevice?.address == address) {
       try {
         final connected = await _printer.isConnected;
@@ -254,7 +295,9 @@ class PrinterService {
       return false;
     }
 
-    final granted = await ensureBluetoothPermissions();
+    final granted = await _checkBluetoothPermissions(
+      requestIfMissing: requestPermissions,
+    );
     if (!granted) {
       return false;
     }
@@ -276,17 +319,22 @@ class PrinterService {
         return false;
       }
 
-      final result = await connect(device);
+      final result = await connect(
+        device,
+        requestPermissions: requestPermissions,
+      );
       return result.success;
     } catch (e) {
-      debugPrint('[PrinterService] Auto‑connect error: $e');
+      debugPrint('[PrinterService] Auto-connect error: $e');
       return false;
     } finally {
       _isConnecting = false;
     }
   }
 
-  static Future<PrinterStatusSnapshot> getSelectedPrinterStatus() async {
+  static Future<PrinterStatusSnapshot> getSelectedPrinterStatus({
+    bool requestPermissions = true,
+  }) async {
     final address = await getSelectedPrinterAddress();
     if (address == null) {
       return const PrinterStatusSnapshot(
@@ -298,7 +346,9 @@ class PrinterService {
       );
     }
 
-    final granted = await ensureBluetoothPermissions();
+    final granted = await _checkBluetoothPermissions(
+      requestIfMissing: requestPermissions,
+    );
     if (!granted) {
       return PrinterStatusSnapshot(
         hasSelection: true,
@@ -348,7 +398,23 @@ class PrinterService {
   }
 
   static Future<PrintReceiptResult> printReceipt(
-      Participant participant, String deviceId) async {
+    Participant participant,
+    String deviceId, {
+    bool isReprint = false,
+  }) async {
+    return _attemptPrint(
+      participant,
+      deviceId,
+      isReprint: isReprint,
+    );
+  }
+
+  static Future<PrintReceiptResult> _attemptPrint(
+    Participant participant,
+    String deviceId, {
+    required bool isReprint,
+    _FailedPrintJob? retryJob,
+  }) async {
     await _loadFailedJobs();
     _cancelledPrints.remove(participant.id);
     _pendingPrints[participant.id] = false;
@@ -356,67 +422,51 @@ class PrinterService {
     try {
       debugPrint('[PrinterService] Starting print for ${participant.fullName}');
 
-      final db = await DatabaseHelper.database;
-      final eventResult = await db.query(
-        'app_settings',
-        where: 'key = ?',
-        whereArgs: [_eventNameKey],
-        limit: 1,
-      );
-      final eventName = eventResult.isNotEmpty
-          ? eventResult.first['value'] as String
-          : 'FSY Event';
-      final organizationResult = await db.query(
-        'app_settings',
-        where: 'key = ?',
-        whereArgs: [_organizationNameKey],
-        limit: 1,
-      );
-      final organizationName = organizationResult.isNotEmpty
-          ? organizationResult.first['value'] as String? ?? ''
-          : '';
-
+      final eventDetails = await _loadEventDetails();
       final printerAddress = await getSelectedPrinterAddress();
       if (printerAddress == null) {
-        debugPrint('[PrinterService] No printer address saved');
-        await _queueFailedJob(
+        return _queueAndReturnFailure(
           participant,
           deviceId,
-          'No printer selected',
-        );
-        return const PrintReceiptResult(
-          success: false,
-          queuedForRetry: true,
-          message: 'No printer selected. The receipt was queued for retry.',
+          isReprint: isReprint,
+          retryJob: retryJob,
+          failure: const _QueuedFailure(
+            code: _failureNoPrinter,
+            reason: 'No printer selected',
+            userMessage:
+                'No printer selected. The receipt was queued for retry.',
+          ),
         );
       }
 
       final status = await getSelectedPrinterStatus();
       if (!status.permissionsGranted) {
-        await _queueFailedJob(
+        return _queueAndReturnFailure(
           participant,
           deviceId,
-          'Bluetooth permission required',
-        );
-        return const PrintReceiptResult(
-          success: false,
-          queuedForRetry: true,
-          message:
-              'Bluetooth permission is required before printing. The receipt was queued for retry.',
+          isReprint: isReprint,
+          retryJob: retryJob,
+          failure: const _QueuedFailure(
+            code: _failurePermissionRequired,
+            reason: 'Bluetooth permission required',
+            userMessage:
+                'Bluetooth permission is required before printing. The receipt was queued for retry.',
+          ),
         );
       }
 
       if (!status.isPaired) {
-        await _queueFailedJob(
+        return _queueAndReturnFailure(
           participant,
           deviceId,
-          'Selected printer is not paired',
-        );
-        return const PrintReceiptResult(
-          success: false,
-          queuedForRetry: true,
-          message:
-              'The selected printer is not paired in Android settings. The receipt was queued for retry.',
+          isReprint: isReprint,
+          retryJob: retryJob,
+          failure: const _QueuedFailure(
+            code: _failureNotPaired,
+            reason: 'Selected printer is not paired',
+            userMessage:
+                'The selected printer is not paired in Android settings. The receipt was queued for retry.',
+          ),
         );
       }
 
@@ -431,17 +481,17 @@ class PrinterService {
 
       final connected = await _ensureConnected(printerAddress);
       if (!connected) {
-        debugPrint('[PrinterService] Could not connect to printer');
-        await _queueFailedJob(
+        return _queueAndReturnFailure(
           participant,
           deviceId,
-          'Could not connect to the selected printer',
-        );
-        return const PrintReceiptResult(
-          success: false,
-          queuedForRetry: true,
-          message:
-              'Could not connect to the selected printer. The receipt was queued for retry.',
+          isReprint: isReprint,
+          retryJob: retryJob,
+          failure: const _QueuedFailure(
+            code: _failureConnectFailed,
+            reason: 'Could not connect to the selected printer',
+            userMessage:
+                'Could not connect to the selected printer. The receipt was queued for retry.',
+          ),
         );
       }
 
@@ -457,17 +507,21 @@ class PrinterService {
       _pendingPrints[participant.id] = true;
       final receiptLines = ReceiptBuilder.buildLines(
         participant,
-        eventName,
-        organizationName,
+        eventDetails.eventName,
+        eventDetails.organizationName,
         deviceId,
       );
       await _printReceiptLines(receiptLines, printerAddress);
 
       final now = DateTime.now().millisecondsSinceEpoch;
       final recorded = await _onPrintSuccess(participant, now);
+      if (retryJob != null) {
+        await _removeQueuedJob(retryJob.jobId);
+      }
 
       debugPrint('[PrinterService] Print successful');
       if (!recorded) {
+        await _emitStateChanged();
         return const PrintReceiptResult(
           success: true,
           queuedForRetry: false,
@@ -476,6 +530,7 @@ class PrinterService {
         );
       }
 
+      await _emitStateChanged();
       return const PrintReceiptResult(
         success: true,
         queuedForRetry: false,
@@ -483,11 +538,12 @@ class PrinterService {
       );
     } catch (e) {
       debugPrint('[PrinterService] Print failed: $e');
-      await _queueFailedJob(participant, deviceId, e.toString());
-      return PrintReceiptResult(
-        success: false,
-        queuedForRetry: true,
-        message: 'Print failed: $e. The receipt was queued for retry.',
+      return _queueAndReturnFailure(
+        participant,
+        deviceId,
+        isReprint: isReprint,
+        retryJob: retryJob,
+        failure: _failureFromException(e),
       );
     } finally {
       _pendingPrints.remove(participant.id);
@@ -560,44 +616,101 @@ class PrinterService {
   static Future<void> _queueFailedJob(
     Participant participant,
     String deviceId,
-    String reason,
-  ) async {
+    _QueuedFailure failure, {
+    required bool isReprint,
+    _FailedPrintJob? retryJob,
+  }) async {
     await _loadFailedJobs();
-    _failedJobs.add(
-      _FailedPrintJob(
-        jobId: '${DateTime.now().microsecondsSinceEpoch}-${participant.id}',
-        participant: participant,
-        deviceId: deviceId,
-        reason: reason,
-        queuedAt: DateTime.now().millisecondsSinceEpoch,
-      ),
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final existingIndex = _failedJobs.indexWhere((job) =>
+        job.matchesParticipant(participant.id, isReprint: isReprint) ||
+        job.jobId == retryJob?.jobId);
+
+    final previous = existingIndex == -1 ? retryJob : _failedJobs[existingIndex];
+    final attemptCount = (previous?.attemptCount ?? 0) + 1;
+    final queuedJob = (previous ?? _FailedPrintJob.newJob(participant, deviceId))
+        .copyWith(
+      participant: participant,
+      deviceId: deviceId,
+      failureCode: failure.code,
+      reason: failure.reason,
+      isReprint: isReprint,
+      lastAttemptAt: now,
+      attemptCount: attemptCount,
+      nextRetryAt: now + _retryDelayForAttempt(attemptCount).inMilliseconds,
     );
+
+    if (existingIndex == -1) {
+      _failedJobs.add(queuedJob);
+    } else {
+      _failedJobs[existingIndex] = queuedJob;
+    }
+
     await _saveFailedJobs();
+    await _emitStateChanged();
+  }
+
+  static Future<void> _removeQueuedJob(String jobId) async {
+    await _loadFailedJobs();
+    _failedJobs.removeWhere((job) => job.jobId == jobId);
+    await _saveFailedJobs();
+    await _emitStateChanged();
   }
 
   static Future<PrinterRetrySummary> retryFailedPrints() async {
+    return _drainQueuedJobs(ignoreBackoff: true);
+  }
+
+  static Future<PrinterRetrySummary> _drainQueuedJobs({
+    bool ignoreBackoff = false,
+  }) async {
     await _loadFailedJobs();
-    if (_failedJobs.isEmpty) {
-      return const PrinterRetrySummary(
-          attempted: 0, succeeded: 0, remaining: 0);
+    if (_isQueueDraining || _failedJobs.isEmpty) {
+      return PrinterRetrySummary(
+        attempted: 0,
+        succeeded: 0,
+        remaining: _failedJobs.length,
+      );
     }
 
-    final jobs = List<_FailedPrintJob>.from(_failedJobs);
-    _failedJobs.clear();
-    await _saveFailedJobs();
+    _isQueueDraining = true;
+    int attempted = 0;
+    int succeeded = 0;
 
-    int success = 0;
-    for (final job in jobs) {
-      final result = await printReceipt(job.participant, job.deviceId);
-      if (result.success) {
-        success++;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final jobs = List<_FailedPrintJob>.from(_failedJobs)
+          .where((job) => ignoreBackoff || job.isReady(now))
+          .toList()
+        ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+
+      for (final job in jobs) {
+        attempted++;
+        final retryParticipant =
+            await _resolveRetryParticipant(job.participant.id, job.isReprint);
+        if (retryParticipant == null) {
+          await _removeQueuedJob(job.jobId);
+          continue;
+        }
+
+        final result = await _attemptPrint(
+          retryParticipant,
+          job.deviceId,
+          isReprint: job.isReprint,
+          retryJob: job,
+        );
+        if (result.success) {
+          succeeded++;
+        }
       }
+    } finally {
+      _isQueueDraining = false;
+      await _emitStateChanged();
     }
 
-    await _loadFailedJobs();
     return PrinterRetrySummary(
-      attempted: jobs.length,
-      succeeded: success,
+      attempted: attempted,
+      succeeded: succeeded,
       remaining: _failedJobs.length,
     );
   }
@@ -758,10 +871,10 @@ class PrinterService {
     await _printer.writeBytes(
       Uint8List.fromList(<int>[
         0x1B,
-        0x40, // ESC @ initialize printer
+        0x40,
         0x1B,
         0x61,
-        0x00, // left align
+        0x00,
       ]),
     );
 
@@ -789,6 +902,180 @@ class PrinterService {
       ]),
     );
     await _applyCutMode(printerAddress);
+  }
+
+  static Future<_EventDetails> _loadEventDetails() async {
+    final db = await DatabaseHelper.database;
+    final eventResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_eventNameKey],
+      limit: 1,
+    );
+    final organizationResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_organizationNameKey],
+      limit: 1,
+    );
+
+    return _EventDetails(
+      eventName: eventResult.isNotEmpty
+          ? eventResult.first['value'] as String
+          : 'FSY Event',
+      organizationName: organizationResult.isNotEmpty
+          ? organizationResult.first['value'] as String? ?? ''
+          : '',
+    );
+  }
+
+  static Future<bool> _checkBluetoothPermissions({
+    required bool requestIfMissing,
+  }) async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+
+    final permissions = <Permission>[
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ];
+
+    if (requestIfMissing) {
+      final statuses = await permissions.request();
+      return statuses.values.every((status) => status.isGranted);
+    }
+
+    final statuses = await Future.wait(
+      permissions.map((permission) => permission.status),
+    );
+    return statuses.every((status) => status.isGranted);
+  }
+
+  static Future<void> _runAutomationCycle() async {
+    if (_automationCycleRunning) {
+      return;
+    }
+
+    _automationCycleRunning = true;
+    try {
+      await _loadFailedJobs();
+      final permissionsGranted = await hasBluetoothPermissionsGranted();
+      if (!permissionsGranted) {
+        return;
+      }
+
+      await _autoSelectPrinterIfNeeded();
+      final status = await getSelectedPrinterStatus(requestPermissions: false);
+      if (status.hasSelection && status.isPaired && !status.isConnected) {
+        await _ensureConnected(
+          status.selectedAddress!,
+          requestPermissions: false,
+        );
+      }
+
+      final refreshedStatus =
+          await getSelectedPrinterStatus(requestPermissions: false);
+      if (refreshedStatus.isConnected) {
+        await _drainQueuedJobs();
+      }
+    } finally {
+      _automationCycleRunning = false;
+      await _emitStateChanged();
+    }
+  }
+
+  static Future<void> _autoSelectPrinterIfNeeded() async {
+    final selectedAddress = await getSelectedPrinterAddress();
+    if (selectedAddress != null) {
+      return;
+    }
+
+    final printers = await _scanPrintersWithoutPrompt();
+    if (printers.length != 1) {
+      return;
+    }
+
+    await saveSelectedPrinter(printers.first);
+    await _ensureConnected(
+      printers.first.address!,
+      requestPermissions: false,
+    );
+  }
+
+  static Duration _retryDelayForAttempt(int attemptCount) {
+    var seconds = 15;
+    for (int i = 1; i < attemptCount; i++) {
+      seconds *= 2;
+      if (seconds >= 900) {
+        seconds = 900;
+        break;
+      }
+    }
+    return Duration(seconds: seconds);
+  }
+
+  static _QueuedFailure _failureFromException(Object error) {
+    final message = error.toString();
+    return _QueuedFailure(
+      code: _failureWriteFailed,
+      reason: message,
+      userMessage: 'Print failed: $message. The receipt was queued for retry.',
+    );
+  }
+
+  static Future<Participant?> _resolveRetryParticipant(
+    String participantId,
+    bool isReprint,
+  ) async {
+    final db = await DatabaseHelper.database;
+    final dao = ParticipantsDao(db);
+    final currentParticipant = await dao.getParticipantById(participantId);
+    if (currentParticipant == null) {
+      return null;
+    }
+    if (currentParticipant.verifiedAt == null) {
+      return null;
+    }
+    if (!isReprint && currentParticipant.printedAt != null) {
+      return null;
+    }
+    return currentParticipant;
+  }
+
+  static Future<PrintReceiptResult> _queueAndReturnFailure(
+    Participant participant,
+    String deviceId, {
+    required bool isReprint,
+    required _QueuedFailure failure,
+    _FailedPrintJob? retryJob,
+  }) async {
+    await _queueFailedJob(
+      participant,
+      deviceId,
+      failure,
+      isReprint: isReprint,
+      retryJob: retryJob,
+    );
+    return PrintReceiptResult(
+      success: false,
+      queuedForRetry: true,
+      message: failure.userMessage,
+    );
+  }
+
+  static Future<void> _emitStateChanged() async {
+    await _loadFailedJobs();
+    final status = await getSelectedPrinterStatus(requestPermissions: false);
+    _eventController.add(
+      PrinterServiceEvent(
+        selectedAddress: status.selectedAddress,
+        isConnected: status.isConnected,
+        failedJobCount: _failedJobs.length,
+        statusMessage: status.message,
+      ),
+    );
   }
 }
 
@@ -824,6 +1111,20 @@ class PrinterStatusSnapshot {
   });
 }
 
+class PrinterServiceEvent {
+  final String? selectedAddress;
+  final bool isConnected;
+  final int failedJobCount;
+  final String statusMessage;
+
+  const PrinterServiceEvent({
+    required this.selectedAddress,
+    required this.isConnected,
+    required this.failedJobCount,
+    required this.statusMessage,
+  });
+}
+
 class PrintReceiptResult {
   final bool success;
   final bool queuedForRetry;
@@ -848,40 +1149,131 @@ class PrinterRetrySummary {
   });
 }
 
+class _EventDetails {
+  final String eventName;
+  final String organizationName;
+
+  const _EventDetails({
+    required this.eventName,
+    required this.organizationName,
+  });
+}
+
+class _QueuedFailure {
+  final String code;
+  final String reason;
+  final String userMessage;
+
+  const _QueuedFailure({
+    required this.code,
+    required this.reason,
+    required this.userMessage,
+  });
+}
+
 class _FailedPrintJob {
   final String jobId;
   final Participant participant;
   final String deviceId;
+  final String failureCode;
   final String reason;
   final int queuedAt;
+  final int attemptCount;
+  final int? lastAttemptAt;
+  final int nextRetryAt;
+  final bool isReprint;
 
   const _FailedPrintJob({
     required this.jobId,
     required this.participant,
     required this.deviceId,
+    required this.failureCode,
     required this.reason,
     required this.queuedAt,
+    required this.attemptCount,
+    required this.lastAttemptAt,
+    required this.nextRetryAt,
+    required this.isReprint,
   });
+
+  factory _FailedPrintJob.newJob(Participant participant, String deviceId) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return _FailedPrintJob(
+      jobId: '${DateTime.now().microsecondsSinceEpoch}-${participant.id}',
+      participant: participant,
+      deviceId: deviceId,
+      failureCode: '',
+      reason: '',
+      queuedAt: now,
+      attemptCount: 0,
+      lastAttemptAt: null,
+      nextRetryAt: now,
+      isReprint: false,
+    );
+  }
+
+  bool matchesParticipant(String participantId, {required bool isReprint}) {
+    return participant.id == participantId && this.isReprint == isReprint;
+  }
+
+  bool isReady(int now) => nextRetryAt <= now;
+
+  _FailedPrintJob copyWith({
+    Participant? participant,
+    String? deviceId,
+    String? failureCode,
+    String? reason,
+    int? attemptCount,
+    int? lastAttemptAt,
+    int? nextRetryAt,
+    bool? isReprint,
+  }) {
+    return _FailedPrintJob(
+      jobId: jobId,
+      participant: participant ?? this.participant,
+      deviceId: deviceId ?? this.deviceId,
+      failureCode: failureCode ?? this.failureCode,
+      reason: reason ?? this.reason,
+      queuedAt: queuedAt,
+      attemptCount: attemptCount ?? this.attemptCount,
+      lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
+      nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      isReprint: isReprint ?? this.isReprint,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
       'job_id': jobId,
       'participant': participant.toJson(),
       'device_id': deviceId,
+      'failure_code': failureCode,
       'reason': reason,
       'queued_at': queuedAt,
+      'attempt_count': attemptCount,
+      'last_attempt_at': lastAttemptAt,
+      'next_retry_at': nextRetryAt,
+      'is_reprint': isReprint,
     };
   }
 
   factory _FailedPrintJob.fromJson(Map<String, dynamic> json) {
+    final queuedAt = json['queued_at'] as int? ?? 0;
+    final attemptCount = json['attempt_count'] as int? ?? 0;
+    final nextRetryAt = json['next_retry_at'] as int? ?? queuedAt;
     return _FailedPrintJob(
       jobId: json['job_id'] as String? ?? '',
       participant: Participant.fromJson(
         Map<String, dynamic>.from(json['participant'] as Map<dynamic, dynamic>),
       ),
       deviceId: json['device_id'] as String? ?? '',
+      failureCode: json['failure_code'] as String? ?? '',
       reason: json['reason'] as String? ?? '',
-      queuedAt: json['queued_at'] as int? ?? 0,
+      queuedAt: queuedAt,
+      attemptCount: attemptCount,
+      lastAttemptAt: json['last_attempt_at'] as int?,
+      nextRetryAt: nextRetryAt,
+      isReprint: json['is_reprint'] as bool? ?? false,
     );
   }
 }

@@ -3,6 +3,16 @@ import 'package:sqflite/sqflite.dart';
 import '../models/participant.dart';
 import 'database_helper.dart';
 
+class ParticipantQueryResult {
+  final List<Participant> participants;
+  final int totalCount;
+
+  const ParticipantQueryResult({
+    required this.participants,
+    required this.totalCount,
+  });
+}
+
 class ParticipantsDao {
   final Database _db;
 
@@ -126,14 +136,89 @@ class ParticipantsDao {
     return results.map(Participant.fromDbRow).toList();
   }
 
-  Future<List<Participant>> searchParticipants(String query) async {
+  Future<int> getParticipantsCount() async {
+    final result =
+        await _db.rawQuery('SELECT COUNT(*) AS count FROM participants');
+    return result.first['count'] as int? ?? 0;
+  }
+
+  Future<int> getSearchParticipantsCount(String query) async {
+    final ftsQuery = _buildFtsQuery(query);
+    if (ftsQuery == null) {
+      return getParticipantsCount();
+    }
+
+    final result = await _db.rawQuery(
+      '''
+      SELECT COUNT(*) AS count
+      FROM participants_search s
+      JOIN participants p ON p.id = s.id
+      WHERE participants_search MATCH ?
+      ''',
+      [ftsQuery],
+    );
+    return result.first['count'] as int? ?? 0;
+  }
+
+  Future<List<Participant>> getParticipantsPage({
+    required int limit,
+    required int offset,
+  }) async {
     final List<Map<String, Object?>> results = await _db.query(
       'participants',
-      where: 'LOWER(full_name) LIKE ?',
-      whereArgs: ['%${query.toLowerCase()}%'],
-      limit: 50,
+      orderBy: 'full_name ASC',
+      limit: limit,
+      offset: offset,
     );
     return results.map(Participant.fromDbRow).toList();
+  }
+
+  Future<ParticipantQueryResult> searchParticipants(
+    String query, {
+    required int limit,
+    required int offset,
+  }) async {
+    final ftsQuery = _buildFtsQuery(query);
+    if (ftsQuery == null) {
+      final participants = await getParticipantsPage(limit: limit, offset: offset);
+      final totalCount = await getParticipantsCount();
+      return ParticipantQueryResult(
+        participants: participants,
+        totalCount: totalCount,
+      );
+    }
+
+    final totalCount = await getSearchParticipantsCount(query);
+    final List<Map<String, Object?>> results = await _db.rawQuery(
+      '''
+      SELECT p.*
+      FROM participants_search s
+      JOIN participants p ON p.id = s.id
+      WHERE participants_search MATCH ?
+      ORDER BY p.full_name ASC
+      LIMIT ? OFFSET ?
+      ''',
+      [ftsQuery, limit, offset],
+    );
+    return ParticipantQueryResult(
+      participants: results.map(Participant.fromDbRow).toList(),
+      totalCount: totalCount,
+    );
+  }
+
+  String? _buildFtsQuery(String query) {
+    final tokens = query
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map((token) => token.replaceAll(RegExp(r'["*:()\-]'), ''))
+        .where((token) => token.isNotEmpty)
+        .toList();
+
+    if (tokens.isEmpty) {
+      return null;
+    }
+
+    return tokens.map((token) => '$token*').join(' AND ');
   }
 
   static Future<int> getRegisteredCount() async {

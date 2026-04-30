@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
@@ -19,6 +21,8 @@ class AppState extends ChangeNotifier {
   bool _isOnline = true;
   bool _printerConnected = false;
   String? _printerAddress;
+  String _printerStatusMessage = 'No printer selected';
+  int _printerFailedJobCount = 0;
   String? _lastScanResult;
 
   bool _soundEnabled = true;
@@ -27,6 +31,7 @@ class AppState extends ChangeNotifier {
 
   String _eventName = '';
   String _organizationName = '';
+  StreamSubscription<PrinterServiceEvent>? _printerSubscription;
 
   static const int maxRecentScans = 10;
   final List<RecentScan> _recentScans = [];
@@ -41,6 +46,8 @@ class AppState extends ChangeNotifier {
   bool get isOnline => _isOnline;
   bool get printerConnected => _printerConnected;
   String? get printerAddress => _printerAddress;
+  String get printerStatusMessage => _printerStatusMessage;
+  int get printerFailedJobCount => _printerFailedJobCount;
   String? get lastScanResult => _lastScanResult;
   bool get soundEnabled => _soundEnabled;
   bool get hapticEnabled => _hapticEnabled;
@@ -189,6 +196,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> startPrinterAutomation() async {
+    await PrinterService.startAutomation();
+    await _refreshPrinterSnapshot();
+    await _printerSubscription?.cancel();
+    _printerSubscription = PrinterService.events.listen((event) {
+      _printerAddress = event.selectedAddress;
+      _printerConnected = event.isConnected;
+      _printerFailedJobCount = event.failedJobCount;
+      _printerStatusMessage = event.statusMessage;
+      notifyListeners();
+    });
+  }
+
   Future<void> loadEventName() async {
     final db = await DatabaseHelper.database;
     final result = await db
@@ -247,6 +267,23 @@ class AppState extends ChangeNotifier {
     _failedTaskCount = 0;
     _recentScans.clear();
     notifyListeners();
+  }
+
+  Future<void> _refreshPrinterSnapshot() async {
+    final status =
+        await PrinterService.getSelectedPrinterStatus(requestPermissions: false);
+    final failedPrintCount = await PrinterService.getFailedJobCount();
+    _printerAddress = status.selectedAddress;
+    _printerConnected = status.isConnected;
+    _printerStatusMessage = status.message;
+    _printerFailedJobCount = failedPrintCount;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _printerSubscription?.cancel();
+    super.dispose();
   }
 }
 

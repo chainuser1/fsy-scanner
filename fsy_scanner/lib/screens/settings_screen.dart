@@ -25,6 +25,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late StreamSubscription<Map<String, dynamic>> _syncStatusSubscription;
+  StreamSubscription<PrinterServiceEvent>? _printerSubscription;
   final _sheetIdController = TextEditingController();
   final _tabNameController = TextEditingController();
   final _eventNameController = TextEditingController();
@@ -46,6 +47,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _isSyncing = data['syncing'] as bool? ?? false;
         });
       }
+    });
+    _printerSubscription = PrinterService.events.listen((_) {
+      unawaited(_handlePrinterStateChanged());
     });
     _loadSettings();
   }
@@ -432,6 +436,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  Future<void> _handlePrinterStateChanged() async {
+    if (!mounted) {
+      return;
+    }
+    await _loadPairedPrintersSilently();
+    await _refreshPrinterInfo();
+  }
+
   // ─── Printer ────────────────────────────────────────────────
   Future<void> _scanPrinters() async {
     final granted = await _ensureBluetoothPermissions();
@@ -609,6 +621,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _syncStatusSubscription.cancel();
+    _printerSubscription?.cancel();
     _sheetIdController.dispose();
     _tabNameController.dispose();
     _eventNameController.dispose();

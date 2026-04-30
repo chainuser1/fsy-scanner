@@ -116,6 +116,7 @@ class _ScanScreenState extends State<ScanScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().loadPreferences();
+      unawaited(context.read<AppState>().startPrinterAutomation());
     });
     unawaited(_ensureCameraPermission());
     _resetPowerSaveTimer();
@@ -187,6 +188,9 @@ class _ScanScreenState extends State<ScanScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_ensureCameraPermission());
+      if (mounted) {
+        unawaited(context.read<AppState>().startPrinterAutomation());
+      }
       if (_cameraPermissionStatus.isGranted &&
           !_isCooldown &&
           !_showResultCard &&
@@ -290,6 +294,7 @@ class _ScanScreenState extends State<ScanScreen>
         !_showResultCard &&
         !_powerSaveMode &&
         !context.read<AppState>().isInitialLoading) {
+      unawaited(context.read<AppState>().startPrinterAutomation());
       controller.start();
       _ensureCameraMatchesFlag();
     }
@@ -483,6 +488,42 @@ class _ScanScreenState extends State<ScanScreen>
                         Text('OFFLINE',
                             style: TextStyle(
                                 fontSize: 14, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                if (appState.printerAddress != null &&
+                    (!appState.printerConnected ||
+                        appState.printerFailedJobCount > 0))
+                  Container(
+                    width: double.infinity,
+                    color: appState.printerConnected
+                        ? Colors.orange.shade200
+                        : Colors.red.shade200,
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          appState.printerConnected
+                              ? Icons.receipt_long
+                              : Icons.bluetooth_disabled,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            appState.printerConnected
+                                ? '${appState.printerFailedJobCount} receipt${appState.printerFailedJobCount == 1 ? '' : 's'} waiting to retry automatically.'
+                                : appState.printerFailedJobCount > 0
+                                    ? 'Printer disconnected. Continue scanning; ${appState.printerFailedJobCount} receipt${appState.printerFailedJobCount == 1 ? '' : 's'} queued for auto-retry.'
+                                    : 'Printer disconnected. Continue scanning; receipts will queue until the printer reconnects.',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ],
                     ),
                   ),

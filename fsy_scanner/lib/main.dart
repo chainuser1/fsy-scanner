@@ -57,6 +57,7 @@ class _BootstrapAppState extends State<BootstrapApp> {
       await appState.loadPreferences();
       await appState.refreshParticipantsCount();
       appState.setPendingTaskCount(await SyncQueueDao.getPendingCount());
+      await appState.startPrinterAutomation();
 
       if (!mounted) {
         return;

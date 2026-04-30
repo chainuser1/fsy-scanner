@@ -216,7 +216,7 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     appState.setLastScanResult('success');
 
     if (mounted) {
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     }
 
     await Future<void>.delayed(Duration.zero);

@@ -6,6 +6,7 @@ import 'schema.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
+  static const String _dbVersion = '3';
   static Database? _database;
 
   static Future<Database> get database async {
@@ -18,10 +19,14 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
+        await db.execute(participantsSearchDDL);
+        await db.execute(participantsSearchInsertTriggerDDL);
+        await db.execute(participantsSearchUpdateTriggerDDL);
+        await db.execute(participantsSearchDeleteTriggerDDL);
         await db.execute(syncTasksDDL);
         await db.execute(eventProfilesDDL);
         await runMigrations(db);
@@ -30,13 +35,24 @@ class DatabaseHelper {
         if (oldVersion < 2) {
           await db.execute(eventProfilesDDL);
         }
+        if (oldVersion < 3) {
+          await db.execute(participantsSearchDDL);
+          await db.execute(participantsSearchInsertTriggerDDL);
+          await db.execute(participantsSearchUpdateTriggerDDL);
+          await db.execute(participantsSearchDeleteTriggerDDL);
+        }
         if (oldVersion < 1) {
           await db.execute(appSettingsDDL);
           await db.execute(participantsDDL);
+          await db.execute(participantsSearchDDL);
+          await db.execute(participantsSearchInsertTriggerDDL);
+          await db.execute(participantsSearchUpdateTriggerDDL);
+          await db.execute(participantsSearchDeleteTriggerDDL);
           await db.execute(syncTasksDDL);
           await db.execute(eventProfilesDDL);
           await runMigrations(db);
         }
+        await runMigrations(db);
       },
     );
   }
@@ -63,16 +79,40 @@ class DatabaseHelper {
     if (versionResult.isEmpty) {
       await db.insert('app_settings', {
         'key': 'db_version',
-        'value': '2',
+        'value': _dbVersion,
       });
     } else {
       await db.update(
         'app_settings',
-        {'value': '2'},
+        {'value': _dbVersion},
         where: 'key = ?',
         whereArgs: ['db_version'],
       );
     }
+
+    await db.execute(participantsSearchDDL);
+    await db.execute(participantsSearchInsertTriggerDDL);
+    await db.execute(participantsSearchUpdateTriggerDDL);
+    await db.execute(participantsSearchDeleteTriggerDDL);
+    await db.delete('participants_search');
+    await db.execute('''
+      INSERT INTO participants_search (
+        id,
+        full_name,
+        stake,
+        ward,
+        room_number,
+        table_number
+      )
+      SELECT
+        id,
+        COALESCE(full_name, ''),
+        COALESCE(stake, ''),
+        COALESCE(ward, ''),
+        COALESCE(room_number, ''),
+        COALESCE(table_number, '')
+      FROM participants
+    ''');
 
     // Seed default profile if none exist
     final profileCount =
