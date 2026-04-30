@@ -740,16 +740,13 @@ class PrinterService {
           break;
         case cutModeOff:
         default:
-          await _printer.writeBytes(
-            Uint8List.fromList(<int>[0x0A, 0x0A]),
-          );
           break;
       }
     } catch (e) {
       debugPrint(
           '[PrinterService] Cut command failed, falling back to feed: $e');
       await _printer.writeBytes(
-        Uint8List.fromList(<int>[0x0A, 0x0A]),
+        Uint8List.fromList(<int>[0x0A]),
       );
     }
   }
@@ -788,8 +785,6 @@ class PrinterService {
         0x1B,
         0x61,
         0x00,
-        0x0A,
-        0x0A,
         0x0A,
       ]),
     );

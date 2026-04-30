@@ -3008,3 +3008,39 @@ Refined the printed receipt layout to improve readability on 32-character therma
 
 ### Deviations from Plan
 - The final receipt layout is more minimal than the earlier version because live output showed that operator clarity matters more than repeating branding in multiple sections.
+
+---
+
+## 56.0 — Receipt Paper-Gap Reduction and Feed Tightening
+**Date/Time:** 2026-04-30 10:45:00
+**Status:** ✅ Complete
+
+### What I Did
+Reduced unnecessary paper feed between printed receipts after live testing showed the bottom gap was larger than needed and wasting paper during repeated check-in printing.
+
+### Changes Made
+**Receipt content tightening.**
+- Removed the trailing blank lines that were still being appended at the end of each receipt layout.
+
+**Printer feed tightening.**
+- Reduced the shared post-print feed in `PrinterService` from multiple line feeds down to a single line feed.
+- Removed the extra `No Cut` feed so manual-tear mode no longer adds a second gap after the receipt.
+- Kept a minimal fallback feed if a cut command fails, so printers still have a safe recovery path.
+
+### Files Modified
+- `fsy_scanner/lib/print/receipt_builder.dart` – removed trailing blank receipt lines.
+- `fsy_scanner/lib/print/printer_service.dart` – reduced post-print feed and removed the extra `No Cut` feed.
+
+### Verification Result
+- `flutter analyze` passes with zero issues.
+- Receipt output now uses less paper between back-to-back prints in `No Cut` mode.
+- The print path still preserves a minimal final feed and cut-failure fallback.
+
+### Issues Encountered
+- The wasted gap was coming from multiple layers at once: the receipt content itself, the shared final feed, and the additional `No Cut` feed.
+
+### Corrections Made
+- Removed the cumulative feed stack instead of only trimming one layer, which gives a more meaningful reduction in paper waste.
+
+### Deviations from Plan
+- The feed reduction favors tighter paper economy in `No Cut` mode, based on live printer behavior rather than a generic conservative default.

@@ -73,6 +73,8 @@ class ReceiptBuilder {
       ));
     }
 
+    lines.add(const ReceiptLine(''));
+
     lines.add(const ReceiptLine('Welcome to', align: 1));
     lines.addAll(_wrappedLines(
       event ?? 'FSY Event',
@@ -80,7 +82,6 @@ class ReceiptBuilder {
       align: 1,
     ));
     lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
-    lines.addAll(const [ReceiptLine(''), ReceiptLine(''), ReceiptLine('')]);
 
     return lines;
   }
