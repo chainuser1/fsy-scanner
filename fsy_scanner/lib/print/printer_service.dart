@@ -17,6 +17,8 @@ class PrinterService {
   static const String _eventNameKey = 'event_name';
   static const String _organizationNameKey = 'organization_name';
   static const String _printerAddressKey = 'printer_address';
+  static const String _receiptConfirmationPolicyKey =
+      'receipt_confirmation_policy';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
   static const String _lastPrintSuccessAtKey = 'printer_last_print_success_at';
   static const String _lastPrintFailureAtKey = 'printer_last_print_failure_at';
@@ -43,6 +45,10 @@ class PrinterService {
   static const String _jobStatusAwaitingConfirmation = 'awaiting_confirmation';
   static const String _jobStatusSuccess = 'success';
   static const String _jobStatusCancelled = 'cancelled';
+  static const String receiptConfirmationAlwaysAsk = 'always_ask';
+  static const String receiptConfirmationFastQueue = 'fast_queue_confirm';
+  static const String receiptConfirmationAskOnRisk = 'ask_only_on_risk';
+  static const String receiptConfirmationNeverAsk = 'never_ask_unsafe';
   static const String _recoveredPrintingReason =
       'The app restarted before print outcome was confirmed. Confirm only if the paper actually came out; otherwise queue a retry.';
   static const String _attemptOutcomeSuccess = 'success';
@@ -133,6 +139,42 @@ class PrinterService {
       return null;
     }
     return value;
+  }
+
+  static Future<String> getReceiptConfirmationPolicy() async {
+    final value = await _readStringSetting(_receiptConfirmationPolicyKey);
+    switch (value) {
+      case receiptConfirmationAlwaysAsk:
+      case receiptConfirmationFastQueue:
+      case receiptConfirmationAskOnRisk:
+      case receiptConfirmationNeverAsk:
+        return value!;
+      default:
+        return receiptConfirmationFastQueue;
+    }
+  }
+
+  static Future<void> setReceiptConfirmationPolicy(String policy) async {
+    if (policy != receiptConfirmationAlwaysAsk &&
+        policy != receiptConfirmationFastQueue &&
+        policy != receiptConfirmationAskOnRisk &&
+        policy != receiptConfirmationNeverAsk) {
+      throw ArgumentError.value(
+        policy,
+        'policy',
+        'Unsupported receipt confirmation policy',
+      );
+    }
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'app_settings',
+      {
+        'key': _receiptConfirmationPolicyKey,
+        'value': policy,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await _emitStateChanged();
   }
 
   static String _cutModeKey(String printerAddress) {
@@ -380,7 +422,11 @@ class PrinterService {
     );
     final failureStreak = await _readFailureStreak();
     final unhealthy = failureStreak >= _unhealthyFailureThreshold;
-    final queuedJobCount = _failedJobs.length;
+    final queuedJobCount =
+        _failedJobs.where((job) => job.status == _jobStatusQueued).length;
+    final pendingConfirmationCount = _failedJobs
+        .where((job) => job.status == _jobStatusAwaitingConfirmation)
+        .length;
     final activeJobCount = _pendingPrints.length;
 
     if (address == null) {
@@ -392,6 +438,7 @@ class PrinterService {
         isConnected: false,
         isConnecting: _isConnecting,
         queuedJobCount: queuedJobCount,
+        pendingConfirmationCount: pendingConfirmationCount,
         activeJobCount: activeJobCount,
         lastPrintSuccessAt: lastPrintSuccessAt,
         lastPrintFailureAt: lastPrintFailureAt,
@@ -413,6 +460,7 @@ class PrinterService {
         isConnected: false,
         isConnecting: _isConnecting,
         queuedJobCount: queuedJobCount,
+        pendingConfirmationCount: pendingConfirmationCount,
         activeJobCount: activeJobCount,
         lastPrintSuccessAt: lastPrintSuccessAt,
         lastPrintFailureAt: lastPrintFailureAt,
@@ -434,6 +482,7 @@ class PrinterService {
           isConnected: false,
           isConnecting: _isConnecting,
           queuedJobCount: queuedJobCount,
+          pendingConfirmationCount: pendingConfirmationCount,
           activeJobCount: activeJobCount,
           lastPrintSuccessAt: lastPrintSuccessAt,
           lastPrintFailureAt: lastPrintFailureAt,
@@ -483,6 +532,7 @@ class PrinterService {
         isConnected: connected,
         isConnecting: _isConnecting,
         queuedJobCount: queuedJobCount,
+        pendingConfirmationCount: pendingConfirmationCount,
         activeJobCount: activeJobCount,
         lastPrintSuccessAt: lastPrintSuccessAt,
         lastPrintFailureAt: lastPrintFailureAt,
@@ -500,6 +550,7 @@ class PrinterService {
         isConnected: false,
         isConnecting: _isConnecting,
         queuedJobCount: queuedJobCount,
+        pendingConfirmationCount: pendingConfirmationCount,
         activeJobCount: activeJobCount,
         lastPrintSuccessAt: lastPrintSuccessAt,
         lastPrintFailureAt: lastPrintFailureAt,
@@ -513,13 +564,13 @@ class PrinterService {
     Participant participant,
     String deviceId, {
     bool isReprint = false,
-    bool requireOperatorConfirmation = false,
+    bool forceBlockingConfirmation = false,
   }) async {
     return _attemptPrint(
       participant,
       deviceId,
       isReprint: isReprint,
-      requireOperatorConfirmation: requireOperatorConfirmation,
+      forceBlockingConfirmation: forceBlockingConfirmation,
     );
   }
 
@@ -527,7 +578,7 @@ class PrinterService {
     Participant participant,
     String deviceId, {
     required bool isReprint,
-    required bool requireOperatorConfirmation,
+    required bool forceBlockingConfirmation,
     _FailedPrintJob? retryJob,
   }) async {
     await _loadFailedJobs();
@@ -643,16 +694,21 @@ class PrinterService {
         deviceId,
       );
       await _printReceiptLines(receiptLines, printerAddress);
-
-      if (requireOperatorConfirmation && !isReprint) {
+      final confirmationDecision = await _resolveReceiptConfirmationDecision(
+        isReprint: isReprint,
+        forceBlockingConfirmation: forceBlockingConfirmation,
+      );
+      if (confirmationDecision.requiresConfirmation) {
         await _markJobAwaitingConfirmation(printJob.jobId);
         await _emitStateChanged();
         return PrintReceiptResult(
           success: true,
           queuedForRetry: false,
-          message:
-              'Print command sent. Confirm whether the receipt actually came out before the participant is marked fully verified.',
-          requiresOperatorConfirmation: true,
+          message: confirmationDecision.blockingPrompt
+              ? 'Print command sent. Confirm whether the receipt actually came out before the participant is marked fully verified.'
+              : 'Print command sent. The participant remains partially verified until receipt output is confirmed from Pending Print Confirmations.',
+          requiresOperatorConfirmation: confirmationDecision.blockingPrompt,
+          awaitingOperatorConfirmation: true,
           confirmationJobId: printJob.jobId,
         );
       }
@@ -765,7 +821,7 @@ class PrinterService {
 
   static Future<PrintReceiptResult> retryQueuedJob(
     String jobId, {
-    bool requireOperatorConfirmation = false,
+    bool forceBlockingConfirmation = false,
   }) async {
     await _loadFailedJobs();
     final job = _firstMatchingJob((entry) => entry.jobId == jobId);
@@ -804,7 +860,7 @@ class PrinterService {
       retryParticipant,
       job.deviceId,
       isReprint: job.isReprint,
-      requireOperatorConfirmation: requireOperatorConfirmation,
+      forceBlockingConfirmation: forceBlockingConfirmation,
       retryJob: job,
     );
   }
@@ -859,7 +915,7 @@ class PrinterService {
           retryParticipant,
           job.deviceId,
           isReprint: job.isReprint,
-          requireOperatorConfirmation: false,
+          forceBlockingConfirmation: false,
           retryJob: job,
         );
         if (result.success) {
@@ -1904,6 +1960,11 @@ class PrinterService {
   static Future<void> _emitStateChanged() async {
     await _loadFailedJobs();
     final status = await getSelectedPrinterStatus(requestPermissions: false);
+    final queuedJobCount =
+        _failedJobs.where((job) => job.status == _jobStatusQueued).length;
+    final pendingConfirmationCount = _failedJobs
+        .where((job) => job.status == _jobStatusAwaitingConfirmation)
+        .length;
     _eventController.add(
       PrinterServiceEvent(
         selectedAddress: status.selectedAddress,
@@ -1913,7 +1974,8 @@ class PrinterService {
         isPaired: status.isPaired,
         isConnected: status.isConnected,
         isConnecting: status.isConnecting,
-        failedJobCount: _failedJobs.length,
+        failedJobCount: queuedJobCount,
+        pendingConfirmationCount: pendingConfirmationCount,
         activeJobCount: status.activeJobCount,
         stateLabel: status.stateLabel,
         statusMessage: status.message,
@@ -2030,6 +2092,73 @@ class PrinterService {
     return _failedJobs.any((job) => job.status == _jobStatusQueued);
   }
 
+  static Future<_ReceiptConfirmationDecision>
+      _resolveReceiptConfirmationDecision({
+    required bool isReprint,
+    required bool forceBlockingConfirmation,
+  }) async {
+    if (forceBlockingConfirmation) {
+      return const _ReceiptConfirmationDecision(
+        requiresConfirmation: true,
+        blockingPrompt: true,
+      );
+    }
+    final policy = await getReceiptConfirmationPolicy();
+    switch (policy) {
+      case receiptConfirmationAlwaysAsk:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: true,
+          blockingPrompt: true,
+        );
+      case receiptConfirmationAskOnRisk:
+        return await _isReceiptConfirmationRisky(isReprint: isReprint)
+            ? const _ReceiptConfirmationDecision(
+                requiresConfirmation: true,
+                blockingPrompt: true,
+              )
+            : const _ReceiptConfirmationDecision(
+                requiresConfirmation: true,
+                blockingPrompt: false,
+              );
+      case receiptConfirmationNeverAsk:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: false,
+          blockingPrompt: false,
+        );
+      case receiptConfirmationFastQueue:
+      default:
+        return const _ReceiptConfirmationDecision(
+          requiresConfirmation: true,
+          blockingPrompt: false,
+        );
+    }
+  }
+
+  static Future<bool> _isReceiptConfirmationRisky({
+    required bool isReprint,
+  }) async {
+    await _loadFailedJobs();
+    if (isReprint) {
+      return true;
+    }
+    final failureStreak = await _readFailureStreak();
+    if (failureStreak > 0) {
+      return true;
+    }
+    final lastFailureAt = await _readIntSetting(_lastPrintFailureAtKey);
+    final hasRecentFailure = lastFailureAt != null &&
+        DateTime.now().millisecondsSinceEpoch - lastFailureAt <
+            const Duration(minutes: 10).inMilliseconds;
+    if (hasRecentFailure) {
+      return true;
+    }
+    return _failedJobs.any(
+      (job) =>
+          job.status == _jobStatusQueued ||
+          job.status == _jobStatusAwaitingConfirmation,
+    );
+  }
+
   static bool _isConnectionVerificationFresh(int? verifiedAt) {
     if (verifiedAt == null) {
       return false;
@@ -2126,6 +2255,7 @@ class PrinterStatusSnapshot {
   final bool isConnected;
   final bool isConnecting;
   final int queuedJobCount;
+  final int pendingConfirmationCount;
   final int activeJobCount;
   final int? lastPrintSuccessAt;
   final int? lastPrintFailureAt;
@@ -2143,6 +2273,7 @@ class PrinterStatusSnapshot {
     required this.isConnected,
     required this.isConnecting,
     required this.queuedJobCount,
+    required this.pendingConfirmationCount,
     required this.activeJobCount,
     this.lastPrintSuccessAt,
     this.lastPrintFailureAt,
@@ -2161,6 +2292,7 @@ class PrinterServiceEvent {
   final bool isConnected;
   final bool isConnecting;
   final int failedJobCount;
+  final int pendingConfirmationCount;
   final int activeJobCount;
   final String stateLabel;
   final String statusMessage;
@@ -2177,6 +2309,7 @@ class PrinterServiceEvent {
     required this.isConnected,
     required this.isConnecting,
     required this.failedJobCount,
+    required this.pendingConfirmationCount,
     required this.activeJobCount,
     required this.stateLabel,
     required this.statusMessage,
@@ -2271,6 +2404,7 @@ class PrintReceiptResult {
   final bool queuedForRetry;
   final String message;
   final bool requiresOperatorConfirmation;
+  final bool awaitingOperatorConfirmation;
   final String? confirmationJobId;
 
   const PrintReceiptResult({
@@ -2278,7 +2412,18 @@ class PrintReceiptResult {
     required this.queuedForRetry,
     required this.message,
     this.requiresOperatorConfirmation = false,
+    this.awaitingOperatorConfirmation = false,
     this.confirmationJobId,
+  });
+}
+
+class _ReceiptConfirmationDecision {
+  final bool requiresConfirmation;
+  final bool blockingPrompt;
+
+  const _ReceiptConfirmationDecision({
+    required this.requiresConfirmation,
+    required this.blockingPrompt,
   });
 }
 

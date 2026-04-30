@@ -41,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _printerStateLabel = 'Not checked';
   String _printerStatus = 'Printer status not loaded';
   int _failedPrintCount = 0;
+  int _pendingPrintConfirmationCount = 0;
   int _activePrintCount = 0;
   int? _lastPrintSuccessAt;
   int? _lastPrintFailureAt;
@@ -436,6 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _printerStateLabel = status.stateLabel;
       _printerStatus = status.message;
       _failedPrintCount = status.queuedJobCount;
+      _pendingPrintConfirmationCount = status.pendingConfirmationCount;
       _activePrintCount = status.activeJobCount;
       _lastPrintSuccessAt = status.lastPrintSuccessAt;
       _lastPrintFailureAt = status.lastPrintFailureAt;
@@ -546,7 +548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       attempted++;
       var result = await PrinterService.retryQueuedJob(
         job.jobId,
-        requireOperatorConfirmation: true,
+        forceBlockingConfirmation: true,
       );
       if (result.requiresOperatorConfirmation &&
           result.confirmationJobId != null &&
@@ -713,12 +715,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isPrinterHealthy() {
     return _printerStateLabel == 'Connected' &&
         _failedPrintCount == 0 &&
+        _pendingPrintConfirmationCount == 0 &&
         _activePrintCount == 0;
   }
 
   bool get _isPrinterUnhealthy =>
       _printerStateLabel == 'Printer Unhealthy' ||
       _printerStateLabel == 'Connected, Unhealthy';
+
+  String _receiptConfirmationPolicyLabel(String policy) {
+    switch (policy) {
+      case PrinterService.receiptConfirmationAlwaysAsk:
+        return 'Always Ask';
+      case PrinterService.receiptConfirmationAskOnRisk:
+        return 'Ask Only On Risk';
+      case PrinterService.receiptConfirmationNeverAsk:
+        return 'Never Ask (Unsafe)';
+      case PrinterService.receiptConfirmationFastQueue:
+      default:
+        return 'Fast Queue Confirm';
+    }
+  }
 
   String _formatTimestamp(int? value) {
     if (value == null) {
@@ -796,6 +813,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: appState.receiptConfirmationPolicy,
+                    decoration: const InputDecoration(
+                      labelText: 'Receipt Confirmation Policy',
+                      border: OutlineInputBorder(),
+                      helperText:
+                          'Choose how the app confirms physical receipt output.',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: PrinterService.receiptConfirmationFastQueue,
+                        child: Text('Fast Queue Confirm (Recommended)'),
+                      ),
+                      DropdownMenuItem(
+                        value: PrinterService.receiptConfirmationAlwaysAsk,
+                        child: Text('Always Ask'),
+                      ),
+                      DropdownMenuItem(
+                        value: PrinterService.receiptConfirmationAskOnRisk,
+                        child: Text('Ask Only On Risk'),
+                      ),
+                      DropdownMenuItem(
+                        value: PrinterService.receiptConfirmationNeverAsk,
+                        child: Text('Never Ask (Unsafe)'),
+                      ),
+                    ],
+                    onChanged: (selection) async {
+                      if (selection == null) {
+                        return;
+                      }
+                      await appState.setReceiptConfirmationPolicy(selection);
+                      if (!mounted) {
+                        return;
+                      }
+                      await _refreshPrinterInfo();
+                      _showSnackBar(
+                        'Receipt confirmation policy set to ${_receiptConfirmationPolicyLabel(selection)}.',
+                        backgroundColor: selection ==
+                                PrinterService.receiptConfirmationNeverAsk
+                            ? Colors.orange
+                            : Colors.green,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (appState.receiptConfirmationPolicy ==
+                      PrinterService.receiptConfirmationFastQueue)
+                    const Text(
+                      'Fast Queue Confirm keeps scanning fast. Prints stay truthful by remaining partially verified until the operator confirms them from the pending confirmations queue.',
+                      style: TextStyle(color: Colors.black87),
+                    )
+                  else if (appState.receiptConfirmationPolicy ==
+                      PrinterService.receiptConfirmationAskOnRisk)
+                    const Text(
+                      'Ask Only On Risk shows a blocking confirmation only after failures, reconnects, unresolved print work, or reprints.',
+                      style: TextStyle(color: Colors.black87),
+                    )
+                  else if (appState.receiptConfirmationPolicy ==
+                      PrinterService.receiptConfirmationNeverAsk)
+                    const Text(
+                      'Unsafe mode treats transport success as success and can reintroduce false printed receipts. Use only if your operation explicitly accepts that risk.',
+                      style: TextStyle(color: Colors.orange),
+                    ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -917,6 +998,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _printerStatus,
                           style: const TextStyle(color: Colors.black87),
                         ),
+                        if (_pendingPrintConfirmationCount > 0) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '$_pendingPrintConfirmationCount print${_pendingPrintConfirmationCount == 1 ? '' : 's'} still awaiting operator confirmation.',
+                            style: const TextStyle(
+                              color: Colors.deepOrange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                         if (_isPrinterUnhealthy) ...[
                           const SizedBox(height: 8),
                           const Text(

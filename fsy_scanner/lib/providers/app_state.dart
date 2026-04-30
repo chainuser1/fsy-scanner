@@ -28,6 +28,7 @@ class AppState extends ChangeNotifier {
   String _printerStateLabel = 'No Printer Selected';
   String _printerStatusMessage = 'No printer selected';
   int _printerFailedJobCount = 0;
+  int _pendingPrintConfirmationCount = 0;
   int _printerActiveJobCount = 0;
   int? _lastPrintSuccessAt;
   int? _lastPrintFailureAt;
@@ -37,6 +38,8 @@ class AppState extends ChangeNotifier {
   bool _soundEnabled = true;
   bool _hapticEnabled = true;
   bool _voiceEnabled = false;
+  String _receiptConfirmationPolicy =
+      PrinterService.receiptConfirmationFastQueue;
 
   String _eventName = '';
   String _organizationName = '';
@@ -63,6 +66,7 @@ class AppState extends ChangeNotifier {
   String get printerStateLabel => _printerStateLabel;
   String get printerStatusMessage => _printerStatusMessage;
   int get printerFailedJobCount => _printerFailedJobCount;
+  int get pendingPrintConfirmationCount => _pendingPrintConfirmationCount;
   int get printerActiveJobCount => _printerActiveJobCount;
   int? get lastPrintSuccessAt => _lastPrintSuccessAt;
   int? get lastPrintFailureAt => _lastPrintFailureAt;
@@ -71,6 +75,7 @@ class AppState extends ChangeNotifier {
   bool get soundEnabled => _soundEnabled;
   bool get hapticEnabled => _hapticEnabled;
   bool get voiceEnabled => _voiceEnabled;
+  String get receiptConfirmationPolicy => _receiptConfirmationPolicy;
   String get eventName => _eventName;
   String get organizationName => _organizationName;
 
@@ -149,6 +154,7 @@ class AppState extends ChangeNotifier {
     _printerStateLabel = status.stateLabel;
     _printerStatusMessage = status.message;
     _printerFailedJobCount = status.queuedJobCount;
+    _pendingPrintConfirmationCount = status.pendingConfirmationCount;
     _printerActiveJobCount = status.activeJobCount;
     _lastPrintSuccessAt = status.lastPrintSuccessAt;
     _lastPrintFailureAt = status.lastPrintFailureAt;
@@ -217,6 +223,11 @@ class AppState extends ChangeNotifier {
       where: 'key = ?',
       whereArgs: ['organization_name'],
     );
+    final receiptConfirmationPolicyResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['receipt_confirmation_policy'],
+    );
 
     _soundEnabled =
         soundResult.isEmpty || soundResult.first['value'] != 'false';
@@ -224,6 +235,10 @@ class AppState extends ChangeNotifier {
         hapticResult.isEmpty || hapticResult.first['value'] != 'false';
     _voiceEnabled =
         voiceResult.isNotEmpty && voiceResult.first['value'] == 'true';
+    _receiptConfirmationPolicy = receiptConfirmationPolicyResult.isEmpty
+        ? PrinterService.receiptConfirmationFastQueue
+        : receiptConfirmationPolicyResult.first['value'] as String? ??
+            PrinterService.receiptConfirmationFastQueue;
 
     if (eventNameResult.isNotEmpty) {
       _eventName = eventNameResult.first['value'] as String? ?? '';
@@ -254,6 +269,7 @@ class AppState extends ChangeNotifier {
       _printerConnected = event.isConnected;
       _printerConnecting = event.isConnecting;
       _printerFailedJobCount = event.failedJobCount;
+      _pendingPrintConfirmationCount = event.pendingConfirmationCount;
       _printerActiveJobCount = event.activeJobCount;
       _printerStateLabel = event.stateLabel;
       _printerStatusMessage = event.statusMessage;
@@ -325,6 +341,12 @@ class AppState extends ChangeNotifier {
         },
         conflictAlgorithm: ConflictAlgorithm.replace);
     _voiceEnabled = enabled;
+    notifyListeners();
+  }
+
+  Future<void> setReceiptConfirmationPolicy(String policy) async {
+    await PrinterService.setReceiptConfirmationPolicy(policy);
+    _receiptConfirmationPolicy = policy;
     notifyListeners();
   }
 

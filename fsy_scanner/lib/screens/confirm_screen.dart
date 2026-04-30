@@ -203,7 +203,6 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
     var printResult = await PrinterService.printReceipt(
       widget.participant,
       deviceId,
-      requireOperatorConfirmation: true,
     );
     if (printResult.requiresOperatorConfirmation &&
         printResult.confirmationJobId != null &&
@@ -215,11 +214,13 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(printResult.message),
-          backgroundColor: printResult.success
-              ? Colors.green
-              : printResult.queuedForRetry
-                  ? Colors.orange
-                  : Colors.red,
+          backgroundColor: printResult.awaitingOperatorConfirmation
+              ? Colors.blueGrey
+              : printResult.success
+                  ? Colors.green
+                  : printResult.queuedForRetry
+                      ? Colors.orange
+                      : Colors.red,
         ),
       );
     }
@@ -236,13 +237,20 @@ class _ConfirmScreenState extends State<ConfirmScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            printResult.success
-                ? 'Check-in recorded and receipt confirmed.'
-                : 'Check-in recorded. Participant remains partially verified until a print is confirmed.',
+            printResult.awaitingOperatorConfirmation
+                ? 'Check-in recorded. Receipt is awaiting confirmation in the pending print queue.'
+                : printResult.success
+                    ? 'Check-in recorded and receipt confirmed.'
+                    : printResult.awaitingOperatorConfirmation
+                        ? 'Check-in recorded. Receipt is awaiting confirmation in the pending print queue.'
+                        : 'Check-in recorded. Participant remains partially verified until a print is confirmed.',
             style: const TextStyle(color: Colors.white),
           ),
-          backgroundColor:
-              printResult.success ? FSYScannerApp.accentGreen : Colors.orange,
+          backgroundColor: printResult.awaitingOperatorConfirmation
+              ? Colors.blueGrey
+              : printResult.success
+                  ? FSYScannerApp.accentGreen
+                  : Colors.orange,
         ),
       );
     }

@@ -326,7 +326,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                             participant,
                             deviceId,
                             isReprint: true,
-                            requireOperatorConfirmation: true,
+                            forceBlockingConfirmation: true,
                           );
                           if (result.requiresOperatorConfirmation &&
                               result.confirmationJobId != null &&

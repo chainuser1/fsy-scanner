@@ -41,6 +41,7 @@ class _ScanScreenState extends State<ScanScreen>
   final AudioPlayer _audioPlayer = AudioPlayer();
   final FlutterTts _flutterTts = FlutterTts();
   StreamSubscription<Map<String, dynamic>?>? _syncSub;
+  StreamSubscription<PrinterServiceEvent>? _printerSub;
   bool _isSyncingNow = false;
   bool _isCooldown = false;
   bool _torchOn = false;
@@ -52,6 +53,9 @@ class _ScanScreenState extends State<ScanScreen>
 
   String _syncStatusText = '';
   double _syncProgress = 0.0;
+  bool _showPendingConfirmationTray = false;
+  bool _isResolvingPendingConfirmation = false;
+  List<PrinterQueuedJob> _pendingConfirmationJobs = [];
 
   // Overlay animations (renamed from card* for clarity)
   late AnimationController _overlayAnimController;
@@ -117,6 +121,10 @@ class _ScanScreenState extends State<ScanScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().loadPreferences();
       unawaited(context.read<AppState>().startPrinterAutomation());
+      unawaited(_refreshPendingConfirmationJobs());
+    });
+    _printerSub = PrinterService.events.listen((_) {
+      unawaited(_refreshPendingConfirmationJobs());
     });
     unawaited(_ensureCameraPermission());
     _resetPowerSaveTimer();
@@ -182,6 +190,51 @@ class _ScanScreenState extends State<ScanScreen>
   void _toggleCamera() {
     setState(() => _isFrontCamera = !_isFrontCamera);
     controller.switchCamera();
+  }
+
+  Future<void> _refreshPendingConfirmationJobs() async {
+    final jobs = await PrinterService.getPendingConfirmationJobs();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pendingConfirmationJobs = jobs;
+      if (jobs.isEmpty) {
+        _showPendingConfirmationTray = false;
+      }
+    });
+  }
+
+  Future<void> _resolvePendingConfirmationJob(
+    PrinterQueuedJob job,
+    bool printed,
+  ) async {
+    if (_isResolvingPendingConfirmation) {
+      return;
+    }
+    setState(() {
+      _isResolvingPendingConfirmation = true;
+    });
+    final result = printed
+        ? await PrinterService.confirmPrintDelivery(job.jobId)
+        : await PrinterService.rejectPrintDelivery(job.jobId);
+    await _refreshPendingConfirmationJobs();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isResolvingPendingConfirmation = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message),
+        backgroundColor: result.success
+            ? Colors.green
+            : result.queuedForRetry
+                ? Colors.orange
+                : Colors.red,
+      ),
+    );
   }
 
   @override
@@ -631,7 +684,6 @@ class _ScanScreenState extends State<ScanScreen>
                                     await PrinterService.printReceipt(
                                   participant,
                                   deviceId,
-                                  requireOperatorConfirmation: true,
                                 );
                                 if (printResult.requiresOperatorConfirmation &&
                                     printResult.confirmationJobId != null &&
@@ -644,15 +696,20 @@ class _ScanScreenState extends State<ScanScreen>
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        printResult.success
-                                            ? 'Receipt confirmed for ${participant.fullName}'
-                                            : printResult.message,
+                                        printResult.awaitingOperatorConfirmation
+                                            ? 'Receipt queued for confirmation for ${participant.fullName}'
+                                            : printResult.success
+                                                ? 'Receipt confirmed for ${participant.fullName}'
+                                                : printResult.message,
                                       ),
-                                      backgroundColor: printResult.success
-                                          ? Colors.green
-                                          : printResult.queuedForRetry
-                                              ? Colors.orange
-                                              : Colors.red,
+                                      backgroundColor: printResult
+                                              .awaitingOperatorConfirmation
+                                          ? Colors.blueGrey
+                                          : printResult.success
+                                              ? Colors.green
+                                              : printResult.queuedForRetry
+                                                  ? Colors.orange
+                                                  : Colors.red,
                                     ),
                                   );
                                 }
@@ -954,6 +1011,15 @@ class _ScanScreenState extends State<ScanScreen>
                             ),
                           ),
                         ),
+                      if (!appState.isInitialLoading &&
+                          !_powerSaveMode &&
+                          _pendingConfirmationJobs.isNotEmpty)
+                        Positioned(
+                          left: 16,
+                          right: 88,
+                          bottom: 20,
+                          child: _buildPendingConfirmationTray(),
+                        ),
                     ],
                   ),
                 ),
@@ -1045,6 +1111,135 @@ class _ScanScreenState extends State<ScanScreen>
     return PrinterService.rejectPrintDelivery(jobId);
   }
 
+  Widget _buildPendingConfirmationTray() {
+    final visibleJobs = _pendingConfirmationJobs.take(2).toList();
+    final extraCount = _pendingConfirmationJobs.length - visibleJobs.length;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(150),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withAlpha(30)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                _showPendingConfirmationTray = !_showPendingConfirmationTray;
+              });
+            },
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.pending_actions,
+                  color: Colors.white70,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${_pendingConfirmationJobs.length} pending print${_pendingConfirmationJobs.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  _showPendingConfirmationTray
+                      ? Icons.expand_more
+                      : Icons.chevron_right,
+                  color: Colors.white70,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+          if (_showPendingConfirmationTray) ...[
+            const SizedBox(height: 8),
+            ...visibleJobs.map(
+              (job) => Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        job.participantName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: _isResolvingPendingConfirmation
+                          ? null
+                          : () => _resolvePendingConfirmationJob(job, false),
+                      style: TextButton.styleFrom(
+                        minimumSize: Size.zero,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        'Retry',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    FilledButton.tonal(
+                      onPressed: _isResolvingPendingConfirmation
+                          ? null
+                          : () => _resolvePendingConfirmationJob(job, true),
+                      style: FilledButton.styleFrom(
+                        minimumSize: Size.zero,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.white.withAlpha(24),
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text(
+                        'Printed',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (extraCount > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '+$extraCount more in Settings',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildDetailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1078,6 +1273,7 @@ class _ScanScreenState extends State<ScanScreen>
     WakelockPlus.disable();
     WidgetsBinding.instance.removeObserver(this);
     _syncSub?.cancel();
+    _printerSub?.cancel();
     _audioPlayer.dispose();
     _flutterTts.stop();
     _overlayAnimController.dispose();
