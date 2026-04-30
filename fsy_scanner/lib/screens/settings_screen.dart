@@ -53,10 +53,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       .toList()
     ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
 
-  List<PrinterQueuedJob> get _retryablePrintJobs => _queuedPrintJobs
-      .where((job) => job.status == 'queued')
-      .toList()
-    ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+  List<PrinterQueuedJob> get _retryablePrintJobs =>
+      _queuedPrintJobs.where((job) => job.status == 'queued').toList()
+        ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
 
   @override
   void initState() {
@@ -898,9 +897,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? Colors.green.withValues(alpha: 0.08)
                           : _isPrinterUnhealthy
                               ? Colors.red.withValues(alpha: 0.12)
-                          : _failedPrintCount > 0
-                              ? Colors.orange.withValues(alpha: 0.08)
-                              : Colors.red.withValues(alpha: 0.08),
+                              : _failedPrintCount > 0
+                                  ? Colors.orange.withValues(alpha: 0.08)
+                                  : Colors.red.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -1096,7 +1095,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     runSpacing: 8,
                                     children: [
                                       FilledButton.icon(
-                                        onPressed: () => _resolvePendingConfirmation(
+                                        onPressed: () =>
+                                            _resolvePendingConfirmation(
                                           job,
                                           true,
                                         ),
@@ -1104,7 +1104,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         label: const Text('Confirm Printed'),
                                       ),
                                       OutlinedButton.icon(
-                                        onPressed: () => _resolvePendingConfirmation(
+                                        onPressed: () =>
+                                            _resolvePendingConfirmation(
                                           job,
                                           false,
                                         ),

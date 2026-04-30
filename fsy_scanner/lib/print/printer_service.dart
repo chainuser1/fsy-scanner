@@ -981,8 +981,7 @@ class PrinterService {
       return const PrintReceiptResult(
         success: false,
         queuedForRetry: false,
-        message:
-            'This print is not waiting for operator confirmation anymore.',
+        message: 'This print is not waiting for operator confirmation anymore.',
       );
     }
 
@@ -1014,8 +1013,7 @@ class PrinterService {
       return const PrintReceiptResult(
         success: false,
         queuedForRetry: false,
-        message:
-            'This print is not waiting for operator confirmation anymore.',
+        message: 'This print is not waiting for operator confirmation anymore.',
       );
     }
 

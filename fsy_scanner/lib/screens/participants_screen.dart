@@ -95,9 +95,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
           : await totalParticipantsFuture;
       final verifiedCount = await verifiedCountFuture;
       final pendingConfirmationJobs = await pendingConfirmationsFuture;
-      final pendingConfirmationIds = pendingConfirmationJobs
-          .map((job) => job.participantId)
-          .toSet();
+      final pendingConfirmationIds =
+          pendingConfirmationJobs.map((job) => job.participantId).toSet();
 
       if (!mounted || requestId != _activeRequestId) {
         return;
@@ -293,8 +292,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
             final participant = _visibleParticipants[participantIndex];
             final visualStatus = _statusVisuals(participant);
-            final hasPendingConfirmation = _pendingConfirmationParticipantIds
-                .contains(participant.id);
+            final hasPendingConfirmation =
+                _pendingConfirmationParticipantIds.contains(participant.id);
             return Card(
               margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: ListTile(

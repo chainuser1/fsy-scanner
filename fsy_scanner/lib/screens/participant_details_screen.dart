@@ -196,8 +196,11 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                             _pendingConfirmationJob!.queuedAt,
                       ),
                     ),
-                    _infoTile('Print Type',
-                        _pendingConfirmationJob!.isReprint ? 'Reprint' : 'Initial print'),
+                    _infoTile(
+                        'Print Type',
+                        _pendingConfirmationJob!.isReprint
+                            ? 'Reprint'
+                            : 'Initial print'),
                     if (_pendingConfirmationJob!.reason.trim().isNotEmpty)
                       _infoTile('Note', _pendingConfirmationJob!.reason),
                     const SizedBox(height: 8),

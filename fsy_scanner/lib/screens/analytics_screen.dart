@@ -1528,9 +1528,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ? Colors.redAccent
                   : appState.printerConnected
                       ? FSYScannerApp.primaryBlue
-                  : appState.printerFailedJobCount > 0
-                      ? Colors.redAccent
-                      : FSYScannerApp.accentGold,
+                      : appState.printerFailedJobCount > 0
+                          ? Colors.redAccent
+                          : FSYScannerApp.accentGold,
             ),
             _buildHealthRow(
               icon: Icons.sync,
@@ -3135,9 +3135,8 @@ class _AnalyticsSnapshot {
         .length;
     final queuedPrintJobs =
         printJobs.where((job) => job.status == 'queued').toList();
-    final pendingConfirmationCount = printJobs
-        .where((job) => job.status == 'awaiting_confirmation')
-        .length;
+    final pendingConfirmationCount =
+        printJobs.where((job) => job.status == 'awaiting_confirmation').length;
     final staleQueuedPrintCount = queuedPrintJobs
         .where(
           (job) =>
