@@ -1524,8 +1524,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               value: appState.printerStateLabel,
               detail:
                   '${appState.printerStatusMessage} • ${analytics.pendingConfirmationCount} pending confirmation • ${appState.printerFailedJobCount} queued • ${appState.printerActiveJobCount} active',
-              color: appState.printerConnected
-                  ? FSYScannerApp.primaryBlue
+              color: appState.printerStateLabel.contains('Unhealthy')
+                  ? Colors.redAccent
+                  : appState.printerConnected
+                      ? FSYScannerApp.primaryBlue
                   : appState.printerFailedJobCount > 0
                       ? Colors.redAccent
                       : FSYScannerApp.accentGold,

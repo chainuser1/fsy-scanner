@@ -717,6 +717,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _activePrintCount == 0;
   }
 
+  bool get _isPrinterUnhealthy =>
+      _printerStateLabel == 'Printer Unhealthy' ||
+      _printerStateLabel == 'Connected, Unhealthy';
+
   String _formatTimestamp(int? value) {
     if (value == null) {
       return 'Never';
@@ -892,6 +896,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: BoxDecoration(
                       color: _isPrinterHealthy()
                           ? Colors.green.withValues(alpha: 0.08)
+                          : _isPrinterUnhealthy
+                              ? Colors.red.withValues(alpha: 0.12)
                           : _failedPrintCount > 0
                               ? Colors.orange.withValues(alpha: 0.08)
                               : Colors.red.withValues(alpha: 0.08),
@@ -912,6 +918,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _printerStatus,
                           style: const TextStyle(color: Colors.black87),
                         ),
+                        if (_isPrinterUnhealthy) ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Auto-retry is paused after repeated failures. Resolve pending confirmations, confirm printer readiness, then run a successful print to clear the unhealthy state.',
+                            style: TextStyle(
+                              color: Colors.redAccent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 12,

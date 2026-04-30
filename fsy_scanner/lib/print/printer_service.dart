@@ -26,6 +26,7 @@ class PrinterService {
       'printer_last_print_failure_code';
   static const String _lastConnectionVerifiedAtKey =
       'printer_last_connection_verified_at';
+  static const String _printFailureStreakKey = 'printer_failure_streak';
 
   static const String cutModeOff = 'off';
   static const String cutModeSafe = 'safe';
@@ -47,6 +48,7 @@ class PrinterService {
   static const String _attemptOutcomeSuccess = 'success';
   static const String _attemptOutcomeFailed = 'failed';
   static const String _attemptOutcomeCancelled = 'cancelled';
+  static const int _unhealthyFailureThreshold = 3;
   static const Duration _monitorInterval = Duration(seconds: 8);
   static const Duration _connectionVerificationFreshness = Duration(
     seconds: 10,
@@ -376,6 +378,8 @@ class PrinterService {
     final lastConnectionVerifiedAt = await _readIntSetting(
       _lastConnectionVerifiedAtKey,
     );
+    final failureStreak = await _readFailureStreak();
+    final unhealthy = failureStreak >= _unhealthyFailureThreshold;
     final queuedJobCount = _failedJobs.length;
     final activeJobCount = _pendingPrints.length;
 
@@ -448,13 +452,27 @@ class PrinterService {
         );
         recentlyVerified = connected;
       }
-      final stateLabel = _isConnecting
+      final baseStateLabel = _isConnecting
           ? 'Connecting'
           : connected
               ? recentlyVerified
                   ? 'Connected'
                   : 'Connection Unverified'
               : 'Paired, Not Connected';
+      final stateLabel = unhealthy
+          ? connected
+              ? 'Connected, Unhealthy'
+              : 'Printer Unhealthy'
+          : baseStateLabel;
+      final baseMessage = connected
+          ? recentlyVerified
+              ? 'Connected after a fresh revalidation. Final readiness is still only confirmed when a print succeeds.'
+              : 'A stale Bluetooth link may still exist, but the printer has not been freshly revalidated. Use Check Status or print to confirm reachability.'
+          : _isConnecting
+              ? 'Connecting to the selected printer'
+              : 'Paired, but not currently connected';
+      final unhealthyMessage =
+          'Printer marked unhealthy after $failureStreak consecutive failures. Resolve pending confirmations or retries, then complete a successful print to clear.';
       return PrinterStatusSnapshot(
         hasSelection: true,
         selectedAddress: address,
@@ -470,13 +488,7 @@ class PrinterService {
         lastPrintFailureAt: lastPrintFailureAt,
         lastPrintFailureReason: lastPrintFailureReason,
         device: device,
-        message: connected
-            ? recentlyVerified
-                ? 'Connected after a fresh revalidation. Final readiness is still only confirmed when a print succeeds.'
-                : 'A stale Bluetooth link may still exist, but the printer has not been freshly revalidated. Use Check Status or print to confirm reachability.'
-            : _isConnecting
-                ? 'Connecting to the selected printer'
-                : 'Paired, but not currently connected',
+        message: unhealthy ? '$unhealthyMessage $baseMessage' : baseMessage,
       );
     } catch (e) {
       return PrinterStatusSnapshot(
@@ -801,6 +813,13 @@ class PrinterService {
     bool ignoreBackoff = false,
   }) async {
     await _loadFailedJobs();
+    if (!ignoreBackoff && await _isCircuitBreakerOpen()) {
+      return PrinterRetrySummary(
+        attempted: 0,
+        succeeded: 0,
+        remaining: _failedJobs.length,
+      );
+    }
     if (_isQueueDraining || _failedJobs.isEmpty) {
       return PrinterRetrySummary(
         attempted: 0,
@@ -1945,11 +1964,28 @@ class PrinterService {
           'value': now,
         },
         conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+        'app_settings',
+        {
+          'key': _printFailureStreakKey,
+          'value': '0',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<void> _recordPrintFailure(_QueuedFailure failure) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch.toString();
+    final streakResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [_printFailureStreakKey],
+      limit: 1,
+    );
+    final currentStreak = streakResult.isEmpty
+        ? 0
+        : int.tryParse(streakResult.first['value'] as String? ?? '') ?? 0;
+    final nextStreak = currentStreak + 1;
     await db.insert(
         'app_settings',
         {
@@ -1971,6 +2007,29 @@ class PrinterService {
           'value': failure.code,
         },
         conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+        'app_settings',
+        {
+          'key': _printFailureStreakKey,
+          'value': nextStreak.toString(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<int> _readFailureStreak() async {
+    final value = await _readStringSetting(_printFailureStreakKey);
+    if (value == null || value.isEmpty) {
+      return 0;
+    }
+    return int.tryParse(value) ?? 0;
+  }
+
+  static Future<bool> _isCircuitBreakerOpen() async {
+    final streak = await _readFailureStreak();
+    if (streak < _unhealthyFailureThreshold) {
+      return false;
+    }
+    return _failedJobs.any((job) => job.status == _jobStatusQueued);
   }
 
   static bool _isConnectionVerificationFresh(int? verifiedAt) {

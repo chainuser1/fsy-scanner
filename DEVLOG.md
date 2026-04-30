@@ -3358,3 +3358,57 @@ Completed the next printing hardening slice focused on transactional finalizatio
 
 ### Deviations from Plan
 - This slice prioritized service-level finalization/recovery and multi-screen pending-confirmation visibility before implementing additional printer-health scoring rules.
+
+---
+
+## 62.0 — Printer Unhealthy State And Device Validation Checklist
+**Date/Time:** 2026-04-30 21:35:00
+**Status:** ✅ Complete
+
+### What I Did
+Implemented the next printing hardening step by adding a printer unhealthy/circuit-breaker layer and creating a reusable real-device validation checklist for the newly hardened print workflow.
+
+### Changes Made
+**Printer unhealthy state and circuit breaker.**
+- Added a consecutive print-failure streak tracker in printer settings storage.
+- Reset the streak automatically after a successful confirmed print.
+- Marked the printer as unhealthy once repeated failures cross the threshold.
+- Updated printer status to expose `Printer Unhealthy` or `Connected, Unhealthy` so operators do not overtrust a printer path with repeated failures.
+- Paused automatic queued-job draining when the failure streak is high, so the app does not keep blindly retrying a broken printer path.
+
+**Operator-facing unhealthy visibility.**
+- Settings now shows stronger warning copy when the printer is unhealthy and clarifies that recovery requires resolving confirmations, restoring printer readiness, and completing a successful print.
+- Analytics printer health detail now reflects the unhealthy state visually instead of treating it like an ordinary disconnected or queued condition.
+
+**Reusable real-device validation checklist.**
+- Added `PRINT_HARDENING_CHECKLIST.md` to document field-test scenarios, expected truth rules, recovery expectations, and result-recording structure.
+- Included scenarios for:
+  - printer off while phone Bluetooth stays on
+  - Bluetooth toggled mid-session
+  - print sent but no paper out
+  - interrupted confirmation and restart recovery
+  - delayed confirmation from Settings or Participant Details
+  - queued retry flow
+  - unhealthy-state triggering and recovery
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – failure streak tracking, unhealthy-state status messaging, and queued retry circuit-breaker gating.
+- `fsy_scanner/lib/screens/settings_screen.dart` – unhealthy-state warning visibility.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – unhealthy-state health-row coloring.
+- `PRINT_HARDENING_CHECKLIST.md` – reusable manual validation checklist for real-device testing.
+
+### Verification Result
+- Diagnostics are clean for the updated printer and screen files.
+- The app now surfaces repeated printer failure conditions more truthfully instead of endlessly auto-retrying.
+- A repeatable checklist now exists for validating real hardware behavior against the hardened print state model.
+
+### Issues Encountered
+- Auto-retry can make a failing printer look “busy” rather than “broken” unless there is an explicit unhealthy threshold and pause behavior.
+- Real-device validation scenarios were previously implicit; without a written checklist, the hardest printing edge cases are easy to skip.
+
+### Corrections Made
+- Added a simple streak-based circuit breaker to pause repeated retry loops after multiple failures.
+- Added a durable validation artifact so future printer hardening can be tested consistently across devices and operators.
+
+### Deviations from Plan
+- This pass focused on a practical streak-based unhealthy signal and retry pause rather than a more advanced per-printer statistical scoring model.
