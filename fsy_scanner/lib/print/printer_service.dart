@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
+import '../db/sync_queue_dao.dart';
 import '../models/participant.dart';
 import 'receipt_builder.dart';
 
@@ -41,6 +42,8 @@ class PrinterService {
   static const String _jobStatusAwaitingConfirmation = 'awaiting_confirmation';
   static const String _jobStatusSuccess = 'success';
   static const String _jobStatusCancelled = 'cancelled';
+  static const String _recoveredPrintingReason =
+      'The app restarted before print outcome was confirmed. Confirm only if the paper actually came out; otherwise queue a retry.';
   static const String _attemptOutcomeSuccess = 'success';
   static const String _attemptOutcomeFailed = 'failed';
   static const String _attemptOutcomeCancelled = 'cancelled';
@@ -68,6 +71,7 @@ class PrinterService {
 
   static Future<void> startAutomation() async {
     await _loadFailedJobs();
+    await _reconcileInterruptedJobs();
     if (!_automationStarted) {
       _automationStarted = true;
       _monitorTimer?.cancel();
@@ -650,13 +654,12 @@ class PrinterService {
       );
 
       debugPrint('[PrinterService] Print successful');
-      if (!recorded) {
+      if (!recorded.success) {
         await _emitStateChanged();
-        return const PrintReceiptResult(
-          success: true,
+        return PrintReceiptResult(
+          success: false,
           queuedForRetry: false,
-          message:
-              'Receipt printed, but the local print state could not be updated.',
+          message: recorded.message,
         );
       }
 
@@ -664,9 +667,7 @@ class PrinterService {
       return PrintReceiptResult(
         success: true,
         queuedForRetry: false,
-        message: isReprint
-            ? 'Receipt reprinted successfully.'
-            : 'Receipt printed successfully.',
+        message: recorded.message,
       );
     } catch (e) {
       debugPrint('[PrinterService] Print failed: $e');
@@ -764,6 +765,15 @@ class PrinterService {
       );
     }
 
+    if (job.status == _jobStatusAwaitingConfirmation) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message:
+            'This print is still awaiting operator confirmation. Confirm it or queue a retry explicitly instead of sending a second print blindly.',
+      );
+    }
+
     final retryParticipant = await _resolveRetryParticipant(
       job.participant.id,
       job.isReprint,
@@ -807,7 +817,12 @@ class PrinterService {
       final now = DateTime.now().millisecondsSinceEpoch;
       final jobs = List<_FailedPrintJob>.from(
         _failedJobs,
-      ).where((job) => ignoreBackoff || job.isReady(now)).toList()
+      ).where((job) {
+        if (job.status != _jobStatusQueued) {
+          return false;
+        }
+        return ignoreBackoff || job.isReady(now);
+      }).toList()
         ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
 
       for (final job in jobs) {
@@ -873,6 +888,25 @@ class PrinterService {
         .toList();
   }
 
+  static Future<List<PrinterQueuedJob>> getPendingConfirmationJobs() async {
+    final jobs = await getQueuedJobs();
+    return jobs
+        .where((job) => job.status == _jobStatusAwaitingConfirmation)
+        .toList();
+  }
+
+  static Future<PrinterQueuedJob?> getPendingConfirmationJobForParticipant(
+    String participantId,
+  ) async {
+    final jobs = await getPendingConfirmationJobs();
+    for (final job in jobs) {
+      if (job.participantId == participantId) {
+        return job;
+      }
+    }
+    return null;
+  }
+
   static Future<List<PrinterQueuedJob>> getRecentPrintJobs({
     int limit = 20,
   }) async {
@@ -924,9 +958,17 @@ class PrinterService {
         message: 'The pending print confirmation could not be found.',
       );
     }
+    if (job.status != _jobStatusAwaitingConfirmation) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message:
+            'This print is not waiting for operator confirmation anymore.',
+      );
+    }
 
     final printedAt = DateTime.now().millisecondsSinceEpoch;
-    final recorded = await _onPrintSuccess(
+    final finalization = await _onPrintSuccess(
       job.participant,
       printedAt,
       job: job,
@@ -934,13 +976,9 @@ class PrinterService {
     );
     await _emitStateChanged();
     return PrintReceiptResult(
-      success: recorded,
+      success: finalization.success,
       queuedForRetry: false,
-      message: recorded
-          ? job.isReprint
-              ? 'Receipt reprint confirmed successfully.'
-              : 'Receipt output confirmed. Participant is now fully verified.'
-          : 'Receipt output was confirmed, but local print state could not be updated.',
+      message: finalization.message,
     );
   }
 
@@ -951,6 +989,14 @@ class PrinterService {
         success: false,
         queuedForRetry: false,
         message: 'The pending print confirmation could not be found.',
+      );
+    }
+    if (job.status != _jobStatusAwaitingConfirmation) {
+      return const PrintReceiptResult(
+        success: false,
+        queuedForRetry: false,
+        message:
+            'This print is not waiting for operator confirmation anymore.',
       );
     }
 
@@ -976,38 +1022,100 @@ class PrinterService {
     );
   }
 
-  static Future<bool> _onPrintSuccess(
+  static Future<_PrintFinalizationResult> _onPrintSuccess(
     Participant participant,
     int printedAt, {
     required _FailedPrintJob job,
     required bool isReprint,
   }) async {
     try {
-      await _recordPrintSuccess();
-      await _markJobSuccessful(job.jobId, printedAt: printedAt);
-      await _recordAttemptOutcome(
-        job,
-        outcome: _attemptOutcomeSuccess,
-        finishedAt: printedAt,
-      );
-      await _removeQueuedJob(job.jobId);
       final db = await DatabaseHelper.database;
-      final dao = ParticipantsDao(db);
-      final currentParticipant = await dao.getParticipantById(participant.id);
-      if (currentParticipant == null || currentParticipant.verifiedAt == null) {
-        debugPrint(
-          '[PrinterService] Skipping print-state update for ${participant.id} because the participant is no longer verified',
+      var participantFinalized = false;
+      var participantStillVerified = false;
+      await db.transaction((txn) async {
+        final participantRows = await txn.query(
+          'participants',
+          columns: ['verified_at', 'printed_at'],
+          where: 'id = ?',
+          whereArgs: [participant.id],
+          limit: 1,
         );
-        return true;
+        if (participantRows.isNotEmpty) {
+          final row = participantRows.first;
+          final currentVerifiedAt = row['verified_at'] as int?;
+          final currentPrintedAt = row['printed_at'] as int?;
+          if (currentVerifiedAt != null) {
+            participantStillVerified = true;
+            if (!isReprint || currentPrintedAt == null) {
+              await txn.update(
+                'participants',
+                {
+                  'printed_at': printedAt,
+                  'updated_at': DateTime.now().millisecondsSinceEpoch,
+                },
+                where: 'id = ?',
+                whereArgs: [participant.id],
+              );
+              await SyncQueueDao.enqueueTaskInTransaction(
+                txn,
+                SyncQueueDao.typeMarkPrinted,
+                {'participantId': participant.id, 'printedAt': printedAt},
+              );
+              participantFinalized = true;
+            }
+          }
+        }
+
+        await _markJobSuccessfulInTransaction(
+          txn,
+          job.jobId,
+          printedAt: printedAt,
+        );
+        await _recordAttemptOutcomeInTransaction(
+          txn,
+          job.copyWith(printedAt: printedAt, updatedAt: printedAt),
+          outcome: _attemptOutcomeSuccess,
+          finishedAt: printedAt,
+        );
+      });
+
+      await _recordPrintSuccess();
+      await _removeQueuedJob(job.jobId);
+
+      if (!participantStillVerified) {
+        debugPrint(
+          '[PrinterService] Print confirmed for ${participant.id}, but participant is no longer verified locally.',
+        );
+        return _PrintFinalizationResult(
+          success: true,
+          message: job.isReprint
+              ? 'Receipt reprint confirmed. The participant was already unverified, so no check-in state was changed.'
+              : 'Receipt output confirmed. The participant was already unverified, so no check-in state was changed.',
+        );
       }
 
-      if (!isReprint || currentParticipant.printedAt == null) {
-        await ParticipantsDao.markPrintedAndQueue(participant.id, printedAt);
+      if (job.isReprint) {
+        return _PrintFinalizationResult(
+          success: true,
+          message: participantFinalized
+              ? 'Receipt reprint confirmed successfully and the participant is now fully verified.'
+              : 'Receipt reprint confirmed successfully.',
+        );
       }
-      return true;
+
+      return _PrintFinalizationResult(
+        success: true,
+        message: participantFinalized
+            ? 'Receipt output confirmed. Participant is now fully verified.'
+            : 'Receipt output confirmed successfully.',
+      );
     } catch (e) {
       debugPrint('[PrinterService] Error recording print: $e');
-      return false;
+      return const _PrintFinalizationResult(
+        success: false,
+        message:
+            'Receipt output was confirmed, but local finalization could not be completed.',
+      );
     }
   }
 
@@ -1129,12 +1237,12 @@ class PrinterService {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  static Future<void> _markJobSuccessful(
+  static Future<void> _markJobSuccessfulInTransaction(
+    DatabaseExecutor db,
     String jobId, {
     required int printedAt,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final db = await DatabaseHelper.database;
     await db.update(
       'print_jobs',
       {
@@ -1206,6 +1314,64 @@ class PrinterService {
           'created_at': finishedAt,
         },
         conflictAlgorithm: ConflictAlgorithm.abort);
+  }
+
+  static Future<void> _recordAttemptOutcomeInTransaction(
+    DatabaseExecutor db,
+    _FailedPrintJob job, {
+    required String outcome,
+    required int finishedAt,
+  }) async {
+    final startedAt = job.lastAttemptAt ?? job.queuedAt;
+    await db.insert(
+        'print_job_attempts',
+        {
+          'job_id': job.jobId,
+          'participant_id': job.participant.id,
+          'participant_name': job.participant.fullName,
+          'device_id': job.deviceId,
+          'printer_address': job.printerAddress,
+          'attempt_number': job.attemptCount,
+          'outcome': outcome,
+          'failure_code':
+              outcome == _attemptOutcomeSuccess ? '' : job.failureCode,
+          'failure_reason': outcome == _attemptOutcomeSuccess ? '' : job.reason,
+          'is_reprint': job.isReprint ? 1 : 0,
+          'started_at': startedAt,
+          'finished_at': finishedAt,
+          'created_at': finishedAt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.abort);
+  }
+
+  static Future<void> _reconcileInterruptedJobs() async {
+    final db = await DatabaseHelper.database;
+    final interruptedRows = await db.query(
+      'print_jobs',
+      where: 'status = ?',
+      whereArgs: [_jobStatusPrinting],
+    );
+    if (interruptedRows.isEmpty) {
+      await _refreshQueuedJobsCache();
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final row in interruptedRows) {
+      await db.update(
+        'print_jobs',
+        {
+          'status': _jobStatusAwaitingConfirmation,
+          'failure_code': _failureWriteFailed,
+          'failure_reason': _recoveredPrintingReason,
+          'updated_at': now,
+        },
+        where: 'job_id = ?',
+        whereArgs: [row['job_id']],
+      );
+    }
+    await _refreshQueuedJobsCache();
+    await _emitStateChanged();
   }
 
   static Future<void> _migrateLegacyFailedJobsToTable() async {
@@ -2056,6 +2222,16 @@ class PrintReceiptResult {
     required this.message,
     this.requiresOperatorConfirmation = false,
     this.confirmationJobId,
+  });
+}
+
+class _PrintFinalizationResult {
+  final bool success;
+  final String message;
+
+  const _PrintFinalizationResult({
+    required this.success,
+    required this.message,
   });
 }
 

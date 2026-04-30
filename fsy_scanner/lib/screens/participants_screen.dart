@@ -29,6 +29,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   int _verifiedCount = 0;
   int _totalMatches = 0;
   int _activeRequestId = 0;
+  Set<String> _pendingConfirmationParticipantIds = <String>{};
 
   bool get _hasActiveSearch => _searchController.text.trim().isNotEmpty;
 
@@ -66,6 +67,8 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       final query = _searchController.text.trim();
       final totalParticipantsFuture = dao.getParticipantsCount();
       final verifiedCountFuture = ParticipantsDao.getRegisteredCount();
+      final pendingConfirmationsFuture =
+          PrinterService.getPendingConfirmationJobs();
 
       late final ParticipantQueryResult queryResult;
       if (query.isEmpty) {
@@ -91,6 +94,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
           ? queryResult.totalCount
           : await totalParticipantsFuture;
       final verifiedCount = await verifiedCountFuture;
+      final pendingConfirmationJobs = await pendingConfirmationsFuture;
+      final pendingConfirmationIds = pendingConfirmationJobs
+          .map((job) => job.participantId)
+          .toSet();
 
       if (!mounted || requestId != _activeRequestId) {
         return;
@@ -103,6 +110,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
         _visibleParticipants = reset
             ? queryResult.participants
             : [..._visibleParticipants, ...queryResult.participants];
+        _pendingConfirmationParticipantIds = pendingConfirmationIds;
         _isLoading = false;
         _isLoadingMore = false;
       });
@@ -285,12 +293,17 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
 
             final participant = _visibleParticipants[participantIndex];
             final visualStatus = _statusVisuals(participant);
+            final hasPendingConfirmation = _pendingConfirmationParticipantIds
+                .contains(participant.id);
             return Card(
               margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: ListTile(
                 title: Text(participant.fullName),
                 subtitle: Text(
-                  _participantSummary(participant),
+                  _participantSummary(
+                    participant,
+                    hasPendingConfirmation: hasPendingConfirmation,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -348,6 +361,15 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
                           );
                         },
                       ),
+                    if (hasPendingConfirmation)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.pending_actions,
+                          color: Colors.deepOrange,
+                          size: 20,
+                        ),
+                      ),
                     Icon(visualStatus.icon, color: visualStatus.color),
                   ],
                 ),
@@ -398,9 +420,13 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     super.dispose();
   }
 
-  String _participantSummary(Participant participant) {
+  String _participantSummary(
+    Participant participant, {
+    required bool hasPendingConfirmation,
+  }) {
     final values = <String>[
       participant.verificationLabel,
+      if (hasPendingConfirmation) 'Awaiting print confirmation',
       if ((participant.ward ?? '').trim().isNotEmpty) participant.ward!.trim(),
       if ((participant.stake ?? '').trim().isNotEmpty)
         participant.stake!.trim(),

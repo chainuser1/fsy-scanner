@@ -3301,3 +3301,60 @@ Completed the follow-up hardening pass around rapid scanning, background sync sa
 
 ### Deviations from Plan
 - The final pass expanded from pure diagnostics into a regression-fix sweep because the review surfaced several production-impacting state bugs worth fixing before commit.
+
+---
+
+## 61.0 — Printing Finalization Recovery and Pending Confirmation Visibility
+**Date/Time:** 2026-04-30 21:10:00
+**Status:** ✅ Complete
+
+### What I Did
+Completed the next printing hardening slice focused on transactional finalization, startup recovery for interrupted print jobs, and persistent visibility of pending confirmations in operator-facing screens.
+
+### Changes Made
+**Transactional and safer print finalization.**
+- Updated the print confirmation flow so participant `printed_at` update, sync queue enqueue, print job success status, and immutable attempt success write are finalized in a coordinated transaction path.
+- Added explicit state guards so confirm/reject actions only apply to jobs that are actually in `awaiting_confirmation`.
+- Improved success messaging so operators can distinguish a normal success from edge cases where participant verification state already changed.
+
+**Recovery on restart/interruption.**
+- Added startup reconciliation for interrupted `printing` jobs: on automation start, any stale `printing` jobs are moved to `awaiting_confirmation` with a recovery reason so they are not lost silently.
+- Ensured unresolved confirmation jobs remain visible in the unresolved queue state cache after reconciliation.
+
+**Separated pending confirmations from retryable failures.**
+- Split unresolved queue behavior so auto-retry and bulk retry target only `queued` jobs.
+- Blocked blind retry of `awaiting_confirmation` jobs and required explicit operator resolution first.
+- Added service helpers to fetch pending confirmation jobs globally and by participant.
+
+**Persistent operator workflows in UI.**
+- Settings now shows a dedicated **Pending Print Confirmations** section with explicit actions:
+  - Confirm Printed
+  - Queue Retry
+- Settings retry button now uses only retryable queued jobs, not unresolved confirmations.
+- Participant Details now shows a dedicated **Pending Print Confirmation** section for the selected participant with the same explicit resolution actions.
+- Participants list rows now show a clear cue when a participant has a pending print confirmation, including summary text and icon hint.
+- Analytics now includes a dedicated pending-confirmation metric and surfaces the same count in printer operations detail.
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – transactional success finalization, startup reconciliation, state guards, pending-confirmation query helpers, and retry filtering.
+- `fsy_scanner/lib/screens/settings_screen.dart` – persistent pending-confirmation resolution UI and retry scope separation.
+- `fsy_scanner/lib/screens/participant_details_screen.dart` – participant-level pending-confirmation visibility and explicit resolve actions.
+- `fsy_scanner/lib/screens/participants_screen.dart` – participant row cue for pending print confirmations.
+- `fsy_scanner/lib/screens/analytics_screen.dart` – pending-confirmation metric and printer health detail refinement.
+
+### Verification Result
+- Diagnostics are clean for all updated print hardening files.
+- Pending confirmations now remain visible and actionable across app restarts and screen transitions.
+- Retry behavior no longer treats unresolved confirmations as ordinary failed jobs.
+- Operator workflows now expose pending confirmations in Settings, Participant Details, Participants list cues, and Analytics.
+
+### Issues Encountered
+- Once `awaiting_confirmation` jobs are included in unresolved queue state, retry loops can unintentionally resend prints unless status filtering is explicit.
+- Confirmation actions needed strict status guards to prevent accidental duplicate or out-of-state finalization calls.
+
+### Corrections Made
+- Added queue status filtering and explicit guards in service methods so retries and confirmation transitions stay truthful and deterministic.
+- Added persistent UI resolution paths beyond transient dialogs to reduce operational misses during high-throughput scanning.
+
+### Deviations from Plan
+- This slice prioritized service-level finalization/recovery and multi-screen pending-confirmation visibility before implementing additional printer-health scoring rules.

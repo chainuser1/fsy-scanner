@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -22,11 +24,13 @@ class ParticipantDetailsScreen extends StatefulWidget {
 class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
   late Participant _participant;
   bool _didChange = false;
+  PrinterQueuedJob? _pendingConfirmationJob;
 
   @override
   void initState() {
     super.initState();
     _participant = widget.participant;
+    unawaited(_refreshPendingConfirmationJob());
   }
 
   @override
@@ -169,10 +173,53 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                   if (_participant.isPartiallyVerified)
                     _infoTile(
                       'Action Needed',
-                      'Receipt still needs a successful print. Retry from this screen or Settings.',
+                      _pendingConfirmationJob != null
+                          ? 'Receipt output is waiting for operator confirmation below.'
+                          : 'Receipt still needs a successful print. Retry from this screen or Settings.',
                     ),
                 ],
               ),
+              if (_pendingConfirmationJob != null) ...[
+                const SizedBox(height: 12),
+                _buildSection(
+                  context,
+                  title: 'Pending Print Confirmation',
+                  children: [
+                    _infoTile(
+                      'Status',
+                      'The latest print was sent, but paper output still needs explicit confirmation.',
+                    ),
+                    _infoTile(
+                      'Last Attempt',
+                      _formatTimestamp(
+                        _pendingConfirmationJob!.lastAttemptAt ??
+                            _pendingConfirmationJob!.queuedAt,
+                      ),
+                    ),
+                    _infoTile('Print Type',
+                        _pendingConfirmationJob!.isReprint ? 'Reprint' : 'Initial print'),
+                    if (_pendingConfirmationJob!.reason.trim().isNotEmpty)
+                      _infoTile('Note', _pendingConfirmationJob!.reason),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: () => _resolvePendingConfirmation(true),
+                          icon: const Icon(Icons.check_circle),
+                          label: const Text('Confirm Printed'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _resolvePendingConfirmation(false),
+                          icon: const Icon(Icons.replay),
+                          label: const Text('Queue Retry'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 24),
               if (!isVerified)
                 ElevatedButton.icon(
@@ -300,6 +347,46 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
     setState(() {
       _participant = refreshed;
     });
+    await _refreshPendingConfirmationJob();
+  }
+
+  Future<void> _refreshPendingConfirmationJob() async {
+    final job = await PrinterService.getPendingConfirmationJobForParticipant(
+      _participant.id,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pendingConfirmationJob = job;
+    });
+  }
+
+  Future<void> _resolvePendingConfirmation(bool printed) async {
+    final job = _pendingConfirmationJob;
+    if (job == null) {
+      return;
+    }
+    final result = printed
+        ? await PrinterService.confirmPrintDelivery(job.jobId)
+        : await PrinterService.rejectPrintDelivery(job.jobId);
+    if (result.success || result.queuedForRetry) {
+      _didChange = true;
+    }
+    await _reloadParticipant();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message),
+        backgroundColor: result.success
+            ? Colors.green
+            : result.queuedForRetry
+                ? Colors.orange
+                : Colors.red,
+      ),
+    );
   }
 
   Widget _buildSection(

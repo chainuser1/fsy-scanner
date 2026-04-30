@@ -1113,10 +1113,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         color: Colors.grey.shade700,
       ),
       _MetricCardData(
+        label: 'Pending confirmations',
+        value: '${analytics.pendingConfirmationCount}',
+        helper: analytics.pendingConfirmationCount == 0
+            ? 'No print confirmations waiting'
+            : 'Operator confirmation still required',
+        icon: Icons.rule_folder_outlined,
+        color: analytics.pendingConfirmationCount == 0
+            ? FSYScannerApp.accentGreen
+            : Colors.deepOrange,
+      ),
+      _MetricCardData(
         label: 'Print queue',
         value: '${appState.printerFailedJobCount}',
         helper:
-            '${analytics.staleQueuedPrintCount} stale • ${appState.printerActiveJobCount} active',
+            '${analytics.pendingConfirmationCount} pending confirmation • ${analytics.staleQueuedPrintCount} stale • ${appState.printerActiveJobCount} active',
         icon: Icons.local_printshop_outlined,
         color: FSYScannerApp.primaryBlue,
       ),
@@ -1512,7 +1523,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               label: 'Printer',
               value: appState.printerStateLabel,
               detail:
-                  '${appState.printerStatusMessage} • ${appState.printerFailedJobCount} queued • ${appState.printerActiveJobCount} active',
+                  '${appState.printerStatusMessage} • ${analytics.pendingConfirmationCount} pending confirmation • ${appState.printerFailedJobCount} queued • ${appState.printerActiveJobCount} active',
               color: appState.printerConnected
                   ? FSYScannerApp.primaryBlue
                   : appState.printerFailedJobCount > 0
@@ -2895,6 +2906,7 @@ class _AnalyticsSnapshot {
   final int completedTableCount;
   final int activeRoomCount;
   final int completedRoomCount;
+  final int pendingConfirmationCount;
   final int staleQueuedPrintCount;
   final double averageAttemptsPerSuccessfulJob;
   final double averageVerifyToPrintMinutes;
@@ -2963,6 +2975,7 @@ class _AnalyticsSnapshot {
     required this.completedTableCount,
     required this.activeRoomCount,
     required this.completedRoomCount,
+    required this.pendingConfirmationCount,
     required this.staleQueuedPrintCount,
     required this.averageAttemptsPerSuccessfulJob,
     required this.averageVerifyToPrintMinutes,
@@ -3120,6 +3133,9 @@ class _AnalyticsSnapshot {
         .length;
     final queuedPrintJobs =
         printJobs.where((job) => job.status == 'queued').toList();
+    final pendingConfirmationCount = printJobs
+        .where((job) => job.status == 'awaiting_confirmation')
+        .length;
     final staleQueuedPrintCount = queuedPrintJobs
         .where(
           (job) =>
@@ -3199,6 +3215,7 @@ class _AnalyticsSnapshot {
         retryingSyncCount +
         medicalFlags +
         syncTasks.length +
+        pendingConfirmationCount +
         staleQueuedPrintCount;
 
     return _AnalyticsSnapshot(
@@ -3263,6 +3280,7 @@ class _AnalyticsSnapshot {
       completedTableCount: readyTableRows.length,
       activeRoomCount: activeRoomRows.length,
       completedRoomCount: readyRoomRows.length,
+      pendingConfirmationCount: pendingConfirmationCount,
       staleQueuedPrintCount: staleQueuedPrintCount,
       averageAttemptsPerSuccessfulJob: averageAttemptsPerSuccessfulJob,
       averageVerifyToPrintMinutes: averageVerifyToPrintMinutes,

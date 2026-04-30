@@ -48,6 +48,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<PrinterQueuedJob> _queuedPrintJobs = [];
   List<PrinterQueuedJob> _recentPrintJobs = [];
 
+  List<PrinterQueuedJob> get _pendingConfirmationJobs => _queuedPrintJobs
+      .where((job) => job.status == 'awaiting_confirmation')
+      .toList()
+    ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+
+  List<PrinterQueuedJob> get _retryablePrintJobs => _queuedPrintJobs
+      .where((job) => job.status == 'queued')
+      .toList()
+    ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+
   @override
   void initState() {
     super.initState();
@@ -523,8 +533,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _retryFailedPrints() async {
-    final jobs = List<PrinterQueuedJob>.from(_queuedPrintJobs)
-      ..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+    final jobs = List<PrinterQueuedJob>.from(_retryablePrintJobs);
     if (jobs.isEmpty) {
       await _refreshPrinterInfo();
       _showSnackBar('No failed prints to retry');
@@ -555,11 +564,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     await _refreshPrinterInfo();
-    final remaining = _queuedPrintJobs.length;
+    final remaining = _retryablePrintJobs.length;
     final allSucceeded = remaining == 0;
     _showSnackBar(
       'Retried $attempted jobs, $succeeded confirmed, $remaining remaining.',
       backgroundColor: allSucceeded ? Colors.green : Colors.orange,
+    );
+  }
+
+  Future<void> _resolvePendingConfirmation(
+    PrinterQueuedJob job,
+    bool printed,
+  ) async {
+    final result = printed
+        ? await PrinterService.confirmPrintDelivery(job.jobId)
+        : await PrinterService.rejectPrintDelivery(job.jobId);
+    await _refreshPrinterInfo();
+    _showSnackBar(
+      result.message,
+      backgroundColor: result.success
+          ? Colors.green
+          : result.queuedForRetry
+              ? Colors.orange
+              : Colors.red,
     );
   }
 
@@ -1009,14 +1036,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
-                  if (_queuedPrintJobs.isNotEmpty) ...[
+                  if (_pendingConfirmationJobs.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Pending Print Confirmations',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Resolve these before sending another print for the same participant.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._pendingConfirmationJobs.take(5).map(
+                          (job) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    job.participantName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    job.reason.isEmpty
+                                        ? 'Waiting for an operator to confirm whether paper came out of the printer.'
+                                        : job.reason,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${job.isReprint ? 'Reprint' : 'Initial print'} • sent ${_formatTimestamp(job.lastAttemptAt ?? job.queuedAt)}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: () => _resolvePendingConfirmation(
+                                          job,
+                                          true,
+                                        ),
+                                        icon: const Icon(Icons.check_circle),
+                                        label: const Text('Confirm Printed'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed: () => _resolvePendingConfirmation(
+                                          job,
+                                          false,
+                                        ),
+                                        icon: const Icon(Icons.replay),
+                                        label: const Text('Queue Retry'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    if (_pendingConfirmationJobs.length > 5)
+                      Text(
+                        '${_pendingConfirmationJobs.length - 5} more pending confirmations not shown',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                  if (_retryablePrintJobs.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     const Text(
                       'Queued Print Jobs',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    ..._queuedPrintJobs.take(5).map(
+                    ..._retryablePrintJobs.take(5).map(
                           (job) => ListTile(
                             contentPadding: EdgeInsets.zero,
                             dense: true,
@@ -1032,9 +1131,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                         ),
-                    if (_queuedPrintJobs.length > 5)
+                    if (_retryablePrintJobs.length > 5)
                       Text(
-                        '${_queuedPrintJobs.length - 5} more queued jobs not shown',
+                        '${_retryablePrintJobs.length - 5} more queued jobs not shown',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                   ],
@@ -1077,7 +1176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ElevatedButton.icon(
                     onPressed: _retryFailedPrints,
                     icon: const Icon(Icons.replay),
-                    label: Text('Retry Failed ($_failedPrintCount)'),
+                    label: Text('Retry Failed (${_retryablePrintJobs.length})'),
                   ),
                 ],
               ),
