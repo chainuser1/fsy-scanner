@@ -6,7 +6,7 @@ import 'schema.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
-  static const String _dbVersion = '6';
+  static const String _dbVersion = '7';
   static Database? _database;
 
   static Future<Database> get database async {
@@ -19,7 +19,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
@@ -53,6 +53,9 @@ class DatabaseHelper {
         if (oldVersion < 6) {
           await db.execute(analyticsSavedViewsDDL);
         }
+        if (oldVersion < 7) {
+          await _ensureParticipantColumns(db);
+        }
         if (oldVersion < 1) {
           await db.execute(appSettingsDDL);
           await db.execute(participantsDDL);
@@ -73,6 +76,8 @@ class DatabaseHelper {
   }
 
   static Future<void> runMigrations(Database db) async {
+    await _ensureParticipantColumns(db);
+
     // device_id
     final deviceIdResult = await db.rawQuery(
       'SELECT value FROM app_settings WHERE key = ?',
@@ -140,6 +145,23 @@ class DatabaseHelper {
         'sheets_tab': '',
         'event_name': '',
       });
+    }
+  }
+
+  static Future<void> _ensureParticipantColumns(Database db) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info(participants)');
+    final existingColumns = tableInfo
+        .map((row) => row['name'] as String? ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    if (!existingColumns.contains('registration_source')) {
+      await db.execute(
+        'ALTER TABLE participants ADD COLUMN registration_source TEXT',
+      );
+    }
+    if (!existingColumns.contains('signed_by')) {
+      await db.execute('ALTER TABLE participants ADD COLUMN signed_by TEXT');
     }
   }
 }

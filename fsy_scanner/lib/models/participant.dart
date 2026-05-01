@@ -12,6 +12,8 @@ class Participant {
   final String? medicalInfo;
   final String? note;
   final String? status;
+  final String? registrationSource;
+  final String? signedBy;
   final int? age;
   final String? birthday;
   final int? verifiedAt;
@@ -33,6 +35,8 @@ class Participant {
     this.medicalInfo,
     this.note,
     this.status,
+    this.registrationSource,
+    this.signedBy,
     this.age,
     this.birthday,
     this.verifiedAt,
@@ -56,6 +60,8 @@ class Participant {
       'medical_info': medicalInfo,
       'note': note,
       'status': status,
+      'registration_source': registrationSource,
+      'signed_by': signedBy,
       'age': age,
       'birthday': birthday,
       'verified_at': verifiedAt,
@@ -80,6 +86,8 @@ class Participant {
       medicalInfo: json['medical_info'] as String?,
       note: json['note'] as String?,
       status: json['status'] as String?,
+      registrationSource: json['registration_source'] as String?,
+      signedBy: json['signed_by'] as String?,
       age: _parseNullableInt(json['age']),
       birthday: json['birthday'] as String?,
       verifiedAt: _parseNullableInt(json['verified_at']),
@@ -104,6 +112,8 @@ class Participant {
       medicalInfo: row['medical_info'] as String?,
       note: row['note'] as String?,
       status: row['status'] as String?,
+      registrationSource: row['registration_source'] as String?,
+      signedBy: row['signed_by'] as String?,
       age: row['age'] as int?,
       birthday: row['birthday'] as String?,
       verifiedAt: row['verified_at'] as int?,

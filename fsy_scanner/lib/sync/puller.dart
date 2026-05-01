@@ -126,6 +126,7 @@ class Puller {
       final ageStr = _safeString(row, colMap[SheetColumns.age]);
       final age = ageStr != null ? int.tryParse(ageStr) : null;
       final birthday = _safeString(row, colMap[SheetColumns.birthday]);
+      final rowMap = _buildRowMap(row, colMap);
 
       return Participant(
         id: id,
@@ -139,13 +140,15 @@ class Puller {
         medicalInfo: _safeString(row, colMap[SheetColumns.medicalInfo]),
         note: _safeString(row, colMap[SheetColumns.note]),
         status: _safeString(row, colMap[SheetColumns.status]),
+        registrationSource: _safeString(row, colMap[SheetColumns.registered]),
+        signedBy: _safeString(row, colMap[SheetColumns.signedBy]),
         age: age,
         birthday: birthday,
         verifiedAt: verifiedAt,
         printedAt: printedAt,
         registeredBy: _safeString(row, colMap[SheetColumns.deviceId]),
         sheetsRow: sheetsRow,
-        rawJson: jsonEncode(row.map((e) => e?.toString() ?? '').toList()),
+        rawJson: jsonEncode(rowMap),
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       );
     } catch (e) {
@@ -173,5 +176,17 @@ class Puller {
       );
       return null;
     }
+  }
+
+  static Map<String, String> _buildRowMap(
+    List<dynamic> row,
+    Map<String, int> colMap,
+  ) {
+    final rowMap = <String, String>{};
+    for (final entry in colMap.entries) {
+      final value = _safeString(row, entry.value);
+      rowMap[entry.key] = value ?? '';
+    }
+    return rowMap;
   }
 }

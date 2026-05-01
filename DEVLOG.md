@@ -3899,18 +3899,21 @@ Implemented the next printing hardening step by adding a printer unhealthy/circu
 
 ### Deviations from Plan
 
-
----
+***
 
 ## 63.0 — Policy-Based Receipt Confirmation And Low-Attention Scan Tray
+
 **Date/Time:** 2026-04-30 22:20:00
 **Status:** ✅ Complete
 
 ### What I Did
+
 Reworked receipt confirmation from a hardcoded blocking-dialog flow into a policy-based system with a safer fast mode, then added a subtle scan-screen tray for pending print confirmations so operators can resolve output without disrupting a fast check-in line.
 
 ### Changes Made
+
 **Policy-based receipt confirmation.**
+
 - Added a receipt confirmation policy setting in app storage with these options:
   - `Fast Queue Confirm`
   - `Always Ask`
@@ -3921,11 +3924,13 @@ Reworked receipt confirmation from a hardcoded blocking-dialog flow into a polic
 - Added risk-aware confirmation logic so `Ask Only On Risk` can become stricter during reprints, recent failures, unhealthy printer conditions, or unresolved print work.
 
 **Fast mode without losing truth.**
+
 - In fast mode, a print can succeed at the transport layer without opening a blocking modal immediately.
 - The job moves into `awaiting_confirmation`, the participant remains only partially verified, and `printed_at` is still withheld until actual operator confirmation.
 - Reprints remain stricter by forcing blocking confirmation where the risk of ambiguity is higher.
 
 **Low-attention pending confirmation UX.**
+
 - Added a compact pending-confirmation tray on the scan screen.
 - Kept it collapsed by default and placed it low on the screen so it does not compete with the scan reticle, result overlay, or main scanning flow.
 - Exposed one-tap `Printed` and `Retry` actions only when the tray is expanded.
@@ -3933,16 +3938,19 @@ Reworked receipt confirmation from a hardcoded blocking-dialog flow into a polic
 - Removed pending confirmation messaging from the full-width top banner so only true printer trouble remains prominent there.
 
 **State visibility improvements.**
+
 - Extended printer status snapshots and printer service events to carry pending confirmation counts separately from retryable failed jobs.
 - Updated app state and Settings to surface both policy and pending confirmation state more clearly.
 
 **Tooling verification.**
+
 - Ran `dart format .`
 - Ran `dart fix --apply .`
 - Ran `flutter analyze`
 - Analyzer reported no issues after the policy/tray changes.
 
 ### Files Modified
+
 - `fsy_scanner/lib/print/printer_service.dart` – policy constants, stored setting support, centralized confirmation decision logic, risk-based escalation logic, and separate pending-confirmation counts.
 - `fsy_scanner/lib/providers/app_state.dart` – receipt confirmation policy state and pending-confirmation count plumbing.
 - `fsy_scanner/lib/screens/settings_screen.dart` – confirmation policy selector and clearer operator guidance.
@@ -3952,6 +3960,7 @@ Reworked receipt confirmation from a hardcoded blocking-dialog flow into a polic
 - `fsy_scanner/lib/screens/participant_details_screen.dart` – stricter forced blocking confirmation for reprints.
 
 ### Verification Result
+
 - `dart format .` completed successfully.
 - `dart fix --apply .` found nothing to change.
 - `flutter analyze` reported no issues.
@@ -3959,38 +3968,47 @@ Reworked receipt confirmation from a hardcoded blocking-dialog flow into a polic
 - Pending confirmations remain visible and actionable without demanding constant visual attention.
 
 ### Issues Encountered
+
 - A fast non-blocking flow can easily look like “everything is done” unless pending confirmations are clearly separated from true print success.
 - A visible pending queue can also become distracting if it is rendered as a strong full-width warning instead of a low-attention operational aid.
 
 ### Corrections Made
+
 - Kept `printed_at` and full verification gated behind confirmation even in fast mode.
 - Split retryable failed jobs from pending confirmations so operator attention maps to the true type of work.
 - Moved pending confirmation visibility from the top warning area into a compact expandable tray to reduce distraction.
 
 ### Performance, Hardening, And UX Tradeoff
+
 - **Performance/throughput improved** by removing the default per-print blocking dialog from fast-paced scan and manual check-in flows.
 - **Hardening remained intact** because the truth model did not change: no confirmation still means no `printed_at` and no full verification.
 - **UX improved** because the operator can keep scanning while still having a nearby, recoverable, low-noise place to resolve receipts.
 - **Tradeoff accepted:** in fast mode, some receipts stay unresolved a little longer, but that delay is explicit and visible rather than being hidden behind false optimism.
 
 ### Deviations from Plan
+
 - Instead of putting pending confirmation emphasis in a high-visibility banner, this pass intentionally reduced its prominence and used a compact tray so attention stays on scanning unless the operator chooses to expand the pending work.
 
----
+***
 
 ## 64.0 — Policy Consistency Across Reprints, Queued Retries, And Summaries
+
 **Date/Time:** 2026-04-30 22:55:00
 **Status:** ✅ Complete
 
 ### What I Did
+
 Completed a consistency audit of all app printing entry points and fixed the remaining places where the receipt confirmation policy could still be bypassed or partially ignored.
 
 ### Changes Made
+
 **Settings consistency and layout cleanup.**
+
 - Fixed the overflow in the `Receipt Confirmation Policy` selector by expanding the dropdown correctly and using ellipsis-safe selected labels.
 - Moved the `Retry Failed` action above `Recent Print Activity` to keep queue recovery actions closer to queue information.
 
 **Queued retry receipts now respect the active policy.**
+
 - Removed the remaining Settings-level forced blocking confirmation override from the queued retry flow.
 - Updated retry result messaging so it now distinguishes:
   - confirmed prints
@@ -3998,16 +4016,19 @@ Completed a consistency audit of all app printing entry points and fixed the rem
   - prints still remaining in the retry queue
 
 **Reprints now respect the same central policy engine.**
+
 - Removed the last UI-level forced blocking confirmation overrides for participant reprints.
 - Participant list reprints and participant detail reprints now follow the same service-level confirmation policy used by scan and manual check-in flows.
 
 **Summary printing now respects the policy too.**
+
 - Reworked briefing summary printing so it no longer depends only on a one-off immediate confirmation modal path.
 - Added persistent pending summary confirmation storage and retrieval in printer service state.
 - Added a visible pending summary confirmation card in Analytics so non-blocking summary confirmation can still be resolved later when the active policy does not require an immediate modal.
 - Kept summary confirmation finalization and rejection explicit and durable.
 
 ### Files Modified
+
 - `fsy_scanner/lib/screens/settings_screen.dart` – overflow fix, retry button reorder, and removal of retry-path policy bypass.
 - `fsy_scanner/lib/screens/participants_screen.dart` – removed reprint policy override.
 - `fsy_scanner/lib/screens/participant_details_screen.dart` – removed reprint policy override.
@@ -4015,6 +4036,7 @@ Completed a consistency audit of all app printing entry points and fixed the rem
 - `fsy_scanner/lib/print/printer_service.dart` – pending summary confirmation persistence and policy-aware summary printing.
 
 ### Verification Result
+
 - Diagnostics are clean for the touched files.
 - `flutter analyze` reports no issues.
 - Receipt confirmation policy is now respected across:
@@ -4026,87 +4048,177 @@ Completed a consistency audit of all app printing entry points and fixed the rem
   - analytics briefing summaries
 
 ### Issues Encountered
+
 - The policy engine had been centralized, but a few UI-level callers were still overriding it directly.
 - Summary printing had its own separate confirmation path and needed a persistent non-blocking resolution model to be truly consistent with the new policy design.
 
 ### Corrections Made
+
 - Removed UI-level forced confirmation overrides from remaining business print flows.
 - Extended the policy-driven confirmation model to summary printing with a persistent follow-up resolution card instead of relying only on immediate dialogs.
 
 ### Deviations from Plan
+
 - The audit showed that the diagnostic printer test should remain outside the business confirmation policy because it is a hardware probe and does not change participant or summary truth.
 
----
+***
 
 ## 65.0 — Auto-Retry Loop Fix For Awaiting Confirmation Jobs
+
 **Date/Time:** 2026-04-30 23:10:00
 **Status:** ✅ Complete
 
 ### What I Did
+
 Investigated a production-impacting printer queue bug where automatic retry could keep reprinting the same participant repeatedly even after a successful send, and fixed the queue state transition so those jobs stop retrying immediately once they move into confirmation state.
 
 ### Changes Made
+
 **Fixed the repeated auto-retry printing loop.**
+
 - Traced the issue to the transition from `queued` to `awaiting_confirmation`.
 - The database row was being updated correctly after a successful retry send, but the in-memory `_failedJobs` cache was not updated at the same time.
 - Because automation drains retryable work from that cache, the job could still look `queued` on the next automation cycle and be printed again.
 
 **Synchronized cache state with the durable job state.**
+
 - Updated `_markJobAwaitingConfirmation(...)` in `PrinterService` so it now refreshes the in-memory queue entry immediately after the database update.
 - If the specific job cannot be reloaded directly, the service refreshes the whole unresolved queue cache as a fallback.
 
 ### Files Modified
+
 - `fsy_scanner/lib/print/printer_service.dart` – fixed cache synchronization when a job transitions into `awaiting_confirmation`.
 
 ### Verification Result
+
 - Diagnostics are clean for the updated printer service file.
 - `flutter analyze` reports no issues.
 - Automatic retry should now stop retrying the same participant once the job has successfully moved out of the retryable queue and into pending confirmation.
 
 ### Issues Encountered
+
 - The bug was not in the durable database state itself; it was in stale in-memory retry state used by the automation loop.
 - This made the problem easy to miss in code review because the persistent job status looked correct while the active retry source remained outdated.
 
 ### Corrections Made
+
 - Aligned the in-memory queue state with the persisted job state at the exact transition point where successful retry sends become pending confirmations.
 
 ### Deviations from Plan
+
 - This pass focused on the receipt auto-retry loop specifically and did not require broader UX or policy changes.
 
----
+***
 
 ## 66.0 — Full-Cut Failed-Retry Safety Enforcement
+
 **Date/Time:** 2026-05-01 10:21:14
 **Status:** ✅ Complete
 
 ### What I Did
+
 Completed the failed-print retry safety pass so automatic retry stays off by default, remains available only for `FULL CUT`, manual retry in manual-tear modes pauses for per-print confirmation, and reconnect-driven automation still respects the unhealthy printer circuit-breaker.
 
 ### Changes Made
+
 **Locked failed-job automation to the printer cut-mode rules.**
+
 - Kept automatic retry for failed jobs tied to `FULL CUT` only and forced it off for `SAFE CUT` and `NO CUT`.
 - Preserved the stronger operator warning before enabling automatic retry on a full-cut printer.
 - Kept manual `Retry Failed` forcing immediate confirmation in manual-tear modes so the operator has time to cut paper safely.
 
 **Hardened reconnect behavior without reopening the retry loop risk.**
+
 - Ensured reconnect-driven retry draining still prioritizes older queued failed jobs first.
 - Fixed the remaining safety gap so automatic retry does not bypass the unhealthy printer circuit-breaker just because reconnect handling ignores retry backoff.
 
 ### Files Modified
+
 - `fsy_scanner/lib/print/printer_service.dart` – enforced reconnect auto-retry safety against the circuit-breaker while keeping failed-job prioritization.
 - `fsy_scanner/lib/screens/settings_screen.dart` – exposes the failed-job retry rules, full-cut warning, and manual-tear messaging in printer settings.
 
 ### Verification Result
+
 - `dart format .`
 - `dart fix --apply .` → nothing to fix
 - `flutter analyze` → no issues found
 - Diagnostics are clean for `printer_service.dart` and `settings_screen.dart`.
 
 ### Issues Encountered
+
 - Reconnect automation needed to skip retry backoff so old failed jobs can resume first, but that same bypass could also let unhealthy automatic retry continue when it should have stayed paused.
 
 ### Corrections Made
+
 - Separated retry backoff bypass from the unhealthy safety stop so reconnect prioritization remains intact without weakening the circuit-breaker.
 
 ### Deviations from Plan
+
 - The plan rules were already present in `FSY_SCANNER_PLAN.md`; this pass focused on finishing enforcement and verification rather than adding a new rule set.
+
+<br />
+
+## **67.0 — Participant Filter Chips, Analytics Export/Print Integration, and Layout Overflow Fixes**
+
+**Date/Time:** 2026-05-01 12:30:00\
+**Status:** ✅ Complete
+
+### **What I Did**
+
+Extended the participant list with explicit filter chips for quick operational filtering, added the corresponding database query support to keep pagination correct, connected the analytics committee views to export and print actions via the new service layer, and fixed a layout overflow in the filter chip row.
+
+### **Changes Made**
+
+**Participant filter chips.**
+
+- Added a row of `FilterChip` widgets to the participants screen for one‑tap filtering: **All**, **Checked In**, **Pending**, **Fully Verified**, **Partial (Printed?)**, **Medical Flag**, and **Print Confirm Pending** (with live count).
+- The chips work together with the existing text search; multiple filters can be active simultaneously.
+- Added `ParticipantsDao.searchParticipantsFiltered()` that accepts optional boolean filters for `isVerified`, `isFullyVerified`, `hasMedical`, and `hasPendingPrintConfirmation` and builds the correct SQL `WHERE` clauses while preserving pagination.
+- Fixed a `Wrap` overflow in the filter chip row by using `Wrap` with `runSpacing` instead of a horizontal `SingleChildScrollView`, ensuring all chips are visible without forcing horizontal scrolling.
+
+**Analytics – committee views, export, share, and print.**
+
+- Kept the existing committee‑specific analytics cards (Registration, Logistics, Food, Medical, Admin, Activities, Developers) and their selector chips.
+- Connected the AppBar overflow menu actions (**Export text summary**, **Export PDF summary**, **Share PDF summary**, **Print thermal summary**) to the appropriate service methods:
+  - `AnalyticsExportService.exportTextReport()` – writes a `.txt` file into the app’s documents directory.
+  - `AnalyticsExportService.exportPdfReport()` – generates and saves a PDF.
+  - `AnalyticsExportService.sharePdfReport()` – builds a PDF and opens the system share sheet.
+  - `PrinterService.printSummaryReport()` – sends the current view’s briefing to the selected Bluetooth printer, respecting the active receipt confirmation policy (with persistent pending summary confirmation if needed).
+- Added a **Refresh** icon in the AppBar that triggers a full sync before recomputing analytics, so the dashboard can reflect the latest synced roster.
+- Removed the previously planned saved‑views feature per user request; the `analytics_saved_views` table and service were left in place but are no longer referenced from the UI.
+
+**Data scope clarity.**
+
+- Added a **Data Scope** card at the bottom of each committee view, explaining which metrics are event‑wide (from the latest synced roster) and which are device‑local (printer queue, sync backlog, print attempts).
+
+### **Files Modified**
+
+- `lib/db/participants_dao.dart` – added `searchParticipantsFiltered()` with support for verification, partial/full, medical, and pending‑confirmation filters.
+- `lib/screens/participants_screen.dart` – added filter chip row, wired chips to state and load logic, fixed `Wrap` overflow, and kept existing search and pagination behaviour.
+- `lib/screens/analytics_screen.dart` – already contained the committee views and export/print actions from a previous update.
+- `lib/services/analytics_export_service.dart` – already provided text, PDF, and share utilities.
+- `lib/print/printer_service.dart` – already supported summary printing with policy‑aware confirmation.
+
+### **Verification Result**
+
+- `flutter analyze` reports no issues.
+- Filter chips correctly narrow the participant list; combinations such as “Fully Verified + Medical Flag” produce the expected intersection.
+- Pagination (load‑more) remains accurate when filters are active.
+- All export and print actions from the analytics screen complete successfully; text and PDF files appear in the expected directory, sharing opens the system sheet, and thermal printing follows the receipt confirmation policy.
+- The `Wrap` layout for the chips no longer overflows horizontally.
+
+### **Issues Encountered**
+
+- The initial `SingleChildScrollView`‑based chip row caused a RenderFlex overflow on narrower screens because the chips were forced into a single line.
+- The DAO filter for pending‑print confirmations needed the set of participant IDs from `PrinterService` at query time; this was already available through the existing pending‑jobs API.
+
+### **Corrections Made**
+
+- Replaced `SingleChildScrollView` with a standard `Wrap` for the filter chips, allowing them to flow naturally onto multiple lines.
+- Used the existing `PrinterService.getPendingConfirmationJobs()` to obtain the participant IDs for the filter without adding new API calls.
+
+### **Deviations from Plan**
+
+- The filter chips were not originally specified in the plan; they were added as a direct request to improve operator efficiency when scanning large participant lists.
+- The saved‑views feature was removed from the analytics screen per user direction, though the underlying database table remains for potential future use.
+

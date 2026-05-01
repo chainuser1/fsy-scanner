@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math' as math;
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../app.dart';
@@ -14,17 +12,17 @@ import '../models/participant.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../services/analytics_export_service.dart';
-import '../services/analytics_saved_views_service.dart';
 import '../sync/sync_engine.dart';
 
 enum _CommitteeView {
-  all,
+  comprehensiveSummary,
   registration,
-  hotel,
-  activity,
+  logistics,
   food,
-  leaders,
-  operations,
+  medical,
+  admin,
+  activities,
+  developers,
 }
 
 class AnalyticsScreen extends StatefulWidget {
@@ -39,16 +37,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<_SyncTaskEntry> _syncTasks = [];
   List<PrinterQueuedJob> _printJobs = [];
   List<PrinterJobAttempt> _printAttempts = [];
-  List<AnalyticsSavedView> _savedViews = [];
   bool _loading = true;
   String? _error;
   int _requestId = 0;
-  _CommitteeView _committeeView = _CommitteeView.all;
-  int? _selectedSavedViewId;
+  _CommitteeView _committeeView = _CommitteeView.comprehensiveSummary;
   int? _recentScanMarker;
   int? _pendingTaskMarker;
   int? _failedPrintMarker;
   PendingSummaryConfirmation? _pendingSummaryConfirmation;
+  int? _lastPulledAt;
+  String _dbVersion = 'Unknown';
+  String _appVersion = 'Unknown';
+  String _appBuildNumber = 'Unknown';
 
   @override
   void initState() {
@@ -59,7 +59,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final appState = Provider.of<AppState>(context);
+    final appState = context.watch<AppState>();
     final latestRecentScan =
         appState.recentScans.isEmpty ? 0 : appState.recentScans.first.timestamp;
     final shouldReload = _recentScanMarker != null &&
@@ -93,23 +93,34 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final syncTasksFuture = db.rawQuery('''
         SELECT id, type, payload, status, attempts, last_error, created_at
         FROM sync_tasks
-        WHERE status IN ('pending', 'in_progress')
+        WHERE status IN ('pending', 'in_progress', 'failed')
         ORDER BY created_at DESC
+        LIMIT 300
       ''');
       final printJobsFuture = PrinterService.getRecentPrintJobs(limit: 500);
       final printAttemptsFuture = PrinterService.getRecentPrintAttempts(
         limit: 1000,
       );
-      final savedViewsFuture = AnalyticsSavedViewsService.listViews();
       final pendingSummaryFuture =
           PrinterService.getPendingSummaryConfirmation();
+      final settingsFuture = db.query(
+        'app_settings',
+        where: 'key IN (?, ?)',
+        whereArgs: ['last_pulled_at', 'db_version'],
+      );
+      final packageInfoFuture = PackageInfo.fromPlatform();
 
       final participants = await participantsFuture;
       final taskRows = await syncTasksFuture;
       final printJobs = await printJobsFuture;
       final printAttempts = await printAttemptsFuture;
-      final savedViews = await savedViewsFuture;
       final pendingSummary = await pendingSummaryFuture;
+      final settingsRows = await settingsFuture;
+      final packageInfo = await packageInfoFuture;
+      final settingsMap = {
+        for (final row in settingsRows)
+          row['key'] as String: row['value'] as String? ?? '',
+      };
 
       participants.sort((a, b) {
         final verifiedCompare = (b.verifiedAt ?? 0).compareTo(
@@ -130,33 +141,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _syncTasks = taskRows.map(_SyncTaskEntry.fromRow).toList();
         _printJobs = printJobs;
         _printAttempts = printAttempts;
-        _savedViews = savedViews;
         _pendingSummaryConfirmation = pendingSummary;
-        final selectedView = _selectedSavedViewId == null
-            ? null
-            : _firstWhereOrNull(
-                savedViews,
-                (view) => view.id == _selectedSavedViewId,
-              );
-        final defaultView = _firstWhereOrNull(
-          savedViews,
-          (view) => view.isDefault,
-        );
-        final effectiveView = selectedView ?? defaultView;
-        if (effectiveView != null) {
-          _selectedSavedViewId = effectiveView.id;
-          _committeeView = _committeeViewFromKey(effectiveView.committeeView);
-        }
+        _lastPulledAt = int.tryParse(settingsMap['last_pulled_at'] ?? '');
+        _dbVersion = settingsMap['db_version']?.trim().isNotEmpty == true
+            ? settingsMap['db_version']!
+            : 'Unknown';
+        _appVersion = packageInfo.version;
+        _appBuildNumber = packageInfo.buildNumber;
         _loading = false;
         _error = null;
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted || requestId != _requestId) {
         return;
       }
       setState(() {
         _loading = false;
-        _error = 'Unable to load analytics: $e';
+        _error = 'Unable to load need-based analytics: $error';
       });
     }
   }
@@ -184,16 +185,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             onSelected: _handleAnalyticsAction,
             itemBuilder: (context) => const [
               PopupMenuItem(
-                value: 'save_view',
-                child: Text('Save current view'),
+                value: 'export_summary',
+                child: Text('Export text summary'),
               ),
               PopupMenuItem(
-                value: 'export_summary',
-                child: Text('Export briefing summary'),
+                value: 'save_pdf_as',
+                child: Text('Save PDF as...'),
+              ),
+              PopupMenuItem(
+                value: 'export_pdf',
+                child: Text('Export PDF summary'),
+              ),
+              PopupMenuItem(
+                value: 'share_pdf',
+                child: Text('Share PDF summary'),
               ),
               PopupMenuItem(
                 value: 'print_summary',
-                child: Text('Print briefing summary'),
+                child: Text('Print thermal summary'),
               ),
             ],
           ),
@@ -208,7 +217,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(12),
-                    children: _buildSectionList(appState, analytics),
+                    children: _buildSelectedView(appState, analytics),
                   ),
                 ),
     );
@@ -228,7 +237,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            ElevatedButton.icon(
+            FilledButton.icon(
               onPressed: _load,
               icon: const Icon(Icons.refresh),
               label: const Text('Try again'),
@@ -239,13 +248,53 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  List<Widget> _buildSelectedView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    final widgets = <Widget>[
+      _buildHeader(appState, analytics),
+      const SizedBox(height: 12),
+      if (_pendingSummaryConfirmation != null) ...[
+        _buildPendingSummaryConfirmationCard(),
+        const SizedBox(height: 12),
+      ],
+    ];
+
+    switch (_committeeView) {
+      case _CommitteeView.comprehensiveSummary:
+        widgets.addAll(_buildComprehensiveSummaryView(appState, analytics));
+        break;
+      case _CommitteeView.registration:
+        widgets.addAll(_buildRegistrationView(appState, analytics));
+        break;
+      case _CommitteeView.logistics:
+        widgets.addAll(_buildLogisticsView(appState, analytics));
+        break;
+      case _CommitteeView.food:
+        widgets.addAll(_buildFoodView(appState, analytics));
+        break;
+      case _CommitteeView.medical:
+        widgets.addAll(_buildMedicalView(appState, analytics));
+        break;
+      case _CommitteeView.admin:
+        widgets.addAll(_buildAdminView(appState, analytics));
+        break;
+      case _CommitteeView.activities:
+        widgets.addAll(_buildActivitiesView(appState, analytics));
+        break;
+      case _CommitteeView.developers:
+        widgets.addAll(_buildDevelopersView(appState, analytics));
+        break;
+    }
+    return widgets;
+  }
+
   Widget _buildHeader(AppState appState, _AnalyticsSnapshot analytics) {
-    final title = appState.eventName.trim().isEmpty
-        ? 'Current event'
+    final eventTitle = appState.eventName.trim().isEmpty
+        ? 'Current Event'
         : appState.eventName.trim();
-    final subtitle = appState.organizationName.trim().isEmpty
-        ? 'Current event analytics'
-        : appState.organizationName.trim();
+    final organizationTitle = appState.organizationName.trim();
 
     return Card(
       child: Padding(
@@ -254,17 +303,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              eventTitle,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 4),
+            if (organizationTitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                organizationTitle,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+              ),
+            ],
+            const SizedBox(height: 12),
             Text(
-              subtitle,
+              _viewSubtitle(analytics),
               style: Theme.of(
                 context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -274,19 +332,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 _statusChip(
                   label: appState.isOnline ? 'Online' : 'Offline',
                   color: appState.isOnline
-                      ? FSYScannerApp.accentGreen.withValues(alpha: 0.2)
-                      : Colors.red.withValues(alpha: 0.16),
+                      ? FSYScannerApp.accentGreen.withValues(alpha: 0.18)
+                      : Colors.red.withValues(alpha: 0.14),
                   textColor: appState.isOnline
                       ? Colors.green.shade900
                       : Colors.red.shade900,
                 ),
                 _statusChip(
                   label: appState.printerConnected
-                      ? 'Printer connected'
-                      : 'Printer not ready',
+                      ? 'Printer ready'
+                      : 'Printer needs attention',
                   color: appState.printerConnected
-                      ? FSYScannerApp.primaryBlue.withValues(alpha: 0.15)
-                      : FSYScannerApp.accentGold.withValues(alpha: 0.2),
+                      ? FSYScannerApp.primaryBlue.withValues(alpha: 0.14)
+                      : FSYScannerApp.accentGold.withValues(alpha: 0.18),
                   textColor: appState.printerConnected
                       ? FSYScannerApp.primaryBlue
                       : Colors.black87,
@@ -296,8 +354,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ? 'Sync queue clear'
                       : '${analytics.pendingSyncTaskCount} sync tasks pending',
                   color: analytics.pendingSyncTaskCount == 0
-                      ? FSYScannerApp.accentGreen.withValues(alpha: 0.2)
-                      : FSYScannerApp.accentGold.withValues(alpha: 0.2),
+                      ? FSYScannerApp.accentGreen.withValues(alpha: 0.18)
+                      : FSYScannerApp.accentGold.withValues(alpha: 0.18),
                   textColor: analytics.pendingSyncTaskCount == 0
                       ? Colors.green.shade900
                       : Colors.black87,
@@ -305,15 +363,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
-              'Participant, assignment, and demographic analytics reflect the latest synced event roster across devices. Printer queue, print attempts, and sync backlog remain local to this device.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 16),
             const Text(
-              'Committee view',
+              'Select view',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
@@ -334,287 +385,987 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   )
                   .toList(),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Saved views',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final dropdown = DropdownButtonFormField<int?>(
-                  initialValue: _selectedSavedViewId,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                    hintText: 'Choose a saved view',
-                  ),
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      child: Text('Current unsaved view'),
-                    ),
-                    ..._savedViews.map(
-                      (view) => DropdownMenuItem<int?>(
-                        value: view.id,
-                        child: Text(
-                          view.isDefault ? '${view.name} (Default)' : view.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) {
-                      setState(() {
-                        _selectedSavedViewId = null;
-                      });
-                      return;
-                    }
-                    _applySavedViewById(value);
-                  },
-                );
-                final actions = Wrap(
-                  spacing: 4,
-                  children: [
-                    IconButton(
-                      onPressed: _saveCurrentView,
-                      tooltip: 'Save current view',
-                      icon: const Icon(Icons.bookmark_add_outlined),
-                    ),
-                    IconButton(
-                      onPressed: _selectedSavedViewId == null
-                          ? null
-                          : _deleteSelectedView,
-                      tooltip: 'Delete selected view',
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                );
-
-                if (constraints.maxWidth < 520) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [dropdown, const SizedBox(height: 8), actions],
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: dropdown),
-                    const SizedBox(width: 8),
-                    actions,
-                  ],
-                );
-              },
-            ),
           ],
         ),
       ),
     );
   }
 
-  List<Widget> _buildSectionList(
+  List<Widget> _buildComprehensiveSummaryView(
     AppState appState,
     _AnalyticsSnapshot analytics,
   ) {
-    final sections = <Widget>[
-      _buildHeader(appState, analytics),
-      const SizedBox(height: 12),
-      if (_pendingSummaryConfirmation != null) ...[
-        _buildPendingSummaryConfirmationCard(),
-        const SizedBox(height: 12),
-      ],
-      _buildSectionHeader(
-        'People and Attendance',
-        'Prioritize who is on site, how far verification has progressed, and what attendees need next.',
+    final topTshirtSummary = analytics.tshirtRows.isEmpty
+        ? 'No t-shirt sizes are recorded yet.'
+        : '${analytics.tshirtRows.first.trailing} participants need ${analytics.tshirtRows.first.label} shirts, the largest recorded size group.';
+    final topGenderSummary = analytics.genderRows.isEmpty
+        ? 'Gender data is not recorded yet.'
+        : '${analytics.genderRows.first.trailing} participants are in the largest recorded gender group.';
+
+    return [
+      _buildBriefingCard(
+        title: 'Comprehensive Summary',
+        subtitle:
+            "Use this as the leadership handoff: one scrollable report with each committee's headline, operational numbers, and current device status.",
+        children: [
+          _buildSentenceList([
+            'Generated ${DateFormat('dd MMM yyyy h:mm a').format(DateTime.now())}.',
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.',
+            '${analytics.pendingCount} are still not checked in, ${analytics.partiallyVerifiedCount} are still finishing registration, and ${analytics.checkedInMedicalFlagCount} on site have medical flags.',
+            'This device currently shows ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks, and ${analytics.queuedPrintCount} queued prints.',
+          ]),
+        ],
       ),
       const SizedBox(height: 12),
-      _buildLiveAttendanceCard(analytics),
+      _buildProgressCard(
+        title: 'Overall Event Progress',
+        headline:
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived',
+        current: analytics.checkedInCount,
+        total: analytics.totalParticipants,
+        subtitle:
+            '${analytics.fullyVerifiedCount} are fully complete and ${analytics.printedCount} have confirmed print output.',
+      ),
       const SizedBox(height: 12),
-      _buildProgressCard(analytics),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'No-Shows',
+          value: '${analytics.pendingCount}',
+          helper: 'Still not checked in',
+          icon: Icons.person_off_outlined,
+          color: Colors.grey.shade700,
+        ),
+        _MetricCardData(
+          label: 'Food Attention',
+          value: '${analytics.dietAttentionOnSiteCount}',
+          helper: 'Checked-in participants with restriction notes',
+          icon: Icons.no_meals_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Medical Review',
+          value: '${analytics.urgentMedicalOnSiteCount}',
+          helper:
+              '${analytics.checkedInMedicalFlagCount} on site have medical notes',
+          icon: Icons.medical_information_outlined,
+          color: Colors.redAccent,
+        ),
+        _MetricCardData(
+          label: 'Top Scanner',
+          value: '${analytics.topCheckInDeviceCount}',
+          helper: analytics.topCheckInDeviceLabel,
+          icon: Icons.qr_code_scanner_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+      ]),
       const SizedBox(height: 12),
-      _buildSummaryGrid(appState, analytics),
+      _buildSectionSummaryCard(
+        title: 'Registration & Check-In',
+        subtitle: 'Arrival progress, pace, and unresolved check-in work.',
+        lines: [
+          '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '${analytics.approvedCount} are approved in the roster and ${analytics.notApprovedCount} still need admin readiness attention.',
+          '${analytics.recentHourCount} check-ins happened in the last hour and ${analytics.recent15MinuteCount} in the last 15 minutes.',
+          '${analytics.pendingCount} participants still have no QR/check-in recorded.',
+          'Top scanner: ${analytics.topCheckInDeviceLabel} with ${analytics.topCheckInDeviceCount} check-ins.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Logistics',
+        subtitle: 'Materials, transport grouping, and on-site assignment gaps.',
+        lines: [
+          '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
+          '${analytics.checkedInMissingRoomCount} attendees still need a room and ${analytics.checkedInMissingTableCount} still need a table.',
+          topTshirtSummary,
+          '${analytics.pendingCount} no-shows currently affect transport and supply planning.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Food',
+        subtitle: 'Meal count and restriction follow-up.',
+        lines: [
+          '${analytics.checkedInCount} plates are the current on-site serving estimate.',
+          '${analytics.dietAttentionOnSiteCount} checked-in participants are explicitly marked for food attention or have matching restriction notes.',
+          '${analytics.noRestrictionOnSiteCount} checked-in participants currently show no restriction recorded.',
+          '${analytics.foodOnlyOnSiteCount} are food-only, while ${analytics.medicalAndFoodOnSiteCount} have both medical and food attention.',
+          'Meal grouping can use assigned tables when needed.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Medical / Health',
+        subtitle: 'Who needs awareness or follow-up.',
+        lines: [
+          '${analytics.checkedInMedicalFlagCount} checked-in participants have medical attention flags.',
+          '${analytics.urgentMedicalOnSiteCount} appear to need priority review and ${analytics.generalMedicalAwarenessOnSiteCount} are general awareness cases.',
+          '${analytics.medicalNotArrivedCount} participants with medical notes have not arrived yet.',
+          '${analytics.medicalOnlyOnSiteCount} are medical-only and ${analytics.medicalAndFoodOnSiteCount} have both medical and food follow-up.',
+          '${analytics.medicalWithoutLocationCount} medical-flagged attendees are harder to locate because room or table data is missing.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Admin',
+        subtitle: 'Leadership headlines and operational risk.',
+        lines: [
+          '${analytics.fullyVerifiedCount} participants are fully complete.',
+          '${analytics.approvedCount} are approved and ${analytics.notApprovedCount} still need approval or online registration follow-up.',
+          '${analytics.printedCount} have printed receipts and ${analytics.notPrintedCount} checked-in participants are still missing confirmed print output.',
+          '${analytics.pendingSyncTaskCount} pending sync tasks and ${analytics.failedSyncTaskCount} failed tasks affect device confidence.',
+          _formatLastSync(appState.lastSyncedAt),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Operations / Activities',
+        subtitle: 'Grouping, table readiness, and attendance.',
+        lines: [
+          '${analytics.fullyVerifiedCount} participants are fully ready for activities.',
+          '${analytics.completedTableCount} tables are fully ready and ${analytics.activeTableCount} tables have assigned participants.',
+          '${analytics.checkedInMissingTableCount} checked-in participants still need a table assignment.',
+          topGenderSummary,
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Developers',
+        subtitle: 'Software, sync, print, and build health on this device.',
+        lines: [
+          '${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks, and ${analytics.syncErrorSampleCount} tasks with error text are in the local sample.',
+          '${analytics.printFailuresLastHour} print failures happened in the last hour and ${analytics.queuedPrintCount} print jobs are still queued.',
+          'App version $_appVersion ($_appBuildNumber), database version $_dbVersion.',
+          'Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildAttentionCard(
+        title: 'Cross-Committee Attention Needed',
+        items: [
+          _AttentionItem(
+            label: 'Participants blocked from full completion',
+            value:
+                '${analytics.partiallyVerifiedCount} partial, ${analytics.pendingConfirmationCount} waiting for operator confirmation',
+          ),
+          _AttentionItem(
+            label: 'Assignment gaps',
+            value:
+                '${analytics.checkedInMissingRoomCount} missing room, ${analytics.checkedInMissingTableCount} missing table among checked-in participants',
+          ),
+          _AttentionItem(
+            label: 'Device-local backlog',
+            value:
+                '${analytics.queuedPrintCount} queued print jobs, ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks',
+          ),
+          _AttentionItem(
+            label: 'Food and medical review',
+            value:
+                '${analytics.dietAttentionOnSiteCount} food-related attention flags and ${analytics.urgentMedicalOnSiteCount} urgent-looking medical flags are on site',
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Check-In Activity Timeline',
+        subtitle:
+            'Latest hourly check-in pace for leadership and registration.',
+        rows: analytics.hourlyCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Registration Source Summary',
+        subtitle:
+            'Shows how many participants are online-only, printed-only, or have both registration paths recorded.',
+        rows: analytics.registrationSourceRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Approval Status Summary',
+        subtitle:
+            'Useful for leadership and admin follow-up before all participants are fully ready.',
+        rows: analytics.statusRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Stake Attendance Summary',
+        subtitle:
+            'Useful when leadership wants to see where attendee volume is concentrated right now.',
+        rows: analytics.stakeRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Room And Table Readiness',
+        subtitle:
+            'Shows where participants are gathering and how close those groups are to being fully ready.',
+        rows: analytics.locationReadinessRows,
+      ),
+      const SizedBox(height: 12),
+      _buildGapNoteCard(
+        title: 'Current Data Gaps',
+        gaps: [
+          'Late-arrival analytics cannot be exact yet because the roster does not include an expected arrival time field.',
+          'Emergency contact awareness cannot be flagged yet because the current participant model has no emergency contact field.',
+          'Per-device last successful sync time is not stored yet, so developer reporting uses the latest app-wide sync timestamp instead.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildDeviceScopeCard(appState, analytics),
+    ];
+  }
+
+  List<Widget> _buildRegistrationView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return [
+      _buildBriefingCard(
+        title: 'Registration & Check-In',
+        subtitle:
+            'Use arrival language here: who has arrived, how quickly check-ins are moving, which scanner is busiest, and who still has no QR/check-in recorded.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+            '${analytics.recentHourCount} checked in during the last hour, and ${analytics.recent15MinuteCount} arrived in the last 15 minutes.',
+            '${analytics.pendingCount} participants still have no QR scan/check-in recorded.',
+            '${analytics.notApprovedCount} still need approval or online-registration follow-up.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildProgressCard(
+        title: 'Arrival Progress',
+        headline:
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived',
+        current: analytics.checkedInCount,
+        total: analytics.totalParticipants,
+        subtitle:
+            '${analytics.fullyVerifiedCount} are fully complete and ${analytics.partiallyVerifiedCount} are still finishing the process.',
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Arrived',
+          value: '${analytics.checkedInCount}',
+          helper: '${analytics.pendingCount} still not arrived',
+          icon: Icons.how_to_reg_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Last Hour',
+          value: '${analytics.recentHourCount}',
+          helper: '${analytics.recent15MinuteCount} in the last 15 minutes',
+          icon: Icons.schedule_outlined,
+          color: FSYScannerApp.accentGreen,
+        ),
+        _MetricCardData(
+          label: 'Top Scanner',
+          value: '${analytics.topCheckInDeviceCount}',
+          helper: analytics.topCheckInDeviceLabel,
+          icon: Icons.qr_code_scanner_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Still Partial',
+          value: '${analytics.partiallyVerifiedCount}',
+          helper:
+              '${analytics.pendingConfirmationCount} awaiting print confirmation',
+          icon: Icons.receipt_long_outlined,
+          color: Colors.orangeAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Check-Ins Per Hour',
+        subtitle:
+            'Pace over time so the team can see whether arrivals are accelerating or slowing.',
+        rows: analytics.hourlyCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Peak Check-In Times',
+        subtitle: 'The busiest check-in windows from the current data sample.',
+        rows: analytics.peakCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Registration Source',
+        subtitle:
+            'Shows how many participants are online only, printed only, or recorded in both channels.',
+        rows: analytics.registrationSourceRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Signed By',
+        subtitle:
+            'Useful when registration needs to follow up on unsigned forms or no printed copy cases.',
+        rows: analytics.signedByRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Scanner Activity',
+        subtitle:
+            'Which device or scanner has handled the most completed check-ins.',
+        rows: analytics.deviceCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Still Waiting For Full Completion',
+        subtitle:
+            'These participants have arrived but registration is still waiting on final print confirmation or output.',
+        items: analytics.partialParticipantAlerts,
+        emptyMessage:
+            'No checked-in participant is currently waiting for final registration completion.',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants With No QR Scan Yet',
+        subtitle:
+            'These participants still have no recorded check-in and may still be arriving or need follow-up.',
+        items: analytics.noShowAlerts,
+        emptyMessage: 'Every participant currently has a recorded check-in.',
+      ),
+      const SizedBox(height: 12),
+      _buildGapNoteCard(
+        title: 'Current Data Gap',
+        gaps: [
+          "Late-arrival reporting is not exact yet because the roster does not store each participant's expected arrival time.",
+        ],
+      ),
+    ];
+  }
+
+  List<Widget> _buildLogisticsView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return [
+      _buildBriefingCard(
+        title: 'Logistics',
+        subtitle:
+            'Use this for materials, transport grouping, and assignment cleanup. Speak in counts the logistics team can act on immediately.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
+            '${analytics.pendingCount} participants are still absent, which affects unused supplies and transport plans.',
+            '${analytics.missingAssignmentCount} checked-in participants still need room or table follow-up.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Confirmed Headcount',
+          value: '${analytics.checkedInCount}',
+          helper: 'Current on-site count for supplies',
+          icon: Icons.groups_2_outlined,
+          color: FSYScannerApp.accentGreen,
+        ),
+        _MetricCardData(
+          label: 'No-Shows',
+          value: '${analytics.pendingCount}',
+          helper: 'Still not checked in',
+          icon: Icons.person_off_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Missing Room',
+          value: '${analytics.checkedInMissingRoomCount}',
+          helper: 'Attendees who still need lodging placement',
+          icon: Icons.location_off_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Missing Table',
+          value: '${analytics.checkedInMissingTableCount}',
+          helper: 'Attendees who still need activity grouping',
+          icon: Icons.grid_off_outlined,
+          color: Colors.orangeAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'T-Shirt Size Breakdown',
+        subtitle:
+            'Use this to order or stage shirt sizes in the language logistics needs.',
+        rows: analytics.tshirtRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Participants By Stake',
+        subtitle: 'Helpful when transport or movement is grouped by stake.',
+        rows: analytics.stakeRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Participants By Ward',
+        subtitle:
+            'Useful for transport grouping, supplies handoff, and localized follow-up.',
+        rows: analytics.wardRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Gender Breakdown',
+        subtitle:
+            'For gender-specific supply planning when it is operationally relevant.',
+        rows: analytics.genderRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Missing Room Assignment',
+        subtitle:
+            'These attendees are already on site but still need a room assignment for logistics follow-through.',
+        items: analytics.missingRoomAlerts,
+        emptyMessage: 'No checked-in participant is missing a room assignment.',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Missing Table Assignment',
+        subtitle:
+            'These attendees are already on site but still need a table assignment for movement and coordination.',
+        items: analytics.missingTableAlerts,
+        emptyMessage:
+            'No checked-in participant is missing a table assignment.',
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Room Assignments',
+        subtitle:
+            'Shows room concentration so logistics can see where people are being placed.',
+        rows: analytics.roomRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Table Assignments',
+        subtitle:
+            'Useful when logistics also supports table-based group movement or materials distribution.',
+        rows: analytics.tableRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'No-Shows',
+        subtitle:
+            'These participants have not arrived yet and may affect transport loads or unused materials.',
+        items: analytics.noShowAlerts,
+        emptyMessage: 'No no-shows are currently recorded.',
+      ),
+    ];
+  }
+
+  List<Widget> _buildFoodView(AppState appState, _AnalyticsSnapshot analytics) {
+    return [
+      _buildBriefingCard(
+        title: 'Food',
+        subtitle:
+            'Use this for meal counts and restrictions. The wording here aims to help the food team act, not interpret generic charts.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInCount} participants are currently on site and are the best available estimate for immediate plates needed.',
+            '${analytics.dietAttentionOnSiteCount} checked-in participants are marked for food attention.',
+            '${analytics.foodOnlyOnSiteCount} are food-only restrictions and ${analytics.medicalAndFoodOnSiteCount} are shared with the medical team.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Plates To Prepare',
+          value: '${analytics.checkedInCount}',
+          helper: 'Best current count from checked-in participants',
+          icon: Icons.restaurant_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Restrictions',
+          value: '${analytics.dietAttentionOnSiteCount}',
+          helper:
+              '${analytics.foodOnlyOnSiteCount} food-only, ${analytics.medicalAndFoodOnSiteCount} shared with medical',
+          icon: Icons.no_meals_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'No Restrictions',
+          value: '${analytics.noRestrictionOnSiteCount}',
+          helper: 'Checked-in participants with none/nil/no recorded',
+          icon: Icons.check_circle_outline,
+          color: FSYScannerApp.accentGreen,
+        ),
+        _MetricCardData(
+          label: 'Meal Groups',
+          value: '${analytics.activeTableCount}',
+          helper: 'Assigned tables available for group serving',
+          icon: Icons.table_restaurant_outlined,
+          color: Colors.redAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Restriction List',
+        subtitle:
+            'Review these participants first when meals have allergy, restriction, or diet concerns.',
+        items: analytics.foodAttentionAlerts,
+        emptyMessage:
+            'No checked-in participant is currently marked for food attention.',
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Restriction Categories',
+        subtitle:
+            'Counts grouped from the structured medical/food category plus available detail notes.',
+        rows: analytics.foodCategoryRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Meal Groups By Table',
+        subtitle:
+            'Use assigned tables when meal release or seating is organized by group.',
+        rows: analytics.tablePresenceRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Serving Load By Stake',
+        subtitle: 'Helpful when meal flow is coordinated at a group level.',
+        rows: analytics.stakeRows,
+      ),
       const SizedBox(height: 12),
     ];
+  }
 
-    switch (_committeeView) {
-      case _CommitteeView.all:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Committees',
-            'Track readiness by room, table, stake, ward, and committee-facing participant mix.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildGroupProgressCard(analytics),
-          const SizedBox(height: 12),
-          _buildDemographicsCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildTrendCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Use these operational details to resolve printer, sync, and audit issues after reviewing people data.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-          const SizedBox(height: 12),
-          _buildOperationsCommandCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildAuditTrailCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildExceptionsCard(appState, analytics),
-        ]);
-        break;
-      case _CommitteeView.registration:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Movement',
-            'See which attendees and groups are ready to move on after registration and receipt confirmation.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildGroupProgressCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Use technical metrics only after confirming participant progress and readiness.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-          const SizedBox(height: 12),
-          _buildAuditTrailCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildExceptionsCard(appState, analytics),
-        ]);
-        break;
-      case _CommitteeView.hotel:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Movement',
-            'Focus on room readiness, table readiness, and who is already on site.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildGroupProgressCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Technical metrics stay below the people-facing readiness information.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-          const SizedBox(height: 12),
-          _buildExceptionsCard(appState, analytics),
-        ]);
-        break;
-      case _CommitteeView.activity:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Participation Mix',
-            'Focus on tables, attendance mix, and activity-facing readiness.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildDemographicsCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildTrendCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Technical detail remains available, but below the participant-focused view.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-        ]);
-        break;
-      case _CommitteeView.food:
-        sections.addAll([
-          _buildSectionHeader(
-            'Attendance Mix and Coverage',
-            'Focus on who is actually on site and the participant characteristics that affect planning.',
-          ),
-          const SizedBox(height: 12),
-          _buildDemographicsCard(analytics),
-          const SizedBox(height: 12),
-          _buildGroupProgressCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Technical information stays below the attendee and demographic view.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-        ]);
-        break;
-      case _CommitteeView.leaders:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Demographics',
-            'Leadership sees participant movement, group readiness, and attendee mix before device-local technical metrics.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildDemographicsCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Use this section for operational blockers, queue health, and device-local print reliability.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-          const SizedBox(height: 12),
-          _buildOperationsCommandCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildExceptionsCard(appState, analytics),
-        ]);
-        break;
-      case _CommitteeView.operations:
-        sections.addAll([
-          _buildSectionHeader(
-            'Assignments and Event Flow',
-            'Operations still starts with participant movement and readiness before drilling into printer and sync diagnostics.',
-          ),
-          const SizedBox(height: 12),
-          _buildAssignmentReadinessCard(analytics),
-          const SizedBox(height: 12),
-          _buildTimelineCard(analytics),
-          const SizedBox(height: 12),
-          _buildSectionHeader(
-            'Technical and Audit',
-            'Device-local health, printer truth, and sync backlog live here.',
-          ),
-          const SizedBox(height: 12),
-          _buildDataScopeCard(appState),
-          const SizedBox(height: 12),
-          _buildOperationsCommandCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildAuditTrailCard(appState, analytics),
-          const SizedBox(height: 12),
-          _buildExceptionsCard(appState, analytics),
-        ]);
-        break;
-    }
+  List<Widget> _buildMedicalView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return [
+      _buildBriefingCard(
+        title: 'Medical / Health',
+        subtitle:
+            'Use this for health awareness, first-aid readiness, and follow-up on participants who may need extra attention during the event.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInMedicalFlagCount} checked-in participants have medical information recorded.',
+            '${analytics.urgentMedicalOnSiteCount} look like priority review cases and ${analytics.generalMedicalAwarenessOnSiteCount} are general awareness cases.',
+            '${analytics.medicalNotArrivedCount} participants with medical notes have not arrived yet and may need welfare follow-up.',
+            '${analytics.medicalOnlyOnSiteCount} are medical-only cases and ${analytics.medicalAndFoodOnSiteCount} overlap with food follow-up.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Medical Flags',
+          value: '${analytics.totalMedicalFlagCount}',
+          helper: 'Total in roster',
+          icon: Icons.medical_services_outlined,
+          color: Colors.redAccent,
+        ),
+        _MetricCardData(
+          label: 'Need Attention',
+          value: '${analytics.urgentMedicalOnSiteCount}',
+          helper: 'Priority review from stronger detail keywords',
+          icon: Icons.priority_high_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'General Awareness',
+          value: '${analytics.generalMedicalAwarenessOnSiteCount}',
+          helper: 'Medical notes that still need awareness',
+          icon: Icons.visibility_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Not Arrived',
+          value: '${analytics.medicalNotArrivedCount}',
+          helper: 'Medical-flagged participants still absent',
+          icon: Icons.person_search_outlined,
+          color: Colors.orangeAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Urgent-Looking Medical Cases On Site',
+        subtitle:
+            'These participants matched stronger medical detail keywords and should be reviewed first by the health team.',
+        items: analytics.urgentMedicalAlerts,
+        emptyMessage:
+            'No checked-in participant currently matches urgent medical attention signals.',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants With Medical Notes On Site',
+        subtitle:
+            'Use this list for general awareness, follow-up, and local coordination.',
+        items: analytics.medicalOnSiteAlerts,
+        emptyMessage: 'No checked-in participant currently has medical notes.',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants With Medical Notes Not Yet Arrived',
+        subtitle:
+            'These participants may need welfare follow-up if arrival is delayed.',
+        items: analytics.medicalNotArrivedAlerts,
+        emptyMessage:
+            'Every participant with medical notes has already arrived.',
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Medical Categories',
+        subtitle:
+            'A practical grouping using the structured medical category and the available note detail.',
+        rows: analytics.medicalCategoryRows,
+      ),
+      const SizedBox(height: 12),
+      _buildGapNoteCard(
+        title: 'Current Data Gap',
+        gaps: [
+          'Emergency contact awareness cannot be flagged yet because the participant data model does not include emergency contact details.',
+        ],
+      ),
+    ];
+  }
 
-    return sections;
+  List<Widget> _buildAdminView(
+      AppState appState, _AnalyticsSnapshot analytics) {
+    return [
+      _buildBriefingCard(
+        title: 'Admin',
+        subtitle:
+            'Use this for event oversight and leadership reporting. Keep it headline-driven and action-oriented.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.',
+            '${analytics.approvedCount} are approved and ${analytics.notApprovedCount} still need roster follow-up.',
+            '${analytics.exceptionCount} active issues need oversight across registration, logistics, medical, or device operations.',
+            _formatLastSync(appState.lastSyncedAt),
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildProgressCard(
+        title: 'Event Progress',
+        headline:
+            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived',
+        current: analytics.checkedInCount,
+        total: analytics.totalParticipants,
+        subtitle:
+            '${analytics.fullyVerifiedCount} are fully complete, ${analytics.pendingCount} are still absent.',
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Approved',
+          value: '${analytics.approvedCount}',
+          helper: '${analytics.notApprovedCount} still not approved',
+          icon: Icons.verified_outlined,
+          color: FSYScannerApp.accentGreen,
+        ),
+        _MetricCardData(
+          label: 'Sync Queue',
+          value: '${analytics.pendingSyncTaskCount}',
+          helper: '${analytics.failedSyncTaskCount} failed tasks need review',
+          icon: Icons.sync_problem_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Top Scanner',
+          value: '${analytics.topCheckInDeviceCount}',
+          helper: analytics.topCheckInDeviceLabel,
+          icon: Icons.qr_code_scanner_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Open Issues',
+          value: '${analytics.exceptionCount}',
+          helper: 'Cross-committee issues requiring attention',
+          icon: Icons.crisis_alert_outlined,
+          color: Colors.redAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildAttentionCard(
+        title: 'Admin Oversight Priorities',
+        items: [
+          _AttentionItem(
+            label: 'Registration completion gap',
+            value:
+                '${analytics.partiallyVerifiedCount} partial, ${analytics.pendingCount} pending, ${analytics.notApprovedCount} still needing roster follow-up',
+          ),
+          _AttentionItem(
+            label: 'Assignment follow-up',
+            value:
+                '${analytics.checkedInMissingRoomCount} missing room and ${analytics.checkedInMissingTableCount} missing table among attendees on site',
+          ),
+          _AttentionItem(
+            label: 'Health awareness',
+            value:
+                '${analytics.checkedInMedicalFlagCount} medical-flagged attendees already on site',
+          ),
+          _AttentionItem(
+            label: 'Local device risk',
+            value:
+                '${analytics.staleQueuedPrintCount} stale queued print jobs, ${analytics.printFailuresLastHour} print failures in the last hour, ${analytics.failedSyncTaskCount} failed sync tasks',
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Check-In Timeline',
+        subtitle:
+            'Headline timeline of check-in movement for leadership updates.',
+        rows: analytics.hourlyCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Approval Status',
+        subtitle:
+            'Useful when leadership needs a quick view of readiness before arrival and check-in are complete.',
+        rows: analytics.statusRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Registration Source',
+        subtitle:
+            'Shows how many participants are online-only, printed-only, or have both sources recorded.',
+        rows: analytics.registrationSourceRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Attendance By Stake',
+        subtitle:
+            'Useful for seeing which groups have already arrived and how heavily each stake is represented on site.',
+        rows: analytics.stakeRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Attendance By Ward',
+        subtitle:
+            'Helpful for oversight when specific wards need additional follow-up or coordination.',
+        rows: analytics.wardRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Device Activity Summary',
+        subtitle:
+            'Shows which scanners have recorded the most check-ins in the latest data sample.',
+        rows: analytics.deviceCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'No-Shows List',
+        subtitle:
+            'These participants are still absent and may need follow-up before the reporting deadline.',
+        items: analytics.noShowAlerts,
+        emptyMessage: 'No no-shows are currently recorded.',
+      ),
+      const SizedBox(height: 12),
+      _buildDeviceScopeCard(appState, analytics),
+    ];
+  }
+
+  List<Widget> _buildActivitiesView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return [
+      _buildBriefingCard(
+        title: 'Operations / Activities',
+        subtitle:
+            'Use this for tables, grouping, and who is physically present and ready for activities.',
+        children: [
+          _buildSentenceList([
+            '${analytics.checkedInCount} participants are physically present on site.',
+            '${analytics.fullyVerifiedCount} are fully cleared and easiest to move into classes or activities.',
+            '${analytics.checkedInMissingTableCount} checked-in participants still need a table assignment.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Present',
+          value: '${analytics.checkedInCount}',
+          helper: 'Participants physically on site',
+          icon: Icons.how_to_reg_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Activity Ready',
+          value: '${analytics.fullyVerifiedCount}',
+          helper: 'Fully verified participants',
+          icon: Icons.directions_run_outlined,
+          color: FSYScannerApp.accentGreen,
+        ),
+        _MetricCardData(
+          label: 'Tables Ready',
+          value: '${analytics.completedTableCount}',
+          helper: '${analytics.activeTableCount} active tables total',
+          icon: Icons.table_bar_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'No Table',
+          value: '${analytics.checkedInMissingTableCount}',
+          helper: 'Participants needing activity grouping',
+          icon: Icons.grid_off_outlined,
+          color: Colors.orangeAccent,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Table Assignments',
+        subtitle:
+            'Table-by-table summary for games, classes, and release sequencing.',
+        rows: analytics.tablePresenceRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Group / Stake Breakdown',
+        subtitle: 'Useful when forming teams or activity groups by stake.',
+        rows: analytics.stakeRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Gender Mix',
+        subtitle:
+            'Use only when it is operationally relevant for group balancing or space planning.',
+        rows: analytics.genderRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Without Table Assignment',
+        subtitle:
+            'These participants are present but still need table placement for activity grouping.',
+        items: analytics.missingTableAlerts,
+        emptyMessage:
+            'Every checked-in participant currently has a table assignment.',
+      ),
+    ];
+  }
+
+  List<Widget> _buildDevelopersView(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    return [
+      _buildBriefingCard(
+        title: 'Developers',
+        subtitle:
+            'Use this for software, sync, printing, and raw device health. This view stays technical on purpose.',
+        children: [
+          _buildSentenceList([
+            'Participant counts remain event-wide from the latest synced roster, but printer queue and sync backlog in this view are local to this device.',
+            '${analytics.totalPrintAttemptCount} print attempts are available in the current local history sample.',
+            'Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
+          ]),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildMetricGrid([
+        _MetricCardData(
+          label: 'Pending Sync',
+          value: '${analytics.pendingSyncTaskCount}',
+          helper: '${analytics.retryingSyncTaskCount} already retried',
+          icon: Icons.sync_outlined,
+          color: FSYScannerApp.primaryBlue,
+        ),
+        _MetricCardData(
+          label: 'Failed Sync',
+          value: '${analytics.failedSyncTaskCount}',
+          helper: '${analytics.syncErrorSampleCount} tasks have error text',
+          icon: Icons.sync_problem_outlined,
+          color: FSYScannerApp.accentGold,
+        ),
+        _MetricCardData(
+          label: 'Queued Prints',
+          value: '${analytics.queuedPrintCount}',
+          helper:
+              '${analytics.staleQueuedPrintCount} stale, ${analytics.pendingConfirmationCount} awaiting confirmation',
+          icon: Icons.local_printshop_outlined,
+          color: Colors.orangeAccent,
+        ),
+        _MetricCardData(
+          label: 'Roster Records',
+          value: '${analytics.totalParticipants}',
+          helper:
+              '${analytics.uniqueRegisteredDeviceCount} device IDs have recorded check-ins',
+          icon: Icons.storage_outlined,
+          color: FSYScannerApp.accentGreen,
+        ),
+      ]),
+      const SizedBox(height: 12),
+      _buildAttentionCard(
+        title: 'Local Device Diagnostics',
+        items: [
+          _AttentionItem(
+            label: 'App build',
+            value:
+                'Version $_appVersion ($_appBuildNumber), database version $_dbVersion',
+          ),
+          _AttentionItem(
+            label: 'API and roster refresh',
+            value:
+                '${_formatLastSync(appState.lastSyncedAt)} Last roster pull ${_formatOptionalTimestamp(_lastPulledAt)}.',
+          ),
+          _AttentionItem(
+            label: 'Printer state',
+            value: appState.printerStatusMessage,
+          ),
+          _AttentionItem(
+            label: 'Oldest queued print age',
+            value: analytics.oldestQueuedPrintAgeMinutes == 0
+                ? 'No queued print jobs'
+                : '${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)} minutes',
+          ),
+          _AttentionItem(
+            label: 'Average attempt duration',
+            value:
+                '${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)} seconds',
+          ),
+          _AttentionItem(
+            label: 'Recent sync health',
+            value:
+                '${analytics.pendingSyncTaskCount} pending tasks, ${analytics.failedSyncTaskCount} failed tasks, ${analytics.syncErrorSampleCount} tasks with last_error text',
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Device IDs And Check-In Counts',
+        subtitle:
+            'Shows which scanner IDs have been associated with completed check-ins.',
+        rows: analytics.deviceCheckInRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Pending Sync Tasks By Type',
+        subtitle: 'Shows which local writes are waiting to leave the device.',
+        rows: analytics.syncTypeRows,
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Recent Print Failure Reasons',
+        subtitle:
+            'Grouped from recent failed print attempts to make recurring hardware or transport issues easier to spot.',
+        rows: analytics.printFailureReasonRows,
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Recent Sync Or Print Exceptions',
+        subtitle:
+            'Quick local exception sample for technical triage on this device.',
+        items: analytics.technicalExceptionAlerts,
+        emptyMessage:
+            'No recent local exception sample is currently available.',
+      ),
+      const SizedBox(height: 12),
+      _buildGapNoteCard(
+        title: 'Current Data Gap',
+        gaps: [
+          'Per-device last successful sync timestamps are not stored yet, so this view uses the latest app-wide sync time and roster-pull time.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildDeviceScopeCard(appState, analytics),
+    ];
   }
 
   Widget _buildPendingSummaryConfirmationCard() {
@@ -631,11 +1382,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           children: [
             const Text(
               'Pending Summary Confirmation',
-              style: TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
-              'The summary "${pending.title}" was sent to the printer at ${DateFormat('dd MMM, h:mm a').format(DateTime.fromMillisecondsSinceEpoch(pending.requestedAt))}. Confirm it here before treating it as successful.',
+              'The last printed analytics summary "${pending.title}" still needs confirmation before it should be treated as successful.',
             ),
             const SizedBox(height: 10),
             Wrap(
@@ -649,7 +1400,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 OutlinedButton.icon(
                   onPressed: () => _resolvePendingSummaryConfirmation(false),
-                  icon: const Icon(Icons.replay),
+                  icon: const Icon(Icons.cancel_outlined),
                   label: const Text('Not Printed'),
                 ),
               ],
@@ -660,630 +1411,134 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          Text(subtitle, style: TextStyle(color: Colors.grey[700])),
-        ],
-      ),
-    );
-  }
-
-  String _committeeLabel(_CommitteeView view) {
-    switch (view) {
-      case _CommitteeView.all:
-        return 'All';
-      case _CommitteeView.registration:
-        return 'Registration';
-      case _CommitteeView.hotel:
-        return 'Hotel';
-      case _CommitteeView.activity:
-        return 'Activity';
-      case _CommitteeView.food:
-        return 'Food';
-      case _CommitteeView.leaders:
-        return 'Leaders';
-      case _CommitteeView.operations:
-        return 'Operations';
-    }
-  }
-
-  String _committeeViewKey(_CommitteeView view) {
-    return view.name;
-  }
-
-  _CommitteeView _committeeViewFromKey(String key) {
-    return _CommitteeView.values.firstWhere(
-      (view) => view.name == key,
-      orElse: () => _CommitteeView.all,
-    );
-  }
-
-  T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T value) test) {
-    for (final value in values) {
-      if (test(value)) {
-        return value;
-      }
-    }
-    return null;
-  }
-
-  _AnalyticsSnapshot _currentAnalyticsSnapshot() {
-    return _AnalyticsSnapshot.fromData(
-      participants: _participants,
-      syncTasks: _syncTasks,
-      printJobs: _printJobs,
-      printAttempts: _printAttempts,
-    );
-  }
-
-  Future<void> _handleAnalyticsAction(String action) async {
-    switch (action) {
-      case 'save_view':
-        await _saveCurrentView();
-        break;
-      case 'export_summary':
-        await _exportBriefingSummary();
-        break;
-      case 'print_summary':
-        await _printBriefingSummary();
-        break;
-    }
-  }
-
-  Future<void> _refreshEventWideData() async {
-    final appState = context.read<AppState>();
-    final success = await SyncEngine.performFullSync(appState);
-    await _load(showSpinner: false);
-    if (!mounted) {
-      return;
-    }
-    _showMessage(
-      success
-          ? 'Event-wide roster refreshed from the latest synced sheet data.'
-          : 'Used the latest local data. Full event-wide refresh did not complete.',
-    );
-  }
-
-  Future<void> _applySavedViewById(int id) async {
-    final view = _firstWhereOrNull(_savedViews, (entry) => entry.id == id);
-    if (view == null) {
-      return;
-    }
-    setState(() {
-      _selectedSavedViewId = view.id;
-      _committeeView = _committeeViewFromKey(view.committeeView);
-    });
-  }
-
-  Future<void> _saveCurrentView() async {
-    final existing = _selectedSavedViewId == null
-        ? null
-        : _firstWhereOrNull(
-            _savedViews,
-            (view) => view.id == _selectedSavedViewId,
-          );
-    final controller = TextEditingController(
-      text: existing?.name ?? '${_committeeLabel(_committeeView)} View',
-    );
-    var markDefault = existing?.isDefault ?? _savedViews.isEmpty;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
-          title: Text(existing == null ? 'Save view' : 'Update view'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  labelText: 'View name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                value: markDefault,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Set as default view'),
-                onChanged: (value) {
-                  setStateDialog(() {
-                    markDefault = value;
-                  });
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    final name = controller.text.trim();
-    if (name.isEmpty) {
-      _showMessage('Enter a name before saving the view.');
-      return;
-    }
-
-    final saved = await AnalyticsSavedViewsService.saveView(
-      id: existing?.id,
-      name: name,
-      committeeView: _committeeViewKey(_committeeView),
-      isDefault: markDefault,
-    );
-    await _load(showSpinner: false);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _selectedSavedViewId = saved.id;
-    });
-    _showMessage('Saved view "$name".');
-  }
-
-  Future<void> _deleteSelectedView() async {
-    final selected = _selectedSavedViewId == null
-        ? null
-        : _firstWhereOrNull(
-            _savedViews,
-            (view) => view.id == _selectedSavedViewId,
-          );
-    if (selected == null) {
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete saved view?'),
-        content: Text('Remove "${selected.name}" from saved analytics views?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    await AnalyticsSavedViewsService.deleteView(selected.id);
-    setState(() {
-      _selectedSavedViewId = null;
-    });
-    await _load(showSpinner: false);
-    if (!mounted) {
-      return;
-    }
-    _showMessage('Deleted saved view "${selected.name}".');
-  }
-
-  Future<void> _exportBriefingSummary() async {
-    final appState = context.read<AppState>();
-    final analytics = _currentAnalyticsSnapshot();
-    final result = await AnalyticsExportService.exportTextReport(
-      baseName:
-          '${appState.eventName.isEmpty ? 'event' : appState.eventName}_${_committeeViewKey(_committeeView)}_briefing',
-      content: _buildBriefingText(appState, analytics),
-    );
-    if (!mounted) {
-      return;
-    }
-    _showMessage(
-      'Briefing summary exported to ${result.filePath} (${result.byteCount} bytes).',
-    );
-  }
-
-  Future<void> _printBriefingSummary() async {
-    final appState = context.read<AppState>();
-    final analytics = _currentAnalyticsSnapshot();
-    var result = await PrinterService.printSummaryReport(
-      title: _buildBriefingTitle(appState),
-      bodyLines: _buildBriefingLines(appState, analytics),
-    );
-    if (result.requiresOperatorConfirmation && mounted) {
-      result = await _confirmSummaryPrintedOutput();
-    }
-    await _load(showSpinner: false);
-    if (!mounted) {
-      return;
-    }
-    _showMessage(result.message);
-  }
-
-  Future<PrintReceiptResult> _confirmSummaryPrintedOutput() async {
-    final printed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirm Summary Output'),
-        content: const Text(
-          'Did the summary actually come out of the printer?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('No'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Yes, Printed'),
-          ),
-        ],
-      ),
-    );
-
-    if (printed == true) {
-      return PrinterService.confirmSummaryPrintDelivery();
-    }
-    return PrinterService.rejectSummaryPrintDelivery();
-  }
-
-  String _buildBriefingTitle(AppState appState) {
-    final eventTitle = appState.eventName.trim().isEmpty
-        ? 'FSY Event'
-        : appState.eventName.trim();
-    return '$eventTitle ${_committeeLabel(_committeeView)} Briefing';
-  }
-
-  String _buildBriefingText(AppState appState, _AnalyticsSnapshot analytics) {
-    final lines = _buildBriefingLines(appState, analytics);
-    return lines.join('\n');
-  }
-
-  List<String> _buildBriefingLines(
-    AppState appState,
-    _AnalyticsSnapshot analytics,
-  ) {
-    final lines = <String>[
-      _buildBriefingTitle(appState),
-      if (appState.organizationName.trim().isNotEmpty)
-        appState.organizationName.trim(),
-      'Generated: ${DateFormat('dd MMM yyyy h:mm a').format(DateTime.now())}',
-      'View: ${_committeeLabel(_committeeView)}',
-      'Event-wide participant data comes from the latest synced roster.',
-      'Printer queue and sync backlog are local to this device.',
-      '',
-      'Registration/Verification Operations',
-      'Attending now: ${analytics.checkedInCount}/${analytics.totalParticipants}',
-      'Fully verified: ${analytics.fullyVerifiedCount}',
-      'Partially verified: ${analytics.partiallyVerifiedCount}',
-      'Pending: ${analytics.pendingCount}',
-      '',
-      'Current Attendance',
-      'Active tables: ${analytics.activeTableCount}',
-      'Ready tables: ${analytics.completedTableCount}',
-      'Active rooms: ${analytics.activeRoomCount}',
-      'Ready rooms: ${analytics.completedRoomCount}',
-      'Medical flags: ${analytics.checkedInMedicalFlagCount} checked in',
-      '',
-    ];
-
-    switch (_committeeView) {
-      case _CommitteeView.registration:
-        _appendBreakdownSection(
-          lines,
-          'Stakes by attendees on site',
-          analytics.stakeAttendingRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Wards by attendees on site',
-          analytics.wardAttendingRows,
-        );
-        lines.addAll([
-          '',
-          'Local device operations',
-          'Queued print jobs: ${analytics.staleQueuedPrintCount} stale of ${_printJobs.where((job) => job.status == 'queued').length}',
-          'Pending sync tasks: ${analytics.pendingSyncTaskCount}',
-        ]);
-        break;
-      case _CommitteeView.hotel:
-        _appendBreakdownSection(
-          lines,
-          'Rooms with attendees on site',
-          analytics.roomRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Rooms fully assembled',
-          analytics.readyRoomRows,
-        );
-        lines.addAll([
-          '',
-          'Unresolved assignments',
-          'Missing room assignments among checked in: ${analytics.missingRoomAmongCheckedInCount}',
-          'Missing table assignments among checked in: ${analytics.missingTableAmongCheckedInCount}',
-        ]);
-        break;
-      case _CommitteeView.activity:
-        _appendBreakdownSection(
-          lines,
-          'Tables with attendees',
-          analytics.tableRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Tables fully assembled',
-          analytics.readyTableRows,
-        );
-        _appendBreakdownSection(lines, 'Age bands', analytics.ageRows);
-        break;
-      case _CommitteeView.food:
-        _appendBreakdownSection(lines, 'Shirt sizes', analytics.shirtSizeRows);
-        _appendBreakdownSection(
-          lines,
-          'Medical classifications',
-          analytics.medicalCategoryRows,
-        );
-        _appendBreakdownSection(lines, 'Stakes', analytics.stakeAttendingRows);
-        break;
-      case _CommitteeView.leaders:
-        _appendBreakdownSection(lines, 'Stakes', analytics.stakeAttendingRows);
-        _appendBreakdownSection(lines, 'Wards', analytics.wardAttendingRows);
-        _appendAttemptSummary(lines, analytics);
-        break;
-      case _CommitteeView.operations:
-        _appendAttemptSummary(lines, analytics);
-        lines.addAll([
-          '',
-          'Queue health',
-          'Oldest queued print age: ${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)} min',
-          'Pending sync tasks: ${analytics.pendingSyncTaskCount}',
-          'Retrying sync tasks: ${analytics.retryingSyncTaskCount}',
-        ]);
-        break;
-      case _CommitteeView.all:
-        _appendBreakdownSection(
-          lines,
-          'Top stakes',
-          analytics.stakeAttendingRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Top wards',
-          analytics.wardAttendingRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Tables with attendees',
-          analytics.tableRows,
-        );
-        _appendBreakdownSection(
-          lines,
-          'Rooms with attendees',
-          analytics.roomRows,
-        );
-        _appendAttemptSummary(lines, analytics);
-        break;
-    }
-
-    return lines;
-  }
-
-  Future<void> _resolvePendingSummaryConfirmation(bool printed) async {
-    final result = printed
-        ? await PrinterService.confirmSummaryPrintDelivery()
-        : await PrinterService.rejectSummaryPrintDelivery();
-    await _load(showSpinner: false);
-    if (!mounted) {
-      return;
-    }
-    _showMessage(result.message);
-  }
-
-  void _appendBreakdownSection(
-    List<String> lines,
-    String title,
-    List<_BreakdownRow> rows,
-  ) {
-    lines.add(title);
-    if (rows.isEmpty) {
-      lines.add('- No data available');
-      lines.add('');
-      return;
-    }
-    for (final row in rows.take(6)) {
-      lines.add(
-        '- ${row.label}: ${row.checkedIn}/${row.total} on site, ${row.printed} fully verified',
-      );
-    }
-    lines.add('');
-  }
-
-  void _appendAttemptSummary(List<String> lines, _AnalyticsSnapshot analytics) {
-    lines.addAll([
-      'Local printer and sync operations',
-      'Print attempts: ${analytics.totalPrintAttemptCount}',
-      'Print success rate: ${analytics.printSuccessRate.toStringAsFixed(1)}%',
-      'Retry success rate: ${analytics.retrySuccessRate.toStringAsFixed(1)}%',
-      'Last-hour print failures: ${analytics.printFailuresLastHour}',
-      'Average attempt time: ${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)} sec',
-      '',
-    ]);
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Widget _buildSummaryGrid(AppState appState, _AnalyticsSnapshot analytics) {
-    final cards = [
-      _MetricCardData(
-        label: 'Attending now',
-        value: '${analytics.checkedInCount}',
-        helper:
-            '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of roster checked in',
-        icon: Icons.groups_2,
-        color: FSYScannerApp.primaryBlue,
-      ),
-      _MetricCardData(
-        label: 'Fully verified',
-        value: '${analytics.fullyVerifiedCount}',
-        helper:
-            '${analytics.fullVerificationRate.toStringAsFixed(1)}% fully verified',
-        icon: Icons.how_to_reg,
-        color: FSYScannerApp.accentGreen,
-      ),
-      _MetricCardData(
-        label: 'Partial',
-        value: '${analytics.partiallyVerifiedCount}',
-        helper: analytics.partiallyVerifiedCount == 0
-            ? 'No receipt backlog'
-            : 'Verified but awaiting print success',
-        icon: Icons.pending_actions,
-        color: FSYScannerApp.accentGold,
-      ),
-      _MetricCardData(
-        label: 'Pending',
-        value: '${analytics.pendingCount}',
-        helper: analytics.pendingCount == 0
-            ? 'Everyone has started verification'
-            : 'Still waiting to arrive',
-        icon: Icons.hourglass_bottom,
-        color: Colors.grey.shade700,
-      ),
-      _MetricCardData(
-        label: 'Pending confirmations',
-        value: '${analytics.pendingConfirmationCount}',
-        helper: analytics.pendingConfirmationCount == 0
-            ? 'No print confirmations waiting'
-            : 'Operator confirmation still required',
-        icon: Icons.rule_folder_outlined,
-        color: analytics.pendingConfirmationCount == 0
-            ? FSYScannerApp.accentGreen
-            : Colors.deepOrange,
-      ),
-      _MetricCardData(
-        label: 'Print queue',
-        value: '${appState.printerFailedJobCount}',
-        helper:
-            '${analytics.pendingConfirmationCount} pending confirmation • ${analytics.staleQueuedPrintCount} stale • ${appState.printerActiveJobCount} active',
-        icon: Icons.local_printshop_outlined,
-        color: FSYScannerApp.primaryBlue,
-      ),
-      _MetricCardData(
-        label: 'Sync queue',
-        value: '${analytics.pendingSyncTaskCount}',
-        helper: analytics.pendingSyncTaskCount == 0
-            ? 'No sync backlog'
-            : '${analytics.retryingSyncTaskCount} retries in queue',
-        icon: Icons.sync,
-        color: analytics.pendingSyncTaskCount == 0
-            ? FSYScannerApp.accentGreen
-            : FSYScannerApp.accentGold,
-      ),
-      _MetricCardData(
-        label: 'Recent hour',
-        value: '${analytics.recentHourCount}',
-        helper: '${analytics.recent15MinuteCount} in the last 15 min',
-        icon: Icons.timeline,
-        color: FSYScannerApp.primaryBlue,
-      ),
-      _MetricCardData(
-        label: 'Exceptions',
-        value: '${analytics.exceptionCount}',
-        helper:
-            '${analytics.partiallyVerifiedCount} partially verified participants',
-        icon: Icons.warning_amber_rounded,
-        color: analytics.exceptionCount == 0
-            ? FSYScannerApp.primaryBlue
-            : Colors.redAccent,
-      ),
-      _MetricCardData(
-        label: 'Active tables',
-        value: '${analytics.activeTableCount}',
-        helper: '${analytics.completedTableCount} tables fully assembled',
-        icon: Icons.table_restaurant,
-        color: FSYScannerApp.primaryBlue,
-      ),
-      _MetricCardData(
-        label: 'Active rooms',
-        value: '${analytics.activeRoomCount}',
-        helper: '${analytics.completedRoomCount} rooms ready',
-        icon: Icons.meeting_room,
-        color: FSYScannerApp.accentGreen,
-      ),
-      _MetricCardData(
-        label: 'Medical flags',
-        value: '${analytics.medicalFlagCount}',
-        helper:
-            '${analytics.checkedInMedicalFlagCount} checked in • ${analytics.noteCount} notes',
-        icon: Icons.medical_information,
-        color: analytics.medicalFlagCount == 0
-            ? FSYScannerApp.primaryBlue
-            : Colors.redAccent,
-      ),
-    ];
-
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: cards
-          .map((card) => SizedBox(width: 170, child: _buildMetricCard(card)))
-          .toList(),
-    );
-  }
-
-  Widget _buildDataScopeCard(AppState appState) {
-    final syncedLabel = appState.lastSyncedAt == null
-        ? 'No successful sync recorded yet'
-        : 'Last successful sync: ${DateFormat('dd MMM h:mm a').format(appState.lastSyncedAt!)}';
+  Widget _buildBriefingCard({
+    required String title,
+    required String subtitle,
+    required List<Widget> children,
+  }) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Data Scope',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 8),
-            Text(syncedLabel, style: TextStyle(color: Colors.grey[700])),
+            const SizedBox(height: 6),
+            Text(subtitle, style: TextStyle(color: Colors.grey[800])),
             const SizedBox(height: 12),
-            const Text(
-              'Event-wide: attendance, verification, demographics, stake, ward, room, and table analytics use the synced event roster across devices.',
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'This device only: printer queues, print attempts, and sync backlog reflect the current scanner and its selected printer.',
-            ),
+            ...children,
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSentenceList(List<String> lines) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines
+          .map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Icon(Icons.circle, size: 7),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(line)),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildProgressCard({
+    required String title,
+    required String headline,
+    required int current,
+    required int total,
+    required String subtitle,
+  }) {
+    final progress = total == 0 ? 0.0 : current / total;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              headline,
+              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 10,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            const SizedBox(height: 8),
+            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionSummaryCard({
+    required String title,
+    required String subtitle,
+    required List<String> lines,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+            const SizedBox(height: 12),
+            _buildSentenceList(lines),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricGrid(List<_MetricCardData> metrics) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = constraints.maxWidth < 500
+            ? constraints.maxWidth
+            : (constraints.maxWidth - 12) / 2;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: metrics
+              .map(
+                (metric) =>
+                    SizedBox(width: cardWidth, child: _buildMetricCard(metric)),
+              )
+              .toList(),
+        );
+      },
     );
   }
 
@@ -1314,7 +1569,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             const SizedBox(height: 6),
             Text(
               data.helper,
-              maxLines: 2,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: Colors.grey[700]),
             ),
@@ -1324,1165 +1579,87 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildProgressCard(_AnalyticsSnapshot analytics) {
-    final completed = analytics.checkedInCount.toDouble();
-    final remaining = analytics.pendingCount.toDouble();
-
+  Widget _buildAttentionCard({
+    required String title,
+    required List<_AttentionItem> items,
+  }) {
     return Card(
+      color: Colors.orange.withValues(alpha: 0.08),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Registration/Verification Operations',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final summary = Column(
+            const SizedBox(height: 10),
+            ...items.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${analytics.checkedInCount} live attendees',
-                      style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
+                    const Padding(
+                      padding: EdgeInsets.only(top: 3),
+                      child: Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color: Colors.deepOrange,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of the roster is now on site',
-                      style: TextStyle(color: Colors.grey[700]),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildProgressRow(
-                      label: 'Checked in / attending',
-                      value: analytics.completionRate / 100,
-                      color: FSYScannerApp.accentGreen,
-                      trailing:
-                          '${analytics.checkedInCount}/${analytics.totalParticipants}',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildProgressRow(
-                      label: 'Fully verified',
-                      value: analytics.fullVerificationRate / 100,
-                      color: FSYScannerApp.primaryBlue,
-                      trailing:
-                          '${analytics.fullyVerifiedCount}/${analytics.totalParticipants}',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildProgressRow(
-                      label: 'Receipt completion after check-in',
-                      value: analytics.printCoverageRate / 100,
-                      color: FSYScannerApp.accentGold,
-                      trailing:
-                          '${analytics.printedCount}/${analytics.checkedInCount}',
-                    ),
-                  ],
-                );
-                final chart = SizedBox(
-                  height: 120,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 34,
-                      sections: [
-                        PieChartSectionData(
-                          value: completed <= 0 ? 0.001 : completed,
-                          color: FSYScannerApp.accentGreen,
-                          title: '',
-                          radius: 18,
-                        ),
-                        PieChartSectionData(
-                          value: remaining <= 0 ? 0.001 : remaining,
-                          color: Colors.grey.shade300,
-                          title: '',
-                          radius: 18,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-
-                if (constraints.maxWidth < 720) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      summary,
-                      const SizedBox(height: 16),
-                      Center(child: SizedBox(width: 180, child: chart)),
-                    ],
-                  );
-                }
-
-                return Row(
-                  children: [
-                    Expanded(flex: 3, child: summary),
-                    const SizedBox(width: 12),
-                    Expanded(flex: 2, child: chart),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLiveAttendanceCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Current Attendance',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'This section prioritizes participants actually on site right now.',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _buildReliabilityStat(
-                  'On site',
-                  '${analytics.checkedInCount}',
-                  '${analytics.liveAttendanceRate.toStringAsFixed(1)}% of roster',
-                  FSYScannerApp.primaryBlue,
-                ),
-                _buildReliabilityStat(
-                  'Partial',
-                  '${analytics.partiallyVerifiedCount}',
-                  '${analytics.partiallyVerifiedRate.toStringAsFixed(1)}% of attendees',
-                  FSYScannerApp.accentGold,
-                ),
-                _buildReliabilityStat(
-                  'Ready tables',
-                  '${analytics.completedTableCount}',
-                  '${analytics.activeTableCount} with attendees',
-                  FSYScannerApp.accentGreen,
-                ),
-                _buildReliabilityStat(
-                  'Ready rooms',
-                  '${analytics.completedRoomCount}',
-                  '${analytics.activeRoomCount} with attendees',
-                  FSYScannerApp.accentGreen,
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Top stakes by attendees on site',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            ...analytics.stakeAttendingRows.take(5).map(_buildLiveBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Top wards by attendees on site',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            ...analytics.wardAttendingRows.take(5).map(_buildLiveBreakdownRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressRow({
-    required String label,
-    required double value,
-    required Color color,
-    required String trailing,
-  }) {
-    final safeValue = value.clamp(0.0, 1.0);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                trailing,
-                textAlign: TextAlign.right,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: safeValue,
-            minHeight: 12,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            backgroundColor: Colors.grey.shade200,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOperationsCommandCard(
-    AppState appState,
-    _AnalyticsSnapshot analytics,
-  ) {
-    return Column(
-      children: [
-        _buildOpsHealthCard(appState, analytics),
-        const SizedBox(height: 12),
-        _buildPrinterReliabilityCard(analytics),
-      ],
-    );
-  }
-
-  Widget _buildOpsHealthCard(AppState appState, _AnalyticsSnapshot analytics) {
-    final oldestTaskLabel = analytics.oldestPendingTask == null
-        ? 'No queued sync tasks'
-        : 'Oldest queue item ${_formatRelativeTime(analytics.oldestPendingTask!)}';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Operations Health',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 14),
-            _buildHealthRow(
-              icon: appState.isOnline ? Icons.cloud_done : Icons.cloud_off,
-              label: 'Connectivity',
-              value: appState.isOnline ? 'Online' : 'Offline',
-              detail: appState.syncError ?? 'Sync engine ready',
-              color: appState.isOnline
-                  ? FSYScannerApp.accentGreen
-                  : Colors.redAccent,
-            ),
-            _buildHealthRow(
-              icon: appState.printerConnected
-                  ? Icons.print
-                  : Icons.print_disabled,
-              label: 'Printer',
-              value: appState.printerStateLabel,
-              detail:
-                  '${appState.printerStatusMessage} • ${analytics.pendingConfirmationCount} pending confirmation • ${appState.printerFailedJobCount} queued • ${appState.printerActiveJobCount} active',
-              color: appState.printerStateLabel.contains('Unhealthy')
-                  ? Colors.redAccent
-                  : appState.printerConnected
-                      ? FSYScannerApp.primaryBlue
-                      : appState.printerFailedJobCount > 0
-                          ? Colors.redAccent
-                          : FSYScannerApp.accentGold,
-            ),
-            _buildHealthRow(
-              icon: Icons.sync,
-              label: 'Sync backlog',
-              value: '${analytics.pendingSyncTaskCount} queued',
-              detail:
-                  '$oldestTaskLabel • ${analytics.retryingSyncTaskCount} retrying',
-              color: analytics.pendingSyncTaskCount == 0
-                  ? FSYScannerApp.accentGreen
-                  : FSYScannerApp.accentGold,
-            ),
-            _buildHealthRow(
-              icon: Icons.speed,
-              label: 'Throughput',
-              value: '${analytics.recentHourCount} in the last hour',
-              detail:
-                  '${analytics.recent15MinuteCount} in 15 min • peak ${analytics.peakHourCount} per hour',
-              color: FSYScannerApp.primaryBlue,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHealthRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    required String detail,
-    required Color color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(detail, style: TextStyle(color: Colors.grey[700])),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAssignmentReadinessCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Assignment Readiness',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Useful for registration, hotel, logistics, and activity committees.',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _buildReliabilityStat(
-                  'Missing rooms',
-                  '${analytics.missingRoomAmongCheckedInCount}',
-                  'Checked-in attendees still unassigned',
-                  analytics.missingRoomAmongCheckedInCount == 0
-                      ? FSYScannerApp.accentGreen
-                      : Colors.redAccent,
-                ),
-                _buildReliabilityStat(
-                  'Missing tables',
-                  '${analytics.missingTableAmongCheckedInCount}',
-                  'Checked-in attendees still unassigned',
-                  analytics.missingTableAmongCheckedInCount == 0
-                      ? FSYScannerApp.accentGreen
-                      : Colors.redAccent,
-                ),
-                _buildReliabilityStat(
-                  'Avg verify to print',
-                  analytics.averageVerifyToPrintMinutes == 0
-                      ? '-'
-                      : '${analytics.averageVerifyToPrintMinutes.toStringAsFixed(1)}m',
-                  'Average delay from check-in to print success',
-                  FSYScannerApp.primaryBlue,
-                ),
-                _buildReliabilityStat(
-                  'Oldest print queue',
-                  analytics.oldestQueuedPrintAgeMinutes == 0
-                      ? '0m'
-                      : '${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)}m',
-                  '${analytics.staleQueuedPrintCount} jobs waiting over 15 min',
-                  analytics.staleQueuedPrintCount == 0
-                      ? FSYScannerApp.accentGreen
-                      : Colors.redAccent,
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Tables with most attendees on site',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.tableRows.isEmpty)
-              Text(
-                'No table assignments found.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.tableRows.take(6).map(_buildLiveBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Tables fully assembled',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.readyTableRows.isEmpty)
-              Text(
-                'No tables are fully assembled yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.readyTableRows.take(6).map(_buildReadyBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Rooms with most attendees on site',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.roomRows.isEmpty)
-              Text(
-                'No room assignments found.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.roomRows.take(6).map(_buildLiveBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Rooms fully assembled',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.readyRoomRows.isEmpty)
-              Text(
-                'No rooms are fully assembled yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.readyRoomRows.take(6).map(_buildReadyBreakdownRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExceptionsCard(AppState appState, _AnalyticsSnapshot analytics) {
-    final items = [
-      _ExceptionData(
-        label: 'Partial verification',
-        value: analytics.partiallyVerifiedCount,
-        color: analytics.partiallyVerifiedCount == 0
-            ? FSYScannerApp.accentGreen
-            : Colors.redAccent,
-      ),
-      _ExceptionData(
-        label: 'Missing room assignment',
-        value: analytics.missingRoomCount,
-        color: analytics.missingRoomCount == 0
-            ? FSYScannerApp.primaryBlue
-            : Colors.redAccent,
-      ),
-      _ExceptionData(
-        label: 'Missing table assignment',
-        value: analytics.missingTableCount,
-        color: analytics.missingTableCount == 0
-            ? FSYScannerApp.primaryBlue
-            : Colors.redAccent,
-      ),
-      _ExceptionData(
-        label: 'Retrying sync tasks',
-        value: analytics.retryingSyncTaskCount,
-        color: analytics.retryingSyncTaskCount == 0
-            ? FSYScannerApp.accentGreen
-            : FSYScannerApp.accentGold,
-      ),
-      _ExceptionData(
-        label: 'Printer failed jobs',
-        value: appState.printerFailedJobCount,
-        color: appState.printerFailedJobCount == 0
-            ? FSYScannerApp.accentGreen
-            : Colors.redAccent,
-      ),
-      _ExceptionData(
-        label: 'Medical flags',
-        value: analytics.medicalFlagCount,
-        color: analytics.medicalFlagCount == 0
-            ? FSYScannerApp.primaryBlue
-            : Colors.redAccent,
-      ),
-    ];
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Exceptions And Risks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: items
-                  .map(
-                    (item) => Container(
-                      width: 170,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: item.color.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${item.value}',
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                              color: item.color,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.label,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGroupProgressCard(_AnalyticsSnapshot analytics) {
-    return Column(
-      children: [
-        _buildStakeCard(analytics),
-        const SizedBox(height: 12),
-        _buildOperationalMixCard(analytics),
-      ],
-    );
-  }
-
-  Widget _buildPrinterReliabilityCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Printer Reliability',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Immutable attempt history from the print ledger',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _buildReliabilityStat(
-                  'Attempts',
-                  '${analytics.totalPrintAttemptCount}',
-                  '${analytics.printSuccessRate.toStringAsFixed(1)}% success',
-                  FSYScannerApp.primaryBlue,
-                ),
-                _buildReliabilityStat(
-                  'Failures',
-                  '${analytics.failedPrintAttemptCount}',
-                  '${analytics.cancelledPrintAttemptCount} cancelled',
-                  analytics.failedPrintAttemptCount == 0
-                      ? FSYScannerApp.accentGreen
-                      : Colors.redAccent,
-                ),
-                _buildReliabilityStat(
-                  'Retries',
-                  '${analytics.retryAttemptCount}',
-                  '${analytics.retrySuccessRate.toStringAsFixed(1)}% retry success',
-                  FSYScannerApp.accentGold,
-                ),
-                _buildReliabilityStat(
-                  'Attempt time',
-                  analytics.averagePrintAttemptSeconds == 0
-                      ? '-'
-                      : '${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)}s',
-                  '${analytics.printAttemptsLastHour} attempts in the last hour',
-                  FSYScannerApp.primaryBlue,
-                ),
-                _buildReliabilityStat(
-                  'Last hour failures',
-                  '${analytics.printFailuresLastHour}',
-                  '${analytics.printSuccessesLastHour} successes in the last hour',
-                  analytics.printFailuresLastHour == 0
-                      ? FSYScannerApp.accentGreen
-                      : Colors.redAccent,
-                ),
-                _buildReliabilityStat(
-                  'Printers seen',
-                  '${analytics.uniquePrinterCount}',
-                  analytics.averageAttemptsPerSuccessfulJob == 0
-                      ? 'No successful jobs yet'
-                      : '${analytics.averageAttemptsPerSuccessfulJob.toStringAsFixed(2)} avg attempts per success',
-                  FSYScannerApp.accentGreen,
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Top failure codes',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.failureCodeRows.isEmpty)
-              Text(
-                'No failed attempts recorded in the ledger.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.failureCodeRows.map(_buildAttemptBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Printer reliability by device',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.printerRows.isEmpty)
-              Text(
-                'No printer addresses recorded yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.printerRows.map(_buildAttemptBreakdownRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimelineCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Event Timeline',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Day-by-day activity from recorded check-in and print timestamps.',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 14),
-            if (analytics.dailyActivityRows.isEmpty)
-              Text(
-                'No dated activity has been recorded yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.dailyActivityRows.map(_buildDailyActivityRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTrendCard(_AnalyticsSnapshot analytics) {
-    if (analytics.activityBuckets.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final maxCount = analytics.activityBuckets.fold<int>(
-      0,
-      (current, bucket) => math.max(current, bucket.count),
-    );
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Check-In Trend',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Hourly check-ins over the last 8 hours',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 220,
-              child: BarChart(
-                BarChartData(
-                  maxY: math.max(4, maxCount).toDouble() * 1.25,
-                  gridData: FlGridData(
-                    drawVerticalLine: false,
-                    horizontalInterval: math
-                        .max(1, (math.max(4, maxCount) / 4).ceil())
-                        .toDouble(),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(),
-                    rightTitles: const AxisTitles(),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 28,
-                        interval: math
-                            .max(1, (math.max(4, maxCount) / 4).ceil())
-                            .toDouble(),
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 28,
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          if (index < 0 ||
-                              index >= analytics.activityBuckets.length) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              DateFormat('ha')
-                                  .format(
-                                    analytics.activityBuckets[index].start,
-                                  )
-                                  .toLowerCase(),
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  barGroups: List.generate(
-                    analytics.activityBuckets.length,
-                    (index) => BarChartGroupData(
-                      x: index,
-                      barRods: [
-                        BarChartRodData(
-                          toY:
-                              analytics.activityBuckets[index].count.toDouble(),
-                          color: FSYScannerApp.accentGold,
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(4),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStakeCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Stake Completion',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Top stakes by participant count and completion',
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 14),
-            ...analytics.topStakeRows.map(_buildBreakdownRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOperationalMixCard(_AnalyticsSnapshot analytics) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Operational Mix',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Stakes with the largest partial verification backlog',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            ...analytics.topStakePartialRows.map(_buildPendingBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Wards with the biggest pending backlog',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            ...analytics.topWardPendingRows.map(_buildPendingBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Rooms with the highest occupancy',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            ...analytics.topRoomRows.map(_buildLiveBreakdownRow),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDemographicsCard(_AnalyticsSnapshot analytics) {
-    final genderSections = analytics.genderRows.isEmpty
-        ? <PieChartSectionData>[
-            PieChartSectionData(
-              value: 1,
-              color: Colors.grey.shade300,
-              title: '',
-              radius: 22,
-            ),
-          ]
-        : analytics.genderRows.asMap().entries.map((entry) {
-            final colors = [
-              FSYScannerApp.primaryBlue,
-              FSYScannerApp.accentGold,
-              FSYScannerApp.accentGreen,
-              Colors.purple,
-            ];
-            return PieChartSectionData(
-              value: math.max(0.001, entry.value.checkedIn.toDouble()),
-              color: colors[entry.key % colors.length],
-              title: '',
-              radius: 22,
-            );
-          }).toList();
-
-    final maxAgeValue = analytics.ageRows.fold<int>(
-      0,
-      (current, row) => math.max(current, row.checkedIn),
-    );
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Attendance Mix',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final genderCard = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Gender',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 180,
-                      child: PieChart(
-                        PieChartData(
-                          sectionsSpace: 2,
-                          centerSpaceRadius: 32,
-                          sections: genderSections,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    ...analytics.genderRows.map(
-                      (row) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: DefaultTextStyle.of(context).style,
                           children: [
-                            Expanded(
-                              child: Text(
-                                row.label,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            TextSpan(
+                              text: '${item.label}: ',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
                             ),
-                            const SizedBox(width: 8),
-                            Text('${row.checkedIn}/${row.total}'),
+                            TextSpan(text: item.value),
                           ],
                         ),
                       ),
                     ),
                   ],
-                );
-                final ageCard = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Age bands',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 220,
-                      child: BarChart(
-                        BarChartData(
-                          maxY: math.max(4, maxAgeValue).toDouble() * 1.25,
-                          gridData: FlGridData(
-                            drawVerticalLine: false,
-                            horizontalInterval: math
-                                .max(1, (math.max(4, maxAgeValue) / 4).ceil())
-                                .toDouble(),
-                          ),
-                          borderData: FlBorderData(show: false),
-                          titlesData: FlTitlesData(
-                            topTitles: const AxisTitles(),
-                            rightTitles: const AxisTitles(),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 28,
-                                interval: math
-                                    .max(
-                                      1,
-                                      (math.max(4, maxAgeValue) / 4).ceil(),
-                                    )
-                                    .toDouble(),
-                              ),
-                            ),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 28,
-                                getTitlesWidget: (value, meta) {
-                                  final index = value.toInt();
-                                  if (index < 0 ||
-                                      index >= analytics.ageRows.length) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 8),
-                                    child: Text(
-                                      analytics.ageRows[index].label,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          barGroups: List.generate(
-                            analytics.ageRows.length,
-                            (index) => BarChartGroupData(
-                              x: index,
-                              barRods: [
-                                BarChartRodData(
-                                  toY: analytics.ageRows[index].checkedIn
-                                      .toDouble(),
-                                  color: FSYScannerApp.primaryBlue,
-                                  width: 22,
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(4),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-
-                if (constraints.maxWidth < 720) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [genderCard, const SizedBox(height: 20), ageCard],
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: genderCard),
-                    const SizedBox(width: 12),
-                    Expanded(child: ageCard),
-                  ],
-                );
-              },
+                ),
+              ),
             ),
-            const SizedBox(height: 18),
-            const Text(
-              'Shirt sizes',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            ...analytics.shirtSizeRows.take(6).map(_buildLiveBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Medical classifications',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.medicalCategoryRows.isEmpty)
-              Text(
-                'No medical information classified in local data.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.medicalCategoryRows.map(_buildLiveBreakdownRow),
-            const SizedBox(height: 18),
-            const Text(
-              'Gender verification progress',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            ...analytics.genderRows.take(6).map(_buildLiveBreakdownRow),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAuditTrailCard(AppState appState, _AnalyticsSnapshot analytics) {
+  Widget _buildBreakdownCard({
+    required String title,
+    required String subtitle,
+    required List<_BreakdownRow> rows,
+  }) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Audit Trail',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
             Text(
-              'Recent check-ins and current sync activity',
-              style: TextStyle(color: Colors.grey[700]),
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Recent check-ins',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.recentCheckIns.isEmpty)
+            const SizedBox(height: 6),
+            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+            const SizedBox(height: 12),
+            if (rows.isEmpty)
               Text(
-                'No recent check-ins recorded in local data.',
+                'No relevant data is available for this view yet.',
                 style: TextStyle(color: Colors.grey[700]),
               )
             else
-              ...analytics.recentCheckIns.map(_buildRecentCheckInTile),
-            const SizedBox(height: 18),
-            const Text(
-              'Sync queue by action',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.pendingSyncTaskCount == 0)
-              Text(
-                'The sync queue is currently clear.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else ...[
-              ...analytics.syncTypeRows.map(
-                (row) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text(row.label)),
-                      Text(
-                        '${row.total}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '${appState.recentScans.length} recent scans kept in memory for undo support',
-                style: TextStyle(color: Colors.grey[700]),
-              ),
-            ],
-            const SizedBox(height: 18),
-            const Text(
-              'Recent print jobs',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.recentPrintJobs.isEmpty)
-              Text(
-                'No print job history recorded yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.recentPrintJobs.map(_buildRecentPrintJobTile),
-            const SizedBox(height: 18),
-            const Text(
-              'Recent print attempts',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (analytics.recentPrintAttempts.isEmpty)
-              Text(
-                'No immutable print attempts recorded yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...analytics.recentPrintAttempts.map(
-                _buildRecentPrintAttemptTile,
-              ),
+              ...rows.take(8).map(_buildBreakdownRow),
           ],
         ),
       ),
@@ -2490,7 +1667,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildBreakdownRow(_BreakdownRow row) {
-    final progress = row.total == 0 ? 0.0 : row.checkedIn / row.total;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -2501,370 +1677,558 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Expanded(
                 child: Text(
                   row.label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-              Text('${row.checkedIn}/${row.total}'),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 10,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                progress >= 1
-                    ? FSYScannerApp.accentGreen
-                    : FSYScannerApp.accentGold,
-              ),
-              backgroundColor: Colors.grey.shade200,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${row.pending} pending',
-            style: TextStyle(color: Colors.grey[700], fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLiveBreakdownRow(_BreakdownRow row) {
-    final attendanceShare = row.total == 0 ? 0.0 : row.checkedIn / row.total;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  '${row.checkedIn}/${row.total} on site',
-                  textAlign: TextAlign.right,
-                  overflow: TextOverflow.ellipsis,
+              Text(
+                row.trailing,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: row.highlightColor,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: attendanceShare,
-              minHeight: 10,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                FSYScannerApp.primaryBlue,
-              ),
-              backgroundColor: Colors.grey.shade200,
-            ),
-          ),
           const SizedBox(height: 4),
-          Text(
-            '${row.printed} fully verified • ${row.partial} awaiting print',
-            style: TextStyle(color: Colors.grey[700], fontSize: 12),
-          ),
+          Text(row.caption, style: TextStyle(color: Colors.grey[700])),
         ],
       ),
     );
   }
 
-  Widget _buildReadyBreakdownRow(_BreakdownRow row) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              row.label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
+  Widget _buildParticipantListCard({
+    required String title,
+    required String subtitle,
+    required List<_ParticipantAlert> items,
+    required String emptyMessage,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              '${row.checkedIn}/${row.total} ready',
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                color: FSYScannerApp.accentGreen,
-              ),
-            ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+            const SizedBox(height: 12),
+            if (items.isEmpty)
+              Text(emptyMessage, style: TextStyle(color: Colors.grey[700]))
+            else
+              ...items.take(8).map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: item.color.withValues(alpha: 0.12),
+                            foregroundColor: item.color,
+                            child: Icon(item.icon, size: 18),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(item.detail),
+                                if (item.trailing != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item.trailing!,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildPendingBreakdownRow(_BreakdownRow row) {
-    final progress = row.total == 0 ? 0.0 : row.pending / row.total;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                  overflow: TextOverflow.ellipsis,
+  Widget _buildGapNoteCard({
+    required String title,
+    required List<String> gaps,
+  }) {
+    return Card(
+      color: Colors.blueGrey.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            ...gaps.map(
+              (gap) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Icon(Icons.info_outline, size: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(gap)),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  '${row.pending} pending',
-                  textAlign: TextAlign.right,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 10,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                FSYScannerApp.accentGold,
-              ),
-              backgroundColor: Colors.grey.shade200,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${row.checkedIn}/${row.total} checked in',
-            style: TextStyle(color: Colors.grey[700], fontSize: 12),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildRecentCheckInTile(Participant participant) {
-    final verifiedAt = participant.verifiedAt;
-    final subtitleParts = <String>[
-      if (_hasValue(participant.stake)) participant.stake!.trim(),
-      if (_hasValue(participant.ward)) participant.ward!.trim(),
-      if (_hasValue(participant.roomNumber))
-        'Room ${participant.roomNumber!.trim()}',
-      if (_hasValue(participant.tableNumber))
-        'Table ${participant.tableNumber!.trim()}',
-      participant.verificationLabel,
-    ];
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: CircleAvatar(
-        radius: 18,
-        backgroundColor: FSYScannerApp.accentGreen.withValues(alpha: 0.14),
-        child: const Icon(Icons.check, color: FSYScannerApp.accentGreen),
-      ),
-      title: Text(participant.fullName),
-      subtitle: Text(
-        subtitleParts.isEmpty ? 'Checked in' : subtitleParts.join(' • '),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Text(
-        verifiedAt == null
-            ? '-'
-            : DateFormat(
-                'h:mm a',
-              ).format(DateTime.fromMillisecondsSinceEpoch(verifiedAt)),
-      ),
-      minVerticalPadding: 8,
-    );
-  }
-
-  Widget _buildRecentPrintJobTile(PrinterQueuedJob job) {
-    final color = switch (job.status) {
-      'success' => FSYScannerApp.accentGreen,
-      'cancelled' => Colors.redAccent,
-      _ => FSYScannerApp.accentGold,
-    };
-    final icon = switch (job.status) {
-      'success' => Icons.check_circle,
-      'cancelled' => Icons.cancel,
-      _ => Icons.schedule,
-    };
-    final when = job.printedAt ?? job.lastAttemptAt ?? job.queuedAt;
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: CircleAvatar(
-        radius: 18,
-        backgroundColor: color.withValues(alpha: 0.14),
-        child: Icon(icon, color: color),
-      ),
-      title: Text(job.participantName),
-      subtitle: Text(
-        '${job.isReprint ? 'Reprint' : 'Initial print'} • ${job.status} • attempts ${job.attemptCount}',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Text(
-        DateFormat('h:mm a').format(DateTime.fromMillisecondsSinceEpoch(when)),
-      ),
-      minVerticalPadding: 8,
-    );
-  }
-
-  Widget _buildRecentPrintAttemptTile(PrinterJobAttempt attempt) {
-    final color = switch (attempt.outcome) {
-      'success' => FSYScannerApp.accentGreen,
-      'cancelled' => Colors.redAccent,
-      _ => FSYScannerApp.accentGold,
-    };
-    final icon = switch (attempt.outcome) {
-      'success' => Icons.check_circle,
-      'cancelled' => Icons.cancel,
-      _ => Icons.error_outline,
-    };
-    final subtitleParts = <String>[
-      if (attempt.isReprint) 'Reprint' else 'Initial print',
-      'Attempt ${attempt.attemptNumber}',
-      if ((attempt.printerAddress ?? '').trim().isNotEmpty)
-        attempt.printerAddress!,
-      if ((attempt.failureCode ?? '').trim().isNotEmpty) attempt.failureCode!,
-    ];
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: CircleAvatar(
-        radius: 18,
-        backgroundColor: color.withValues(alpha: 0.14),
-        child: Icon(icon, color: color),
-      ),
-      title: Text(
-        attempt.participantName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        subtitleParts.join(' • '),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Text(
-        DateFormat(
-          'h:mm a',
-        ).format(DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt)),
-      ),
-      minVerticalPadding: 8,
-    );
-  }
-
-  Widget _buildReliabilityStat(
-    String label,
-    String value,
-    String helper,
-    Color color,
+  Widget _buildDeviceScopeCard(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
   ) {
-    return Container(
-      width: 170,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-              color: color,
+    return Card(
+      color: Colors.blueGrey.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Data Scope For This View',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(helper, style: TextStyle(color: Colors.grey[700])),
-        ],
+            const SizedBox(height: 10),
+            Text(
+              'Event-wide data: participant attendance, verification, wards, stakes, rooms, tables, gender, age, and note-derived welfare groupings use the latest synced roster across devices.',
+              style: TextStyle(color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This device only: printer queue, print attempts, pending summary confirmation, and sync backlog describe only this scanner and its printer.',
+              style: TextStyle(color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                Text(_formatLastSync(appState.lastSyncedAt)),
+                Text('Queued prints: ${analytics.queuedPrintCount}'),
+                Text(
+                    'Pending confirmations: ${analytics.pendingConfirmationCount}'),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildAttemptBreakdownRow(_AttemptBreakdownRow row) {
-    final failureShare = row.total == 0 ? 0.0 : row.failures / row.total;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              Text('${row.failures}/${row.total} failures'),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: failureShare,
-              minHeight: 10,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
-              backgroundColor: Colors.grey.shade200,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${row.successes} success • ${row.cancelled} cancelled',
-            style: TextStyle(color: Colors.grey[700], fontSize: 12),
-          ),
-        ],
-      ),
+  Future<void> _handleAnalyticsAction(String action) async {
+    switch (action) {
+      case 'export_summary':
+        await _exportSelectedViewSummary();
+        break;
+      case 'save_pdf_as':
+        await _saveSelectedViewPdfAs();
+        break;
+      case 'export_pdf':
+        await _exportSelectedViewPdf();
+        break;
+      case 'share_pdf':
+        await _shareSelectedViewPdf();
+        break;
+      case 'print_summary':
+        await _printSelectedViewSummary();
+        break;
+    }
+  }
+
+  Future<void> _refreshEventWideData() async {
+    final appState = context.read<AppState>();
+    final success = await SyncEngine.performFullSync(appState);
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      success
+          ? 'Event-wide roster refreshed from the latest synced sheet data.'
+          : 'Used the latest local data because full refresh did not complete.',
     );
   }
 
-  Widget _buildDailyActivityRow(_DailyActivityRow row) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(row.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 12,
-            runSpacing: 6,
-            children: [
-              Text('Checked in: ${row.checkedIn}'),
-              Text('Fully verified: ${row.fullyVerified}'),
-              Text('Print attempts: ${row.printAttempts}'),
-              Text('Print failures: ${row.printFailures}'),
-            ],
+  Future<void> _exportSelectedViewSummary() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final result = await AnalyticsExportService.exportTextReport(
+      baseName: _reportBaseName(appState),
+      content: _buildBriefingText(appState, analytics),
+    );
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      'Selected view exported to ${result.filePath} (${result.byteCount} bytes).',
+    );
+  }
+
+  Future<void> _exportSelectedViewPdf() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final title = _buildBriefingTitle(appState);
+    final result = await AnalyticsExportService.exportPdfReport(
+      baseName: _reportBaseName(appState),
+      title: title,
+      content: _buildBriefingText(appState, analytics),
+    );
+    if (!mounted) {
+      return;
+    }
+    _showMessage(
+      'Selected view PDF exported to ${result.filePath} (${result.byteCount} bytes).',
+    );
+  }
+
+  Future<void> _saveSelectedViewPdfAs() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final title = _buildBriefingTitle(appState);
+    final result = await AnalyticsExportService.savePdfReportAs(
+      suggestedBaseName: _reportBaseName(appState),
+      title: title,
+      content: _buildBriefingText(appState, analytics),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (result == null) {
+      _showMessage('Save PDF cancelled.');
+      return;
+    }
+    _showMessage(
+      'Selected view PDF saved to ${result.filePath} (${result.byteCount} bytes).',
+    );
+  }
+
+  Future<void> _shareSelectedViewPdf() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    final title = _buildBriefingTitle(appState);
+    await AnalyticsExportService.sharePdfReport(
+      title: title,
+      content: _buildBriefingText(appState, analytics),
+    );
+  }
+
+  Future<void> _printSelectedViewSummary() async {
+    final appState = context.read<AppState>();
+    final analytics = _currentAnalyticsSnapshot();
+    var result = await PrinterService.printSummaryReport(
+      title: _buildBriefingTitle(appState),
+      bodyLines: _buildBriefingLines(appState, analytics),
+    );
+    if (result.requiresOperatorConfirmation && mounted) {
+      result = await _confirmSummaryPrintedOutput();
+    }
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(result.message);
+  }
+
+  Future<PrintReceiptResult> _confirmSummaryPrintedOutput() async {
+    final printed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Summary Output'),
+        content: const Text(
+          'Did the selected analytics summary actually come out of the printer?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Yes, Printed'),
           ),
         ],
       ),
     );
+
+    if (printed == true) {
+      return PrinterService.confirmSummaryPrintDelivery();
+    }
+    return PrinterService.rejectSummaryPrintDelivery();
+  }
+
+  Future<void> _resolvePendingSummaryConfirmation(bool printed) async {
+    final result = printed
+        ? await PrinterService.confirmSummaryPrintDelivery()
+        : await PrinterService.rejectSummaryPrintDelivery();
+    await _load(showSpinner: false);
+    if (!mounted) {
+      return;
+    }
+    _showMessage(result.message);
+  }
+
+  _AnalyticsSnapshot _currentAnalyticsSnapshot() {
+    return _AnalyticsSnapshot.fromData(
+      participants: _participants,
+      syncTasks: _syncTasks,
+      printJobs: _printJobs,
+      printAttempts: _printAttempts,
+    );
+  }
+
+  String _buildBriefingTitle(AppState appState) {
+    final eventTitle = appState.eventName.trim().isEmpty
+        ? 'FSY Event'
+        : appState.eventName.trim();
+    return '$eventTitle ${_committeeLabel(_committeeView)}';
+  }
+
+  String _reportBaseName(AppState appState) {
+    return '${appState.eventName.isEmpty ? 'event' : appState.eventName}_${_committeeViewKey(_committeeView)}_briefing';
+  }
+
+  String _buildBriefingText(AppState appState, _AnalyticsSnapshot analytics) {
+    return _buildBriefingLines(appState, analytics).join('\n');
+  }
+
+  List<String> _buildBriefingLines(
+    AppState appState,
+    _AnalyticsSnapshot analytics,
+  ) {
+    final lines = <String>[
+      _buildBriefingTitle(appState),
+      if (appState.organizationName.trim().isNotEmpty)
+        appState.organizationName.trim(),
+      'Generated: ${DateFormat('dd MMM yyyy h:mm a').format(DateTime.now())}',
+      'View: ${_committeeLabel(_committeeView)}',
+      '',
+    ];
+
+    switch (_committeeView) {
+      case _CommitteeView.comprehensiveSummary:
+        lines.addAll([
+          'Comprehensive summary',
+          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
+          '- Fully complete: ${analytics.fullyVerifiedCount}',
+          '- Still absent: ${analytics.pendingCount}',
+          '- Approved in roster: ${analytics.approvedCount}',
+          '- Still needing roster follow-up: ${analytics.notApprovedCount}',
+          '- Medical flags on site: ${analytics.checkedInMedicalFlagCount}',
+          '- Food restriction review: ${analytics.dietAttentionOnSiteCount}',
+          '- Local pending sync tasks: ${analytics.pendingSyncTaskCount}',
+          '- Local failed sync tasks: ${analytics.failedSyncTaskCount}',
+        ]);
+        _appendBreakdown(
+            lines, 'Check-in timeline', analytics.hourlyCheckInRows);
+        break;
+      case _CommitteeView.registration:
+        lines.addAll([
+          'Registration priorities',
+          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
+          '- Check-ins in the last hour: ${analytics.recentHourCount}',
+          '- Check-ins in the last 15 minutes: ${analytics.recent15MinuteCount}',
+          '- Participants with no QR/check-in yet: ${analytics.pendingCount}',
+          '- Partial check-ins still waiting: ${analytics.partiallyVerifiedCount}',
+          '- Roster follow-up still needed: ${analytics.notApprovedCount}',
+          '- Top scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+        ]);
+        _appendBreakdown(
+            lines, 'Check-ins per hour', analytics.hourlyCheckInRows);
+        break;
+      case _CommitteeView.logistics:
+        lines.addAll([
+          'Logistics priorities',
+          '- Confirmed headcount on site: ${analytics.checkedInCount}',
+          '- No-shows: ${analytics.pendingCount}',
+          '- Checked-in missing room: ${analytics.checkedInMissingRoomCount}',
+          '- Checked-in missing table: ${analytics.checkedInMissingTableCount}',
+        ]);
+        _appendBreakdown(lines, 'T-shirt sizes', analytics.tshirtRows);
+        break;
+      case _CommitteeView.food:
+        lines.addAll([
+          'Food priorities',
+          '- Plates to prepare now: ${analytics.checkedInCount}',
+          '- Restriction review list: ${analytics.dietAttentionOnSiteCount}',
+          '- No restrictions recorded on site: ${analytics.noRestrictionOnSiteCount}',
+          '- Food-only restrictions on site: ${analytics.foodOnlyOnSiteCount}',
+          '- Shared medical and food cases on site: ${analytics.medicalAndFoodOnSiteCount}',
+          '- Table meal groups available: ${analytics.activeTableCount}',
+        ]);
+        _appendBreakdown(
+            lines, 'Food attention categories', analytics.foodCategoryRows);
+        break;
+      case _CommitteeView.medical:
+        lines.addAll([
+          'Medical priorities',
+          '- Medical flags in roster: ${analytics.totalMedicalFlagCount}',
+          '- Need priority review on site: ${analytics.urgentMedicalOnSiteCount}',
+          '- General awareness on site: ${analytics.generalMedicalAwarenessOnSiteCount}',
+          '- Medical-only cases on site: ${analytics.medicalOnlyOnSiteCount}',
+          '- Shared medical and food cases on site: ${analytics.medicalAndFoodOnSiteCount}',
+          '- Medical participants not yet arrived: ${analytics.medicalNotArrivedCount}',
+          '- Medical cases missing location: ${analytics.medicalWithoutLocationCount}',
+        ]);
+        _appendBreakdown(
+            lines, 'Medical categories', analytics.medicalCategoryRows);
+        break;
+      case _CommitteeView.admin:
+        lines.addAll([
+          'Admin priorities',
+          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
+          '- Fully complete: ${analytics.fullyVerifiedCount}',
+          '- Approved in roster: ${analytics.approvedCount}',
+          '- Still needing roster follow-up: ${analytics.notApprovedCount}',
+          '- Open issues: ${analytics.exceptionCount}',
+          '- Printed receipts: ${analytics.printedCount}',
+          '- Local pending sync tasks: ${analytics.pendingSyncTaskCount}',
+          '- Local failed sync tasks: ${analytics.failedSyncTaskCount}',
+          '- ${_formatLastSync(appState.lastSyncedAt)}',
+        ]);
+        _appendBreakdown(lines, 'Attendance by stake', analytics.stakeRows);
+        break;
+      case _CommitteeView.activities:
+        lines.addAll([
+          'Activities priorities',
+          '- Present on site: ${analytics.checkedInCount}',
+          '- Fully ready participants: ${analytics.fullyVerifiedCount}',
+          '- Tables with assignments: ${analytics.activeTableCount}',
+          '- Tables fully ready: ${analytics.completedTableCount}',
+          '- Participants without table assignment: ${analytics.checkedInMissingTableCount}',
+        ]);
+        _appendBreakdown(
+            lines, 'Table assignments', analytics.tablePresenceRows);
+        break;
+      case _CommitteeView.developers:
+        lines.addAll([
+          'Developer priorities',
+          '- Pending sync tasks: ${analytics.pendingSyncTaskCount}',
+          '- Failed sync tasks: ${analytics.failedSyncTaskCount}',
+          '- Queued prints: ${analytics.queuedPrintCount}',
+          '- Print failures in the last hour: ${analytics.printFailuresLastHour}',
+          '- App version: $_appVersion ($_appBuildNumber)',
+          '- Database version: $_dbVersion',
+          '- ${_formatLastSync(appState.lastSyncedAt)}',
+        ]);
+        _appendBreakdown(lines, 'Device IDs and check-in counts',
+            analytics.deviceCheckInRows);
+        break;
+    }
+
+    return lines;
+  }
+
+  void _appendBreakdown(
+    List<String> lines,
+    String title,
+    List<_BreakdownRow> rows,
+  ) {
+    lines.add('');
+    lines.add(title);
+    if (rows.isEmpty) {
+      lines.add('- No data available');
+      return;
+    }
+    for (final row in rows.take(6)) {
+      lines.add('- ${row.label}: ${row.trailing} (${row.caption})');
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _viewSubtitle(_AnalyticsSnapshot analytics) {
+    switch (_committeeView) {
+      case _CommitteeView.comprehensiveSummary:
+        return 'Leadership summary with committee headlines, attendance progress, welfare signals, and local device status in one view.';
+      case _CommitteeView.registration:
+        return '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.';
+      case _CommitteeView.logistics:
+        return '${analytics.checkedInCount} confirmed on site, with ${analytics.pendingCount} no-shows currently affecting logistics planning.';
+      case _CommitteeView.food:
+        return '${analytics.dietAttentionOnSiteCount} checked-in participants currently need restriction review before meals are served.';
+      case _CommitteeView.medical:
+        return '${analytics.checkedInMedicalFlagCount} checked-in participants have medical flags and ${analytics.urgentMedicalOnSiteCount} need priority review.';
+      case _CommitteeView.admin:
+        return '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived, ${analytics.notApprovedCount} still need roster follow-up, and ${analytics.exceptionCount} issues need oversight.';
+      case _CommitteeView.activities:
+        return '${analytics.fullyVerifiedCount} participants are fully activity-ready and ${analytics.checkedInMissingTableCount} still need table placement.';
+      case _CommitteeView.developers:
+        return 'This device currently has ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed tasks, and ${analytics.queuedPrintCount} queued print jobs.';
+    }
+  }
+
+  String _committeeLabel(_CommitteeView view) {
+    switch (view) {
+      case _CommitteeView.comprehensiveSummary:
+        return 'Comprehensive Summary';
+      case _CommitteeView.registration:
+        return 'Registration';
+      case _CommitteeView.logistics:
+        return 'Logistics';
+      case _CommitteeView.food:
+        return 'Food';
+      case _CommitteeView.medical:
+        return 'Medical';
+      case _CommitteeView.admin:
+        return 'Admin';
+      case _CommitteeView.activities:
+        return 'Activities';
+      case _CommitteeView.developers:
+        return 'Developers';
+    }
+  }
+
+  String _committeeViewKey(_CommitteeView view) {
+    return view.name;
+  }
+
+  String _formatLastSync(DateTime? syncedAt) {
+    if (syncedAt == null) {
+      return 'No successful sync has been recorded yet.';
+    }
+    return 'Last successful sync: ${DateFormat('dd MMM h:mm a').format(syncedAt)}.';
+  }
+
+  String _formatOptionalTimestamp(int? timestamp) {
+    if (timestamp == null || timestamp <= 0) {
+      return 'Unknown';
+    }
+    return DateFormat(
+      'dd MMM yyyy h:mm a',
+    ).format(DateTime.fromMillisecondsSinceEpoch(timestamp));
   }
 
   Widget _statusChip({
@@ -2880,177 +2244,167 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
+        style: TextStyle(fontWeight: FontWeight.w700, color: textColor),
       ),
     );
-  }
-
-  String _formatRelativeTime(int timestamp) {
-    final difference = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(timestamp),
-    );
-    if (difference.inMinutes < 1) {
-      return 'was just queued';
-    }
-    if (difference.inHours < 1) {
-      return '${difference.inMinutes} min ago';
-    }
-    if (difference.inDays < 1) {
-      return '${difference.inHours} hr ago';
-    }
-    return '${difference.inDays} day ago';
-  }
-
-  bool _hasValue(String? value) {
-    if (value == null) {
-      return false;
-    }
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return false;
-    }
-    final lower = trimmed.toLowerCase();
-    return lower != 'none' && lower != 'n/a' && lower != 'null';
   }
 }
 
 class _AnalyticsSnapshot {
   final int totalParticipants;
   final int checkedInCount;
-  final int pendingCount;
-  final int partiallyVerifiedCount;
   final int fullyVerifiedCount;
+  final int partiallyVerifiedCount;
+  final int pendingCount;
   final int printedCount;
-  final int checkedInNotPrintedCount;
-  final int medicalFlagCount;
-  final int checkedInMedicalFlagCount;
-  final int noteCount;
-  final int missingRoomCount;
-  final int missingTableCount;
-  final int missingRoomAmongCheckedInCount;
-  final int missingTableAmongCheckedInCount;
+  final int notPrintedCount;
   final int recent15MinuteCount;
   final int recentHourCount;
-  final int peakHourCount;
-  final int pendingSyncTaskCount;
-  final int retryingSyncTaskCount;
-  final int exceptionCount;
-  final int? oldestPendingTask;
-  final double completionRate;
-  final double fullVerificationRate;
-  final double printCoverageRate;
-  final List<_BreakdownRow> topStakeRows;
-  final List<_BreakdownRow> stakeAttendingRows;
-  final List<_BreakdownRow> topStakePartialRows;
-  final List<_BreakdownRow> wardAttendingRows;
-  final List<_BreakdownRow> topWardPendingRows;
-  final List<_BreakdownRow> topRoomRows;
-  final List<_BreakdownRow> tableRows;
-  final List<_BreakdownRow> roomRows;
-  final List<_BreakdownRow> readyTableRows;
-  final List<_BreakdownRow> readyRoomRows;
-  final List<_BreakdownRow> genderRows;
-  final List<_BreakdownRow> ageRows;
-  final List<_BreakdownRow> shirtSizeRows;
-  final List<_BreakdownRow> medicalCategoryRows;
-  final List<_BreakdownRow> syncTypeRows;
-  final List<_ActivityBucket> activityBuckets;
-  final List<_DailyActivityRow> dailyActivityRows;
-  final List<Participant> recentCheckIns;
-  final List<PrinterQueuedJob> recentPrintJobs;
-  final List<PrinterJobAttempt> recentPrintAttempts;
-  final int totalPrintAttemptCount;
-  final int successfulPrintAttemptCount;
-  final int failedPrintAttemptCount;
-  final int cancelledPrintAttemptCount;
-  final int retryAttemptCount;
-  final int retrySuccessCount;
-  final int reprintAttemptCount;
-  final int uniquePrinterCount;
-  final int activeTableCount;
-  final int completedTableCount;
+  final int totalMedicalFlagCount;
+  final int checkedInMedicalFlagCount;
+  final int dietAttentionOnSiteCount;
+  final int noRestrictionOnSiteCount;
+  final int urgentMedicalOnSiteCount;
+  final int generalMedicalAwarenessOnSiteCount;
+  final int medicalNotArrivedCount;
+  final int medicalWithoutLocationCount;
+  final int checkedInMissingRoomCount;
+  final int checkedInMissingTableCount;
+  final int missingAssignmentCount;
   final int activeRoomCount;
   final int completedRoomCount;
-  final int pendingConfirmationCount;
+  final int activeTableCount;
+  final int completedTableCount;
+  final int queuedPrintCount;
   final int staleQueuedPrintCount;
-  final double averageAttemptsPerSuccessfulJob;
-  final double averageVerifyToPrintMinutes;
+  final int pendingConfirmationCount;
+  final int pendingSyncTaskCount;
+  final int failedSyncTaskCount;
+  final int retryingSyncTaskCount;
+  final int approvedCount;
+  final int notApprovedCount;
+  final int foodOnlyOnSiteCount;
+  final int medicalOnlyOnSiteCount;
+  final int medicalAndFoodOnSiteCount;
+  final int exceptionCount;
+  final int totalPrintAttemptCount;
+  final int printFailuresLastHour;
+  final int syncErrorSampleCount;
+  final int uniqueRegisteredDeviceCount;
+  final String topCheckInDeviceLabel;
+  final int topCheckInDeviceCount;
+  final double liveAttendanceRate;
+  final double fullVerificationRate;
+  final double printSuccessRate;
+  final double retrySuccessRate;
   final double oldestQueuedPrintAgeMinutes;
   final double averagePrintAttemptSeconds;
-  final int printAttemptsLastHour;
-  final int printFailuresLastHour;
-  final int printSuccessesLastHour;
-  final List<_AttemptBreakdownRow> failureCodeRows;
-  final List<_AttemptBreakdownRow> printerRows;
+  final List<_BreakdownRow> stakeRows;
+  final List<_BreakdownRow> wardRows;
+  final List<_BreakdownRow> roomRows;
+  final List<_BreakdownRow> tableRows;
+  final List<_BreakdownRow> tablePresenceRows;
+  final List<_BreakdownRow> locationReadinessRows;
+  final List<_BreakdownRow> tshirtRows;
+  final List<_BreakdownRow> deviceCheckInRows;
+  final List<_BreakdownRow> hourlyCheckInRows;
+  final List<_BreakdownRow> peakCheckInRows;
+  final List<_BreakdownRow> ageRows;
+  final List<_BreakdownRow> genderRows;
+  final List<_BreakdownRow> registrationSourceRows;
+  final List<_BreakdownRow> signedByRows;
+  final List<_BreakdownRow> statusRows;
+  final List<_BreakdownRow> medicalCategoryRows;
+  final List<_BreakdownRow> foodCategoryRows;
+  final List<_BreakdownRow> syncTypeRows;
+  final List<_BreakdownRow> printFailureReasonRows;
+  final List<_ParticipantAlert> partialParticipantAlerts;
+  final List<_ParticipantAlert> noShowAlerts;
+  final List<_ParticipantAlert> missingRoomAlerts;
+  final List<_ParticipantAlert> missingTableAlerts;
+  final List<_ParticipantAlert> foodAttentionAlerts;
+  final List<_ParticipantAlert> urgentMedicalAlerts;
+  final List<_ParticipantAlert> medicalOnSiteAlerts;
+  final List<_ParticipantAlert> medicalNotArrivedAlerts;
+  final List<_ParticipantAlert> technicalExceptionAlerts;
 
   const _AnalyticsSnapshot({
     required this.totalParticipants,
     required this.checkedInCount,
-    required this.pendingCount,
-    required this.partiallyVerifiedCount,
     required this.fullyVerifiedCount,
+    required this.partiallyVerifiedCount,
+    required this.pendingCount,
     required this.printedCount,
-    required this.checkedInNotPrintedCount,
-    required this.medicalFlagCount,
-    required this.checkedInMedicalFlagCount,
-    required this.noteCount,
-    required this.missingRoomCount,
-    required this.missingTableCount,
-    required this.missingRoomAmongCheckedInCount,
-    required this.missingTableAmongCheckedInCount,
+    required this.notPrintedCount,
     required this.recent15MinuteCount,
     required this.recentHourCount,
-    required this.peakHourCount,
-    required this.pendingSyncTaskCount,
-    required this.retryingSyncTaskCount,
-    required this.exceptionCount,
-    required this.oldestPendingTask,
-    required this.completionRate,
-    required this.fullVerificationRate,
-    required this.printCoverageRate,
-    required this.topStakeRows,
-    required this.stakeAttendingRows,
-    required this.topStakePartialRows,
-    required this.wardAttendingRows,
-    required this.topWardPendingRows,
-    required this.topRoomRows,
-    required this.tableRows,
-    required this.roomRows,
-    required this.readyTableRows,
-    required this.readyRoomRows,
-    required this.genderRows,
-    required this.ageRows,
-    required this.shirtSizeRows,
-    required this.medicalCategoryRows,
-    required this.syncTypeRows,
-    required this.activityBuckets,
-    required this.dailyActivityRows,
-    required this.recentCheckIns,
-    required this.recentPrintJobs,
-    required this.recentPrintAttempts,
-    required this.totalPrintAttemptCount,
-    required this.successfulPrintAttemptCount,
-    required this.failedPrintAttemptCount,
-    required this.cancelledPrintAttemptCount,
-    required this.retryAttemptCount,
-    required this.retrySuccessCount,
-    required this.reprintAttemptCount,
-    required this.uniquePrinterCount,
-    required this.activeTableCount,
-    required this.completedTableCount,
+    required this.totalMedicalFlagCount,
+    required this.checkedInMedicalFlagCount,
+    required this.dietAttentionOnSiteCount,
+    required this.noRestrictionOnSiteCount,
+    required this.urgentMedicalOnSiteCount,
+    required this.generalMedicalAwarenessOnSiteCount,
+    required this.medicalNotArrivedCount,
+    required this.medicalWithoutLocationCount,
+    required this.checkedInMissingRoomCount,
+    required this.checkedInMissingTableCount,
+    required this.missingAssignmentCount,
     required this.activeRoomCount,
     required this.completedRoomCount,
-    required this.pendingConfirmationCount,
+    required this.activeTableCount,
+    required this.completedTableCount,
+    required this.queuedPrintCount,
     required this.staleQueuedPrintCount,
-    required this.averageAttemptsPerSuccessfulJob,
-    required this.averageVerifyToPrintMinutes,
+    required this.pendingConfirmationCount,
+    required this.pendingSyncTaskCount,
+    required this.failedSyncTaskCount,
+    required this.retryingSyncTaskCount,
+    required this.approvedCount,
+    required this.notApprovedCount,
+    required this.foodOnlyOnSiteCount,
+    required this.medicalOnlyOnSiteCount,
+    required this.medicalAndFoodOnSiteCount,
+    required this.exceptionCount,
+    required this.totalPrintAttemptCount,
+    required this.printFailuresLastHour,
+    required this.syncErrorSampleCount,
+    required this.uniqueRegisteredDeviceCount,
+    required this.topCheckInDeviceLabel,
+    required this.topCheckInDeviceCount,
+    required this.liveAttendanceRate,
+    required this.fullVerificationRate,
+    required this.printSuccessRate,
+    required this.retrySuccessRate,
     required this.oldestQueuedPrintAgeMinutes,
     required this.averagePrintAttemptSeconds,
-    required this.printAttemptsLastHour,
-    required this.printFailuresLastHour,
-    required this.printSuccessesLastHour,
-    required this.failureCodeRows,
-    required this.printerRows,
+    required this.stakeRows,
+    required this.wardRows,
+    required this.roomRows,
+    required this.tableRows,
+    required this.tablePresenceRows,
+    required this.locationReadinessRows,
+    required this.tshirtRows,
+    required this.deviceCheckInRows,
+    required this.hourlyCheckInRows,
+    required this.peakCheckInRows,
+    required this.ageRows,
+    required this.genderRows,
+    required this.registrationSourceRows,
+    required this.signedByRows,
+    required this.statusRows,
+    required this.medicalCategoryRows,
+    required this.foodCategoryRows,
+    required this.syncTypeRows,
+    required this.printFailureReasonRows,
+    required this.partialParticipantAlerts,
+    required this.noShowAlerts,
+    required this.missingRoomAlerts,
+    required this.missingTableAlerts,
+    required this.foodAttentionAlerts,
+    required this.urgentMedicalAlerts,
+    required this.medicalOnSiteAlerts,
+    required this.medicalNotArrivedAlerts,
+    required this.technicalExceptionAlerts,
   });
 
   factory _AnalyticsSnapshot.fromData({
@@ -3059,666 +2413,1029 @@ class _AnalyticsSnapshot {
     required List<PrinterQueuedJob> printJobs,
     required List<PrinterJobAttempt> printAttempts,
   }) {
-    final checkedIn = participants.where((p) => p.verifiedAt != null).toList();
-    final partiallyVerified =
-        checkedIn.where((p) => p.printedAt == null).toList();
-    final fullyVerified = checkedIn.where((p) => p.printedAt != null).toList();
-    final printed = participants.where((p) => p.printedAt != null).length;
-    final pending = participants.length - checkedIn.length;
-    final checkedInNotPrinted = partiallyVerified.length;
-    final medicalFlags =
-        participants.where((p) => _hasText(p.medicalInfo)).length;
-    final checkedInMedicalFlags =
-        checkedIn.where((p) => _hasText(p.medicalInfo)).length;
-    final notes = participants.where((p) => _hasText(p.note)).length;
-    final missingRooms =
-        participants.where((p) => !_hasText(p.roomNumber)).length;
-    final missingTables =
-        participants.where((p) => !_hasText(p.tableNumber)).length;
-    final missingRoomAmongCheckedIn =
-        checkedIn.where((p) => !_hasText(p.roomNumber)).length;
-    final missingTableAmongCheckedIn =
-        checkedIn.where((p) => !_hasText(p.tableNumber)).length;
-
     final now = DateTime.now().millisecondsSinceEpoch;
-    final recent15Minutes = checkedIn
+    final checkedIn = participants.where((p) => p.verifiedAt != null).toList();
+    final fullyVerified = participants.where((p) => p.isFullyVerified).toList();
+    final partiallyVerified =
+        participants.where((p) => p.isPartiallyVerified).toList();
+    final pending = participants.where((p) => p.verifiedAt == null).toList();
+    final printed = participants.where((p) => p.printedAt != null).toList();
+    final recent15MinutesAgo = now - const Duration(minutes: 15).inMilliseconds;
+    final recentHourAgo = now - const Duration(hours: 1).inMilliseconds;
+    final recent15MinuteCount = checkedIn
+        .where((p) => (p.verifiedAt ?? 0) >= recent15MinutesAgo)
+        .length;
+    final recentHourCount =
+        checkedIn.where((p) => (p.verifiedAt ?? 0) >= recentHourAgo).length;
+
+    final medicalParticipants =
+        participants.where(_isMedicalAttentionParticipant).toList();
+    final medicalOnSite =
+        checkedIn.where(_isMedicalAttentionParticipant).toList();
+    final medicalNotArrived =
+        pending.where(_isMedicalAttentionParticipant).toList();
+    final dietAttentionOnSite =
+        checkedIn.where(_isFoodAttentionParticipant).toList();
+    final noRestrictionOnSite =
+        checkedIn.where(_hasNoRecordedRestriction).toList();
+    final urgentMedicalOnSite =
+        checkedIn.where(_isUrgentMedicalParticipant).toList();
+    final generalMedicalAwarenessOnSiteCount =
+        medicalOnSite.length - urgentMedicalOnSite.length;
+    final approvedCount = participants.where(_isApprovedParticipant).length;
+    final notApprovedCount = participants.length - approvedCount;
+    final foodOnlyOnSiteCount = checkedIn
         .where(
-          (p) =>
-              now - (p.verifiedAt ?? 0) <=
-              const Duration(minutes: 15).inMilliseconds,
+          (participant) =>
+              _hasFoodCategory(participant.medicalInfo) &&
+              !_hasMedicalCategory(participant.medicalInfo),
         )
         .length;
-    final recentHour = checkedIn
+    final medicalOnlyOnSiteCount = checkedIn
         .where(
-          (p) =>
-              now - (p.verifiedAt ?? 0) <=
-              const Duration(hours: 1).inMilliseconds,
+          (participant) =>
+              _hasMedicalCategory(participant.medicalInfo) &&
+              !_hasFoodCategory(participant.medicalInfo),
         )
         .length;
-
-    final activityBuckets = _buildActivityBuckets(checkedIn);
-    final dailyActivityRows = _buildDailyActivityRows(
-      participants: participants,
-      printAttempts: printAttempts,
-    );
-    final peakHour = activityBuckets.fold<int>(
-      0,
-      (current, bucket) => math.max(current, bucket.count),
-    );
-
-    final stakeRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.stake, 'Unknown stake'),
-    )..sort((a, b) => b.total.compareTo(a.total));
-    final stakeAttendingRows = [...stakeRows]..sort(_sortByCheckedInThenTotal);
-    final stakePartialRows = [...stakeRows]
-      ..sort((a, b) => b.partial.compareTo(a.partial));
-
-    final wardRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.ward, 'Unknown ward'),
-    )..sort((a, b) => b.pending.compareTo(a.pending));
-    final wardAttendingRows = [...wardRows]..sort(_sortByCheckedInThenTotal);
-
-    final roomRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.roomNumber, 'No room'),
-    )..sort(_sortByCheckedInThenTotal);
-    final activeRoomRows = roomRows
-        .where((row) => row.label != 'No room' && row.checkedIn > 0)
-        .toList();
-    final readyRoomRows = roomRows
+    final medicalAndFoodOnSiteCount = checkedIn
         .where(
-          (row) =>
-              row.label != 'No room' &&
-              row.total > 0 &&
-              row.checkedIn == row.total,
-        )
-        .toList()
-      ..sort(_sortByCheckedInThenTotal);
-
-    final tableRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.tableNumber, 'No table'),
-    )..sort(_sortByCheckedInThenTotal);
-    final activeTableRows = tableRows
-        .where((row) => row.label != 'No table' && row.checkedIn > 0)
-        .toList();
-    final readyTableRows = tableRows
-        .where(
-          (row) =>
-              row.label != 'No table' &&
-              row.total > 0 &&
-              row.checkedIn == row.total,
-        )
-        .toList()
-      ..sort(_sortByCheckedInThenTotal);
-
-    final genderRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.gender, 'Unknown'),
-    )..sort((a, b) => b.total.compareTo(a.total));
-
-    final ageRows = _buildAgeBreakdown(participants);
-    final shirtSizeRows = _buildBreakdown(
-      participants,
-      (participant) => _normalizeLabel(participant.tshirtSize, 'Unknown size'),
-    )..sort((a, b) => b.total.compareTo(a.total));
-    final medicalCategoryRows = _buildMedicalBreakdown(participants);
-    final syncTypeRows = _buildSyncBreakdown(syncTasks);
-    final retryingSyncCount =
-        syncTasks.where((task) => task.attempts > 0).length;
-    final oldestPendingTask = syncTasks.isEmpty
-        ? null
-        : syncTasks.map((task) => task.createdAt).reduce(math.min);
-    final recentCheckIns = [...checkedIn]
-      ..sort((a, b) => (b.verifiedAt ?? 0).compareTo(a.verifiedAt ?? 0));
-    final recentPrintAttempts = [...printAttempts]
-      ..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
-    final successfulAttempts =
-        printAttempts.where((attempt) => attempt.outcome == 'success').length;
-    final failedAttempts =
-        printAttempts.where((attempt) => attempt.outcome == 'failed').length;
-    final cancelledAttempts =
-        printAttempts.where((attempt) => attempt.outcome == 'cancelled').length;
-    final retryAttempts =
-        printAttempts.where((attempt) => attempt.attemptNumber > 1).length;
-    final retrySuccesses = printAttempts
-        .where(
-          (attempt) =>
-              attempt.attemptNumber > 1 && attempt.outcome == 'success',
+          (participant) =>
+              _hasMedicalCategory(participant.medicalInfo) &&
+              _hasFoodCategory(participant.medicalInfo),
         )
         .length;
-    final reprintAttempts =
-        printAttempts.where((attempt) => attempt.isReprint).length;
-    final uniquePrinterCount = printAttempts
-        .map((attempt) => attempt.printerAddress?.trim() ?? '')
-        .where((address) => address.isNotEmpty)
-        .toSet()
+    final medicalWithoutLocationCount = medicalOnSite
+        .where((p) => !_hasText(p.roomNumber) || !_hasText(p.tableNumber))
         .length;
-    final queuedPrintJobs =
+    final checkedInMissingRoom =
+        checkedIn.where((p) => !_hasText(p.roomNumber)).toList();
+    final checkedInMissingTable =
+        checkedIn.where((p) => !_hasText(p.tableNumber)).toList();
+    final missingAssignmentCount = checkedIn
+        .where((p) => !_hasText(p.roomNumber) || !_hasText(p.tableNumber))
+        .length;
+
+    final queuedPrints =
         printJobs.where((job) => job.status == 'queued').toList();
-    final pendingConfirmationCount =
-        printJobs.where((job) => job.status == 'awaiting_confirmation').length;
-    final staleQueuedPrintCount = queuedPrintJobs
+    final pendingConfirmations = printJobs
+        .where((job) => job.status == 'awaiting_confirmation')
+        .toList();
+    final staleQueuedPrintCount = queuedPrints
         .where(
           (job) =>
-              now - job.queuedAt > const Duration(minutes: 15).inMilliseconds,
+              now - job.queuedAt > const Duration(minutes: 10).inMilliseconds,
         )
         .length;
-    final oldestQueuedPrintAgeMinutes = queuedPrintJobs.isEmpty
+    final oldestQueuedPrintAgeMinutes = queuedPrints.isEmpty
         ? 0.0
-        : (now - queuedPrintJobs.map((job) => job.queuedAt).reduce(math.min)) /
-            const Duration(minutes: 1).inMilliseconds;
-    final printedParticipants = participants
-        .where((p) => p.verifiedAt != null && p.printedAt != null)
+        : queuedPrints
+            .map(
+              (job) =>
+                  (now - job.queuedAt) /
+                  const Duration(minutes: 1).inMilliseconds,
+            )
+            .reduce((left, right) => left > right ? left : right);
+
+    final activeSyncTasks = syncTasks
+        .where(
+            (task) => task.status == 'pending' || task.status == 'in_progress')
         .toList();
-    final averageVerifyToPrintMinutes = printedParticipants.isEmpty
-        ? 0.0
-        : printedParticipants
-                .map((p) => (p.printedAt! - p.verifiedAt!).toDouble())
-                .reduce((left, right) => left + right) /
-            printedParticipants.length /
-            const Duration(minutes: 1).inMilliseconds;
-    final successfulJobs = printJobs
-        .where((job) => job.status == 'success' && job.attemptCount > 0)
-        .toList();
-    final averageAttemptsPerSuccessfulJob = successfulJobs.isEmpty
-        ? 0.0
-        : successfulJobs
-                .map((job) => job.attemptCount)
-                .reduce((left, right) => left + right) /
-            successfulJobs.length;
-    final failureCodeRows = _buildAttemptBreakdown(
-      printAttempts.where((attempt) => attempt.outcome == 'failed'),
-      (attempt) =>
-          _normalizeAttemptLabel(attempt.failureCode, 'Unknown failure'),
-    );
-    final printerRows = _buildAttemptBreakdown(
-      printAttempts,
-      (attempt) =>
-          _normalizeAttemptLabel(attempt.printerAddress, 'Unknown printer'),
-    );
+    final failedSyncTasks =
+        syncTasks.where((task) => task.status == 'failed').toList();
+    final pendingSyncTaskCount = activeSyncTasks.length;
+    final failedSyncTaskCount = failedSyncTasks.length;
+    final retryingSyncTaskCount =
+        activeSyncTasks.where((task) => task.attempts > 0).length;
+    final syncErrorSampleCount =
+        syncTasks.where((task) => _hasText(task.lastError)).length;
+
+    final totalPrintAttemptCount = printAttempts.length;
+    final successfulPrintAttempts =
+        printAttempts.where((attempt) => attempt.outcome == 'success').length;
+    final retryAttempts =
+        printAttempts.where((attempt) => attempt.attemptNumber > 1).toList();
+    final retrySuccesses =
+        retryAttempts.where((attempt) => attempt.outcome == 'success').length;
+    final printFailuresLastHour = printAttempts
+        .where(
+          (attempt) =>
+              attempt.outcome == 'failed' &&
+              attempt.finishedAt >= recentHourAgo,
+        )
+        .length;
     final averagePrintAttemptSeconds = printAttempts.isEmpty
         ? 0.0
         : printAttempts
                 .map(
                   (attempt) =>
-                      (attempt.finishedAt - attempt.startedAt).toDouble(),
+                      (attempt.finishedAt - attempt.startedAt) /
+                      const Duration(seconds: 1).inMilliseconds,
                 )
-                .reduce((left, right) => left + right) /
-            printAttempts.length /
-            1000;
-    final printAttemptsLastHour = printAttempts
+                .fold<double>(0, (sum, value) => sum + value) /
+            printAttempts.length;
+
+    final roomRows = _buildLocationRows(
+      participants: participants,
+      selector: (participant) => participant.roomNumber,
+      unknownLabel: 'No room',
+    );
+    final tableRows = _buildLocationRows(
+      participants: participants,
+      selector: (participant) => participant.tableNumber,
+      unknownLabel: 'No table',
+    );
+    final stakeRows = _buildPresenceRows(
+      participants: participants,
+      selector: (participant) => participant.stake,
+      unknownLabel: 'No stake',
+    );
+    final wardRows = _buildPresenceRows(
+      participants: participants,
+      selector: (participant) => participant.ward,
+      unknownLabel: 'No ward',
+    );
+    final ageRows = _buildSimpleCountRows(_buildAgeCounts(participants));
+    final genderRows = _buildSimpleCountRows(_buildGenderCounts(participants));
+    final registrationSourceRows =
+        _buildSimpleCountRows(_buildRegistrationSourceCounts(participants));
+    final signedByRows =
+        _buildSimpleCountRows(_buildSignedByCounts(participants));
+    final statusRows = _buildSimpleCountRows(_buildStatusCounts(participants));
+    final medicalCategoryRows =
+        _buildSimpleCountRows(_buildMedicalCategoryCounts(medicalParticipants));
+    final foodCategoryRows =
+        _buildSimpleCountRows(_buildFoodCategoryCounts(dietAttentionOnSite));
+    final syncTypeRows =
+        _buildSimpleCountRows(_buildSyncTypeCounts(activeSyncTasks));
+    final printFailureReasonRows = _buildSimpleCountRows(
+      _buildPrintFailureReasonCounts(printAttempts),
+    );
+    final tshirtRows = _buildSimpleCountRows(_buildTshirtCounts(participants));
+    final deviceCheckInRows = _buildSimpleCountRows(
+      _buildDeviceCheckInCounts(checkedIn),
+    );
+    final hourlyCheckInRows = _buildSimpleCountRows(
+      _buildCheckInHourCounts(checkedIn),
+    );
+    final peakCheckInRows = [...hourlyCheckInRows]
+      ..sort((left, right) => right.total.compareTo(left.total));
+    final tablePresenceRows = _buildAssignedGroupPresenceRows(
+      participants: participants,
+      selector: (participant) => participant.tableNumber,
+      unknownLabel: 'No table',
+    );
+    final activeRoomCount =
+        roomRows.where((row) => row.label != 'No room').length;
+    final completedRoomCount = roomRows
         .where(
-          (attempt) =>
-              now - attempt.finishedAt <=
-              const Duration(hours: 1).inMilliseconds,
+          (row) =>
+              row.label != 'No room' &&
+              row.trailing.startsWith('${row.total}/'),
         )
         .length;
-    final printFailuresLastHour = printAttempts
+    final activeTableCount =
+        tableRows.where((row) => row.label != 'No table').length;
+    final completedTableCount = tableRows
         .where(
-          (attempt) =>
-              attempt.outcome == 'failed' &&
-              now - attempt.finishedAt <=
-                  const Duration(hours: 1).inMilliseconds,
-        )
-        .length;
-    final printSuccessesLastHour = printAttempts
-        .where(
-          (attempt) =>
-              attempt.outcome == 'success' &&
-              now - attempt.finishedAt <=
-                  const Duration(hours: 1).inMilliseconds,
+          (row) =>
+              row.label != 'No table' &&
+              row.trailing.startsWith('${row.total}/'),
         )
         .length;
 
-    final exceptionCount = checkedInNotPrinted +
-        missingRoomAmongCheckedIn +
-        missingTableAmongCheckedIn +
-        retryingSyncCount +
-        medicalFlags +
-        syncTasks.length +
-        pendingConfirmationCount +
-        staleQueuedPrintCount;
+    final locationReadinessRows = [
+      _BreakdownRow(
+        label: 'Rooms',
+        trailing: '$completedRoomCount/$activeRoomCount ready',
+        caption:
+            '${participants.where((p) => _hasText(p.roomNumber)).length} assigned participants across populated rooms',
+        total: activeRoomCount,
+        highlightColor: FSYScannerApp.accentGreen,
+      ),
+      _BreakdownRow(
+        label: 'Tables',
+        trailing: '$completedTableCount/$activeTableCount ready',
+        caption:
+            '${participants.where((p) => _hasText(p.tableNumber)).length} assigned participants across populated tables',
+        total: activeTableCount,
+        highlightColor: FSYScannerApp.primaryBlue,
+      ),
+    ];
+
+    final partialParticipantAlerts = partiallyVerified
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail:
+                'Checked in but still not fully complete because print truth is unresolved.',
+            trailing: _participantLocationLabel(participant),
+            icon: Icons.pending_actions_outlined,
+            color: FSYScannerApp.accentGold,
+          ),
+        )
+        .toList();
+
+    final noShowAlerts = pending
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail: 'Still not checked in or verified in the app.',
+            trailing:
+                '${_cleanValue(participant.stake, 'No stake')} • ${_cleanValue(participant.ward, 'No ward')}',
+            icon: Icons.person_off_outlined,
+            color: Colors.grey.shade700,
+          ),
+        )
+        .toList();
+
+    final missingRoomAlerts = checkedInMissingRoom
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail:
+                'Checked in already, but logistics still needs to assign a room.',
+            trailing: _participantTableWardLabel(participant),
+            icon: Icons.meeting_room_outlined,
+            color: FSYScannerApp.accentGold,
+          ),
+        )
+        .toList();
+
+    final missingTableAlerts = checkedInMissingTable
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail:
+                'Checked in already, but logistics still needs to assign a table.',
+            trailing: _participantRoomWardLabel(participant),
+            icon: Icons.table_restaurant_outlined,
+            color: Colors.orangeAccent,
+          ),
+        )
+        .toList();
+
+    final foodAttentionAlerts = dietAttentionOnSite
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail: _foodAttentionSummary(participant),
+            trailing: _participantLocationLabel(participant),
+            icon: Icons.no_meals_outlined,
+            color: FSYScannerApp.accentGold,
+          ),
+        )
+        .toList();
+
+    final urgentMedicalAlerts = urgentMedicalOnSite
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail: _medicalSummary(participant),
+            trailing: _participantLocationLabel(participant),
+            icon: Icons.priority_high_outlined,
+            color: Colors.redAccent,
+          ),
+        )
+        .toList();
+
+    final medicalOnSiteAlerts = medicalOnSite
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail: _medicalSummary(participant),
+            trailing: _participantLocationLabel(participant),
+            icon: Icons.medical_services_outlined,
+            color: Colors.redAccent,
+          ),
+        )
+        .toList();
+
+    final medicalNotArrivedAlerts = medicalNotArrived
+        .map(
+          (participant) => _ParticipantAlert(
+            name: participant.fullName,
+            detail: _medicalSummary(participant),
+            trailing:
+                '${_cleanValue(participant.stake, 'No stake')} • ${_cleanValue(participant.ward, 'No ward')}',
+            icon: Icons.health_and_safety_outlined,
+            color: Colors.redAccent,
+          ),
+        )
+        .toList();
+
+    final technicalExceptionAlerts = <_ParticipantAlert>[
+      ...syncTasks.where((task) => _hasText(task.lastError)).take(4).map(
+            (task) => _ParticipantAlert(
+              name: 'Sync task #${task.id}',
+              detail: task.lastError!,
+              trailing: '${task.type} • attempts ${task.attempts}',
+              icon: Icons.sync_problem_outlined,
+              color: Colors.orangeAccent,
+            ),
+          ),
+      ...printAttempts
+          .where((attempt) => attempt.outcome == 'failed')
+          .take(4)
+          .map(
+            (attempt) => _ParticipantAlert(
+              name: attempt.participantName,
+              detail: attempt.failureReason?.trim().isNotEmpty == true
+                  ? attempt.failureReason!
+                  : 'Print attempt failed.',
+              trailing: 'Attempt ${attempt.attemptNumber}',
+              icon: Icons.print_disabled_outlined,
+              color: Colors.redAccent,
+            ),
+          ),
+    ];
+
+    final liveAttendanceRate = participants.isEmpty
+        ? 0.0
+        : (checkedIn.length / participants.length) * 100;
+    final fullVerificationRate = participants.isEmpty
+        ? 0.0
+        : (fullyVerified.length / participants.length) * 100;
+    final printSuccessRate = totalPrintAttemptCount == 0
+        ? 0.0
+        : (successfulPrintAttempts / totalPrintAttemptCount) * 100;
+    final retrySuccessRate = retryAttempts.isEmpty
+        ? 0.0
+        : (retrySuccesses / retryAttempts.length) * 100;
+    final exceptionCount = partiallyVerified.length +
+        missingAssignmentCount +
+        staleQueuedPrintCount +
+        syncErrorSampleCount +
+        failedSyncTaskCount;
+    final uniqueRegisteredDeviceCount = checkedIn
+        .map((p) => p.registeredBy?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .length;
+    final topCheckInDevice = deviceCheckInRows.isEmpty
+        ? null
+        : deviceCheckInRows
+            .reduce((left, right) => left.total >= right.total ? left : right);
 
     return _AnalyticsSnapshot(
       totalParticipants: participants.length,
       checkedInCount: checkedIn.length,
-      pendingCount: pending,
-      partiallyVerifiedCount: partiallyVerified.length,
       fullyVerifiedCount: fullyVerified.length,
-      printedCount: printed,
-      checkedInNotPrintedCount: checkedInNotPrinted,
-      medicalFlagCount: medicalFlags,
-      checkedInMedicalFlagCount: checkedInMedicalFlags,
-      noteCount: notes,
-      missingRoomCount: missingRooms,
-      missingTableCount: missingTables,
-      missingRoomAmongCheckedInCount: missingRoomAmongCheckedIn,
-      missingTableAmongCheckedInCount: missingTableAmongCheckedIn,
-      recent15MinuteCount: recent15Minutes,
-      recentHourCount: recentHour,
-      peakHourCount: peakHour,
-      pendingSyncTaskCount: syncTasks.length,
-      retryingSyncTaskCount: retryingSyncCount,
-      exceptionCount: exceptionCount,
-      oldestPendingTask: oldestPendingTask,
-      completionRate: participants.isEmpty
-          ? 0
-          : checkedIn.length / participants.length * 100,
-      fullVerificationRate: participants.isEmpty
-          ? 0
-          : fullyVerified.length / participants.length * 100,
-      printCoverageRate:
-          checkedIn.isEmpty ? 0 : printed / checkedIn.length * 100,
-      topStakeRows: stakeRows.take(6).toList(),
-      stakeAttendingRows: stakeAttendingRows,
-      topStakePartialRows: stakePartialRows.take(6).toList(),
-      wardAttendingRows: wardAttendingRows,
-      topWardPendingRows: wardRows.take(6).toList(),
-      topRoomRows: roomRows.take(6).toList(),
-      tableRows: activeTableRows,
-      roomRows: activeRoomRows,
-      readyTableRows: readyTableRows,
-      readyRoomRows: readyRoomRows,
-      genderRows: genderRows,
-      ageRows: ageRows,
-      shirtSizeRows: shirtSizeRows,
-      medicalCategoryRows: medicalCategoryRows,
-      syncTypeRows: syncTypeRows,
-      activityBuckets: activityBuckets,
-      dailyActivityRows: dailyActivityRows,
-      recentCheckIns: recentCheckIns.take(8).toList(),
-      recentPrintJobs: printJobs.take(8).toList(),
-      recentPrintAttempts: recentPrintAttempts.take(8).toList(),
-      totalPrintAttemptCount: printAttempts.length,
-      successfulPrintAttemptCount: successfulAttempts,
-      failedPrintAttemptCount: failedAttempts,
-      cancelledPrintAttemptCount: cancelledAttempts,
-      retryAttemptCount: retryAttempts,
-      retrySuccessCount: retrySuccesses,
-      reprintAttemptCount: reprintAttempts,
-      uniquePrinterCount: uniquePrinterCount,
-      activeTableCount: activeTableRows.length,
-      completedTableCount: readyTableRows.length,
-      activeRoomCount: activeRoomRows.length,
-      completedRoomCount: readyRoomRows.length,
-      pendingConfirmationCount: pendingConfirmationCount,
+      partiallyVerifiedCount: partiallyVerified.length,
+      pendingCount: pending.length,
+      printedCount: printed.length,
+      notPrintedCount: checkedIn.length - printed.length,
+      recent15MinuteCount: recent15MinuteCount,
+      recentHourCount: recentHourCount,
+      totalMedicalFlagCount: medicalParticipants.length,
+      checkedInMedicalFlagCount: medicalOnSite.length,
+      dietAttentionOnSiteCount: dietAttentionOnSite.length,
+      noRestrictionOnSiteCount: noRestrictionOnSite.length,
+      urgentMedicalOnSiteCount: urgentMedicalOnSite.length,
+      generalMedicalAwarenessOnSiteCount: generalMedicalAwarenessOnSiteCount,
+      medicalNotArrivedCount: medicalNotArrived.length,
+      medicalWithoutLocationCount: medicalWithoutLocationCount,
+      checkedInMissingRoomCount: checkedInMissingRoom.length,
+      checkedInMissingTableCount: checkedInMissingTable.length,
+      missingAssignmentCount: missingAssignmentCount,
+      activeRoomCount: activeRoomCount,
+      completedRoomCount: completedRoomCount,
+      activeTableCount: activeTableCount,
+      completedTableCount: completedTableCount,
+      queuedPrintCount: queuedPrints.length,
       staleQueuedPrintCount: staleQueuedPrintCount,
-      averageAttemptsPerSuccessfulJob: averageAttemptsPerSuccessfulJob,
-      averageVerifyToPrintMinutes: averageVerifyToPrintMinutes,
+      pendingConfirmationCount: pendingConfirmations.length,
+      pendingSyncTaskCount: pendingSyncTaskCount,
+      failedSyncTaskCount: failedSyncTaskCount,
+      retryingSyncTaskCount: retryingSyncTaskCount,
+      approvedCount: approvedCount,
+      notApprovedCount: notApprovedCount,
+      foodOnlyOnSiteCount: foodOnlyOnSiteCount,
+      medicalOnlyOnSiteCount: medicalOnlyOnSiteCount,
+      medicalAndFoodOnSiteCount: medicalAndFoodOnSiteCount,
+      exceptionCount: exceptionCount,
+      totalPrintAttemptCount: totalPrintAttemptCount,
+      printFailuresLastHour: printFailuresLastHour,
+      syncErrorSampleCount: syncErrorSampleCount,
+      uniqueRegisteredDeviceCount: uniqueRegisteredDeviceCount,
+      topCheckInDeviceLabel: topCheckInDevice?.label ?? 'No device data yet',
+      topCheckInDeviceCount: topCheckInDevice?.total ?? 0,
+      liveAttendanceRate: liveAttendanceRate,
+      fullVerificationRate: fullVerificationRate,
+      printSuccessRate: printSuccessRate,
+      retrySuccessRate: retrySuccessRate,
       oldestQueuedPrintAgeMinutes: oldestQueuedPrintAgeMinutes,
       averagePrintAttemptSeconds: averagePrintAttemptSeconds,
-      printAttemptsLastHour: printAttemptsLastHour,
-      printFailuresLastHour: printFailuresLastHour,
-      printSuccessesLastHour: printSuccessesLastHour,
-      failureCodeRows: failureCodeRows.take(6).toList(),
-      printerRows: printerRows.take(6).toList(),
+      stakeRows: stakeRows,
+      wardRows: wardRows,
+      roomRows: roomRows,
+      tableRows: tableRows,
+      tablePresenceRows: tablePresenceRows,
+      locationReadinessRows: locationReadinessRows,
+      tshirtRows: tshirtRows,
+      deviceCheckInRows: deviceCheckInRows,
+      hourlyCheckInRows: hourlyCheckInRows,
+      peakCheckInRows: peakCheckInRows,
+      ageRows: ageRows,
+      genderRows: genderRows,
+      registrationSourceRows: registrationSourceRows,
+      signedByRows: signedByRows,
+      statusRows: statusRows,
+      medicalCategoryRows: medicalCategoryRows,
+      foodCategoryRows: foodCategoryRows,
+      syncTypeRows: syncTypeRows,
+      printFailureReasonRows: printFailureReasonRows,
+      partialParticipantAlerts: partialParticipantAlerts,
+      noShowAlerts: noShowAlerts,
+      missingRoomAlerts: missingRoomAlerts,
+      missingTableAlerts: missingTableAlerts,
+      foodAttentionAlerts: foodAttentionAlerts,
+      urgentMedicalAlerts: urgentMedicalAlerts,
+      medicalOnSiteAlerts: medicalOnSiteAlerts,
+      medicalNotArrivedAlerts: medicalNotArrivedAlerts,
+      technicalExceptionAlerts: technicalExceptionAlerts,
     );
   }
 
-  double get liveAttendanceRate => completionRate;
-
-  double get partiallyVerifiedRate {
-    if (checkedInCount == 0) {
-      return 0;
-    }
-    return partiallyVerifiedCount / checkedInCount * 100;
-  }
-
-  double get printSuccessRate {
-    if (totalPrintAttemptCount == 0) {
-      return 0;
-    }
-    return successfulPrintAttemptCount / totalPrintAttemptCount * 100;
-  }
-
-  double get retrySuccessRate {
-    if (retryAttemptCount == 0) {
-      return 0;
-    }
-    return retrySuccessCount / retryAttemptCount * 100;
-  }
-
-  static List<_BreakdownRow> _buildBreakdown(
-    List<Participant> participants,
-    String Function(Participant participant) labelOf,
-  ) {
-    final grouped = <String, _BreakdownAccumulator>{};
+  static List<_BreakdownRow> _buildLocationRows({
+    required List<Participant> participants,
+    required String? Function(Participant participant) selector,
+    required String unknownLabel,
+  }) {
+    final grouped = <String, List<Participant>>{};
     for (final participant in participants) {
-      final label = labelOf(participant);
-      final accumulator = grouped.putIfAbsent(label, _BreakdownAccumulator.new);
-      accumulator.total++;
-      if (participant.verifiedAt != null) {
-        accumulator.checkedIn++;
-      }
-      if (participant.verifiedAt != null && participant.printedAt == null) {
-        accumulator.partial++;
-      }
-      if (participant.printedAt != null) {
-        accumulator.printed++;
-      }
+      final label = _cleanValue(selector(participant), unknownLabel);
+      grouped.putIfAbsent(label, () => []).add(participant);
     }
 
-    return grouped.entries
-        .map(
-          (entry) => _BreakdownRow(
-            label: entry.key,
-            total: entry.value.total,
-            checkedIn: entry.value.checkedIn,
-            partial: entry.value.partial,
-            printed: entry.value.printed,
-          ),
-        )
-        .toList();
+    final rows = grouped.entries.map((entry) {
+      final total = entry.value.length;
+      final onSite =
+          entry.value.where((participant) => participant.isVerified).length;
+      final ready = entry.value
+          .where((participant) => participant.isFullyVerified)
+          .length;
+      return _BreakdownRow(
+        label: entry.key,
+        trailing: '$ready/$total ready',
+        caption: '$onSite on site of $total assigned',
+        total: total,
+        highlightColor: ready == total && total > 0
+            ? FSYScannerApp.accentGreen
+            : FSYScannerApp.primaryBlue,
+      );
+    }).toList()
+      ..sort((left, right) => right.total.compareTo(left.total));
+
+    return rows;
   }
 
-  static List<_BreakdownRow> _buildAgeBreakdown(
-    List<Participant> participants,
-  ) {
-    const order = ['13-14', '15-16', '17-19', '20+'];
-    final grouped = <String, _BreakdownAccumulator>{
-      for (final label in order) label: _BreakdownAccumulator(),
-    };
+  static List<_BreakdownRow> _buildPresenceRows({
+    required List<Participant> participants,
+    required String? Function(Participant participant) selector,
+    required String unknownLabel,
+  }) {
+    final grouped = <String, List<Participant>>{};
+    for (final participant in participants) {
+      final label = _cleanValue(selector(participant), unknownLabel);
+      grouped.putIfAbsent(label, () => []).add(participant);
+    }
 
+    final rows = grouped.entries.map((entry) {
+      final total = entry.value.length;
+      final onSite =
+          entry.value.where((participant) => participant.isVerified).length;
+      final ready = entry.value
+          .where((participant) => participant.isFullyVerified)
+          .length;
+      return _BreakdownRow(
+        label: entry.key,
+        trailing: '$onSite/$total on site',
+        caption: '$ready fully verified',
+        total: onSite,
+        highlightColor: ready == onSite && onSite > 0
+            ? FSYScannerApp.accentGreen
+            : FSYScannerApp.primaryBlue,
+      );
+    }).toList()
+      ..sort((left, right) => right.total.compareTo(left.total));
+
+    return rows;
+  }
+
+  static Map<String, int> _buildAgeCounts(List<Participant> participants) {
+    final counts = <String, int>{};
     for (final participant in participants) {
       final age = participant.age;
-      if (age == null) {
-        continue;
-      }
-      final label = age <= 14
-          ? '13-14'
-          : age <= 16
-              ? '15-16'
-              : age <= 19
-                  ? '17-19'
-                  : '20+';
-      final accumulator = grouped[label]!;
-      accumulator.total++;
-      if (participant.verifiedAt != null) {
-        accumulator.checkedIn++;
-      }
-      if (participant.verifiedAt != null && participant.printedAt == null) {
-        accumulator.partial++;
-      }
-      if (participant.printedAt != null) {
-        accumulator.printed++;
-      }
+      final label = switch (age) {
+        null => 'Age not set',
+        <= 13 => '13 and below',
+        <= 15 => '14-15',
+        <= 17 => '16-17',
+        <= 19 => '18-19',
+        _ => '20 and above',
+      };
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-
-    return order
-        .map(
-          (label) => _BreakdownRow(
-            label: label,
-            total: grouped[label]!.total,
-            checkedIn: grouped[label]!.checkedIn,
-            partial: grouped[label]!.partial,
-            printed: grouped[label]!.printed,
-          ),
-        )
-        .toList();
+    return counts;
   }
 
-  static List<_BreakdownRow> _buildMedicalBreakdown(
+  static Map<String, int> _buildGenderCounts(List<Participant> participants) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _cleanValue(participant.gender, 'Gender not set');
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  static Map<String, int> _buildRegistrationSourceCounts(
     List<Participant> participants,
   ) {
-    final grouped = <String, _BreakdownAccumulator>{};
+    final counts = <String, int>{};
     for (final participant in participants) {
-      if (!_hasText(participant.medicalInfo)) {
-        continue;
-      }
-      final label = _classifyMedicalInfo(participant.medicalInfo!);
-      final accumulator = grouped.putIfAbsent(label, _BreakdownAccumulator.new);
-      accumulator.total++;
-      if (participant.verifiedAt != null) {
-        accumulator.checkedIn++;
-      }
-      if (participant.verifiedAt != null && participant.printedAt == null) {
-        accumulator.partial++;
-      }
-      if (participant.printedAt != null) {
-        accumulator.printed++;
-      }
+      final label =
+          _normalizeRegistrationSource(participant.registrationSource);
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-
-    final rows = grouped.entries
-        .map(
-          (entry) => _BreakdownRow(
-            label: entry.key,
-            total: entry.value.total,
-            checkedIn: entry.value.checkedIn,
-            partial: entry.value.partial,
-            printed: entry.value.printed,
-          ),
-        )
-        .toList()
-      ..sort((a, b) => b.total.compareTo(a.total));
-    return rows.take(6).toList();
+    return counts;
   }
 
-  static List<_BreakdownRow> _buildSyncBreakdown(
-    List<_SyncTaskEntry> syncTasks,
-  ) {
-    final grouped = <String, _BreakdownAccumulator>{};
-    for (final task in syncTasks) {
-      final accumulator = grouped.putIfAbsent(
-        task.displayType,
-        _BreakdownAccumulator.new,
-      );
-      accumulator.total++;
-      if (task.attempts > 0) {
-        accumulator.checkedIn++;
-      }
+  static Map<String, int> _buildSignedByCounts(List<Participant> participants) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _normalizeSignedBy(participant.signedBy);
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-
-    final rows = grouped.entries
-        .map(
-          (entry) => _BreakdownRow(
-            label: entry.key,
-            total: entry.value.total,
-            checkedIn: entry.value.checkedIn,
-            partial: 0,
-            printed: 0,
-          ),
-        )
-        .toList();
-    rows.sort((a, b) => b.total.compareTo(a.total));
-    return rows;
+    return counts;
   }
 
-  static List<_AttemptBreakdownRow> _buildAttemptBreakdown(
-    Iterable<PrinterJobAttempt> attempts,
-    String Function(PrinterJobAttempt attempt) labelOf,
-  ) {
-    final grouped = <String, _AttemptBreakdownAccumulator>{};
-    for (final attempt in attempts) {
-      final label = labelOf(attempt);
-      final accumulator = grouped.putIfAbsent(
-        label,
-        _AttemptBreakdownAccumulator.new,
-      );
-      accumulator.total++;
-      switch (attempt.outcome) {
-        case 'success':
-          accumulator.successes++;
-          break;
-        case 'cancelled':
-          accumulator.cancelled++;
-          break;
-        default:
-          accumulator.failures++;
-          break;
-      }
+  static Map<String, int> _buildStatusCounts(List<Participant> participants) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _normalizeStatusLabel(participant.status);
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-
-    final rows = grouped.entries
-        .map(
-          (entry) => _AttemptBreakdownRow(
-            label: entry.key,
-            total: entry.value.total,
-            successes: entry.value.successes,
-            failures: entry.value.failures,
-            cancelled: entry.value.cancelled,
-          ),
-        )
-        .toList();
-    rows.sort((a, b) => b.total.compareTo(a.total));
-    return rows;
+    return counts;
   }
 
-  static int _sortByCheckedInThenTotal(
-    _BreakdownRow left,
-    _BreakdownRow right,
-  ) {
-    final checkedInCompare = right.checkedIn.compareTo(left.checkedIn);
-    if (checkedInCompare != 0) {
-      return checkedInCompare;
+  static Map<String, int> _buildTshirtCounts(List<Participant> participants) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _cleanValue(participant.tshirtSize, 'No size recorded');
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-    return right.total.compareTo(left.total);
+    return counts;
   }
 
-  static List<_ActivityBucket> _buildActivityBuckets(
-    List<Participant> checkedIn,
+  static Map<String, int> _buildDeviceCheckInCounts(
+    List<Participant> participants,
   ) {
-    final now = DateTime.now();
-    final start = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-    ).subtract(const Duration(hours: 7));
-    final buckets = List.generate(
-      8,
-      (index) =>
-          _ActivityBucket(start: start.add(Duration(hours: index)), count: 0),
-    );
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _cleanValue(participant.registeredBy, 'No device recorded');
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
 
-    for (final participant in checkedIn) {
+  static Map<String, int> _buildCheckInHourCounts(
+    List<Participant> participants,
+  ) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
       final verifiedAt = participant.verifiedAt;
       if (verifiedAt == null) {
         continue;
       }
-      final time = DateTime.fromMillisecondsSinceEpoch(verifiedAt);
-      final bucketIndex = time.difference(start).inHours;
-      if (bucketIndex >= 0 && bucketIndex < buckets.length) {
-        buckets[bucketIndex] = _ActivityBucket(
-          start: buckets[bucketIndex].start,
-          count: buckets[bucketIndex].count + 1,
-        );
-      }
+      final label = DateFormat('dd MMM • h a')
+          .format(DateTime.fromMillisecondsSinceEpoch(verifiedAt));
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
-
-    return buckets;
+    return counts;
   }
 
-  static List<_DailyActivityRow> _buildDailyActivityRows({
-    required List<Participant> participants,
-    required List<PrinterJobAttempt> printAttempts,
-  }) {
-    final rows = <String, _DailyActivityAccumulator>{};
-
+  static Map<String, int> _buildMedicalCategoryCounts(
+    List<Participant> participants,
+  ) {
+    final counts = <String, int>{};
     for (final participant in participants) {
-      if (participant.verifiedAt != null) {
-        final dayKey = _dayKey(
-          DateTime.fromMillisecondsSinceEpoch(participant.verifiedAt!),
-        );
-        final row = rows.putIfAbsent(
-          dayKey,
-          () => _DailyActivityAccumulator(dayKey),
-        );
-        row.checkedIn++;
-      }
-      if (participant.printedAt != null) {
-        final dayKey = _dayKey(
-          DateTime.fromMillisecondsSinceEpoch(participant.printedAt!),
-        );
-        final row = rows.putIfAbsent(
-          dayKey,
-          () => _DailyActivityAccumulator(dayKey),
-        );
-        row.fullyVerified++;
-      }
+      final label = _classifyMedicalAttention(participant);
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
     }
+    return counts;
+  }
 
-    for (final attempt in printAttempts) {
-      final dayKey = _dayKey(
-        DateTime.fromMillisecondsSinceEpoch(attempt.finishedAt),
+  static Map<String, int> _buildFoodCategoryCounts(
+    List<Participant> participants,
+  ) {
+    final counts = <String, int>{};
+    for (final participant in participants) {
+      final label = _classifyFoodAttention(participant);
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  static Map<String, int> _buildSyncTypeCounts(List<_SyncTaskEntry> tasks) {
+    final counts = <String, int>{};
+    for (final task in tasks) {
+      final label = task.type.replaceAll('_', ' ');
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  static Map<String, int> _buildPrintFailureReasonCounts(
+    List<PrinterJobAttempt> attempts,
+  ) {
+    final counts = <String, int>{};
+    for (final attempt
+        in attempts.where((entry) => entry.outcome == 'failed')) {
+      final label = _cleanValue(
+        attempt.failureCode?.replaceAll('_', ' '),
+        _cleanValue(attempt.failureReason, 'Unknown failure'),
       );
-      final row = rows.putIfAbsent(
-        dayKey,
-        () => _DailyActivityAccumulator(dayKey),
+      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  static List<_BreakdownRow> _buildAssignedGroupPresenceRows({
+    required List<Participant> participants,
+    required String? Function(Participant participant) selector,
+    required String unknownLabel,
+  }) {
+    final grouped = <String, List<Participant>>{};
+    for (final participant in participants) {
+      final label = _cleanValue(selector(participant), unknownLabel);
+      grouped.putIfAbsent(label, () => []).add(participant);
+    }
+
+    final rows = grouped.entries.map((entry) {
+      final assigned = entry.value.length;
+      final present =
+          entry.value.where((participant) => participant.isVerified).length;
+      final fullyReady = entry.value
+          .where((participant) => participant.isFullyVerified)
+          .length;
+      return _BreakdownRow(
+        label: entry.key,
+        trailing: '$present present',
+        caption: '$assigned assigned • $fullyReady fully ready',
+        total: present,
+        highlightColor: fullyReady == assigned && assigned > 0
+            ? FSYScannerApp.accentGreen
+            : FSYScannerApp.primaryBlue,
       );
-      row.printAttempts++;
-      if (attempt.outcome == 'failed') {
-        row.printFailures++;
-      }
-    }
+    }).toList()
+      ..sort((left, right) => right.total.compareTo(left.total));
 
-    final result = rows.values.map((row) => row.toRow()).toList();
-    result.sort((a, b) => b.date.compareTo(a.date));
-    return result.take(7).toList();
+    return rows;
   }
 
-  static String _normalizeLabel(String? raw, String fallback) {
-    if (!_hasText(raw)) {
-      return fallback;
-    }
-    return raw!.trim();
-  }
-
-  static String _normalizeAttemptLabel(String? raw, String fallback) {
-    if (raw == null) {
-      return fallback;
-    }
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) {
-      return fallback;
-    }
-    return trimmed;
-  }
-
-  static DateTime _startOfDay(DateTime value) {
-    return DateTime(value.year, value.month, value.day);
-  }
-
-  static String _dayKey(DateTime value) {
-    final day = _startOfDay(value);
-    return DateFormat('yyyy-MM-dd').format(day);
+  static List<_BreakdownRow> _buildSimpleCountRows(Map<String, int> counts) {
+    final rows = counts.entries
+        .map(
+          (entry) => _BreakdownRow(
+            label: entry.key,
+            trailing: '${entry.value}',
+            caption: '${entry.value} participant${entry.value == 1 ? '' : 's'}',
+            total: entry.value,
+            highlightColor: FSYScannerApp.primaryBlue,
+          ),
+        )
+        .toList()
+      ..sort((left, right) => right.total.compareTo(left.total));
+    return rows;
   }
 
   static bool _hasText(String? value) {
-    if (value == null) {
-      return false;
-    }
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      return false;
-    }
-    final lower = trimmed.toLowerCase();
-    return lower != 'none' && lower != 'n/a' && lower != 'null';
+    return value != null && value.trim().isNotEmpty;
   }
 
-  static String _classifyMedicalInfo(String value) {
-    final normalized = value.toLowerCase();
-    if (normalized.contains('allerg')) {
-      return 'Allergies';
+  static bool _containsKeyword(String text, List<String> keywords) {
+    final normalized = text.toLowerCase();
+    return keywords.any(normalized.contains);
+  }
+
+  static bool _hasMedicalCategory(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    return normalized.contains('medical');
+  }
+
+  static bool _hasFoodCategory(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    return normalized.contains('food');
+  }
+
+  static bool _isExplicitNoRestriction(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return true;
     }
-    if (normalized.contains('asthma') ||
-        normalized.contains('inhaler') ||
-        normalized.contains('respir')) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'none' ||
+        normalized == 'n/a' ||
+        normalized == 'na' ||
+        normalized == 'nil' ||
+        normalized == 'no';
+  }
+
+  static bool _hasNoRecordedRestriction(Participant participant) {
+    final category = participant.medicalInfo;
+    if (_isExplicitNoRestriction(category)) {
+      return true;
+    }
+    return !_hasText(category) && !_hasText(participant.note);
+  }
+
+  static bool _isMedicalAttentionParticipant(Participant participant) {
+    if (_hasMedicalCategory(participant.medicalInfo)) {
+      return true;
+    }
+    final note = participant.note?.trim().toLowerCase() ?? '';
+    if (note.isEmpty) {
+      return false;
+    }
+    return _containsKeyword(note, const [
+      'asthma',
+      'seizure',
+      'epilepsy',
+      'anaphyl',
+      'heart',
+      'insulin',
+      'diabet',
+      'wheelchair',
+      'medication',
+      'allergy',
+    ]);
+  }
+
+  static bool _isFoodAttentionParticipant(Participant participant) {
+    if (_hasFoodCategory(participant.medicalInfo)) {
+      return true;
+    }
+    if (_isExplicitNoRestriction(participant.medicalInfo)) {
+      return false;
+    }
+    final combined =
+        '${participant.medicalInfo ?? ''} ${participant.note ?? ''}'
+            .toLowerCase();
+    if (combined.trim().isEmpty) {
+      return false;
+    }
+    return _containsKeyword(combined, const [
+      'allergy',
+      'allergic',
+      'peanut',
+      'seafood',
+      'egg',
+      'milk',
+      'gluten',
+      'halal',
+      'vegetarian',
+      'vegan',
+      'diet',
+      'food',
+      'lactose',
+      'diabetic',
+    ]);
+  }
+
+  static bool _isUrgentMedicalParticipant(Participant participant) {
+    if (!_isMedicalAttentionParticipant(participant)) {
+      return false;
+    }
+    final combined =
+        '${participant.medicalInfo ?? ''} ${participant.note ?? ''}'
+            .toLowerCase();
+    if (combined.trim().isEmpty) {
+      return false;
+    }
+    return _containsKeyword(combined, const [
+      'asthma',
+      'seizure',
+      'epilepsy',
+      'anaphyl',
+      'heart',
+      'severe',
+      'emergency',
+      'insulin',
+      'diabetic',
+      'wheelchair',
+      'allergy',
+    ]);
+  }
+
+  static String _classifyMedicalAttention(Participant participant) {
+    final category = (participant.medicalInfo ?? '').trim().toLowerCase();
+    final details = (participant.note ?? '').trim().toLowerCase();
+    final combined = '$category $details'.trim();
+    if (combined.isEmpty) {
+      return 'Other medical';
+    }
+    if (category.contains('medical, food') ||
+        category.contains('food, medical')) {
+      return 'Medical and food';
+    }
+    if (_containsKeyword(
+        combined, const ['allergy', 'allergic', 'peanut', 'egg'])) {
+      return 'Allergy';
+    }
+    if (_containsKeyword(combined, const ['asthma', 'inhaler', 'breathing'])) {
       return 'Respiratory';
     }
-    if (normalized.contains('diet') ||
-        normalized.contains('gluten') ||
-        normalized.contains('lactose') ||
-        normalized.contains('food')) {
-      return 'Dietary';
+    if (_containsKeyword(combined, const ['diabet', 'insulin', 'sugar'])) {
+      return 'Diabetes';
     }
-    if (normalized.contains('med') || normalized.contains('medicine')) {
+    if (_containsKeyword(combined, const ['seizure', 'epilepsy'])) {
+      return 'Neurological';
+    }
+    if (_containsKeyword(
+        combined, const ['wheelchair', 'mobility', 'injury'])) {
+      return 'Mobility';
+    }
+    if (_containsKeyword(combined, const ['medication', 'tablet', 'capsule'])) {
       return 'Medication';
     }
+    if (_containsKeyword(
+        combined, const ['food', 'diet', 'gluten', 'lactose'])) {
+      return 'Diet-related';
+    }
+    if (category == 'medical') {
+      return 'Medical';
+    }
     return 'Other medical';
+  }
+
+  static String _classifyFoodAttention(Participant participant) {
+    final category = (participant.medicalInfo ?? '').trim().toLowerCase();
+    if (category.contains('medical, food') ||
+        category.contains('food, medical')) {
+      return 'Medical and food';
+    }
+    if (category == 'food') {
+      return 'Food';
+    }
+    final combined =
+        '${participant.medicalInfo ?? ''} ${participant.note ?? ''}'
+            .toLowerCase();
+    if (_containsKeyword(combined, const ['halal'])) {
+      return 'Possible halal concern';
+    }
+    if (_containsKeyword(combined, const ['vegetarian', 'vegan'])) {
+      return 'Possible vegetarian or vegan concern';
+    }
+    if (_containsKeyword(combined, const ['gluten'])) {
+      return 'Possible gluten concern';
+    }
+    if (_containsKeyword(combined, const ['lactose', 'milk'])) {
+      return 'Possible dairy concern';
+    }
+    if (_containsKeyword(combined, const ['peanut', 'seafood', 'allergy'])) {
+      return 'Possible allergy concern';
+    }
+    return 'Other food-related concern';
+  }
+
+  static bool _isApprovedParticipant(Participant participant) {
+    final normalized = (participant.status ?? '').trim().toLowerCase();
+    return normalized == 'approved';
+  }
+
+  static String _normalizeRegistrationSource(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return 'Not recorded';
+    }
+    if (normalized.contains('both')) {
+      return 'Both online and printed';
+    }
+    if (normalized.contains('online')) {
+      return 'Online only';
+    }
+    if (normalized.contains('printed')) {
+      return 'Printed only';
+    }
+    return _cleanValue(value, 'Not recorded');
+  }
+
+  static String _normalizeSignedBy(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return 'Not recorded';
+    }
+    if (normalized == 'not signed') {
+      return 'Not signed';
+    }
+    if (normalized == 'no printed copy') {
+      return 'No printed copy';
+    }
+    if (normalized == 'parent') {
+      return 'Parent';
+    }
+    if (normalized == 'guardian') {
+      return 'Guardian';
+    }
+    if (normalized == 'unsure') {
+      return 'Unsure';
+    }
+    return _cleanValue(value, 'Not recorded');
+  }
+
+  static String _normalizeStatusLabel(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return 'Not recorded';
+    }
+    if (normalized == 'approved') {
+      return 'Approved';
+    }
+    if (normalized == 'not yet approved') {
+      return 'Not yet approved';
+    }
+    if (normalized == 'no online registration') {
+      return 'No online registration';
+    }
+    return _cleanValue(value, 'Not recorded');
+  }
+
+  static String _cleanValue(String? value, String fallback) {
+    if (value == null || value.trim().isEmpty) {
+      return fallback;
+    }
+    return value.trim();
+  }
+
+  static String _participantLocationLabel(Participant participant) {
+    final room = _cleanValue(participant.roomNumber, 'No room');
+    final table = _cleanValue(participant.tableNumber, 'No table');
+    return 'Room $room • Table $table';
+  }
+
+  static String _participantTableWardLabel(Participant participant) {
+    final table = _cleanValue(participant.tableNumber, 'No table');
+    final ward = _cleanValue(participant.ward, 'No ward');
+    return 'Table $table • $ward';
+  }
+
+  static String _participantRoomWardLabel(Participant participant) {
+    final room = _cleanValue(participant.roomNumber, 'No room');
+    final ward = _cleanValue(participant.ward, 'No ward');
+    return 'Room $room • $ward';
+  }
+
+  static String _medicalSummary(Participant participant) {
+    final category = participant.medicalInfo?.trim() ?? '';
+    final note = participant.note?.trim() ?? '';
+    final combined = [category, note]
+        .where((value) => value.isNotEmpty && value.toLowerCase() != 'none')
+        .join(' | ');
+    if (combined.isEmpty) {
+      return 'Medical flag present but no detailed text available.';
+    }
+    return combined.length > 90 ? '${combined.substring(0, 90)}...' : combined;
+  }
+
+  static String _foodAttentionSummary(Participant participant) {
+    final medical = participant.medicalInfo?.trim() ?? '';
+    final note = participant.note?.trim() ?? '';
+    final combined = [medical, note]
+        .where((value) => value.isNotEmpty && value.toLowerCase() != 'none')
+        .join(' | ');
+    if (combined.isEmpty) {
+      return 'Food-related attention inferred but no detailed note was found.';
+    }
+    return combined.length > 90 ? '${combined.substring(0, 90)}...' : combined;
+  }
+}
+
+class _SyncTaskEntry {
+  final int id;
+  final String type;
+  final String status;
+  final int attempts;
+  final String? lastError;
+  final int createdAt;
+
+  const _SyncTaskEntry({
+    required this.id,
+    required this.type,
+    required this.status,
+    required this.attempts,
+    required this.lastError,
+    required this.createdAt,
+  });
+
+  factory _SyncTaskEntry.fromRow(Map<String, Object?> row) {
+    return _SyncTaskEntry(
+      id: row['id'] as int? ?? 0,
+      type: row['type'] as String? ?? '',
+      status: row['status'] as String? ?? '',
+      attempts: row['attempts'] as int? ?? 0,
+      lastError: row['last_error'] as String?,
+      createdAt: row['created_at'] as int? ?? 0,
+    );
   }
 }
 
@@ -3738,162 +3455,44 @@ class _MetricCardData {
   });
 }
 
-class _ExceptionData {
+class _AttentionItem {
   final String label;
-  final int value;
-  final Color color;
+  final String value;
 
-  const _ExceptionData({
+  const _AttentionItem({
     required this.label,
     required this.value,
-    required this.color,
   });
 }
 
 class _BreakdownRow {
   final String label;
+  final String trailing;
+  final String caption;
   final int total;
-  final int checkedIn;
-  final int partial;
-  final int printed;
+  final Color highlightColor;
 
   const _BreakdownRow({
     required this.label,
+    required this.trailing,
+    required this.caption,
     required this.total,
-    required this.checkedIn,
-    required this.partial,
-    required this.printed,
-  });
-
-  int get pending => total - checkedIn;
-}
-
-class _BreakdownAccumulator {
-  int total = 0;
-  int checkedIn = 0;
-  int partial = 0;
-  int printed = 0;
-}
-
-class _AttemptBreakdownRow {
-  final String label;
-  final int total;
-  final int successes;
-  final int failures;
-  final int cancelled;
-
-  const _AttemptBreakdownRow({
-    required this.label,
-    required this.total,
-    required this.successes,
-    required this.failures,
-    required this.cancelled,
+    required this.highlightColor,
   });
 }
 
-class _AttemptBreakdownAccumulator {
-  int total = 0;
-  int successes = 0;
-  int failures = 0;
-  int cancelled = 0;
-}
+class _ParticipantAlert {
+  final String name;
+  final String detail;
+  final String? trailing;
+  final IconData icon;
+  final Color color;
 
-class _ActivityBucket {
-  final DateTime start;
-  final int count;
-
-  const _ActivityBucket({required this.start, required this.count});
-}
-
-class _DailyActivityRow {
-  final DateTime date;
-  final String label;
-  final int checkedIn;
-  final int fullyVerified;
-  final int printAttempts;
-  final int printFailures;
-
-  const _DailyActivityRow({
-    required this.date,
-    required this.label,
-    required this.checkedIn,
-    required this.fullyVerified,
-    required this.printAttempts,
-    required this.printFailures,
+  const _ParticipantAlert({
+    required this.name,
+    required this.detail,
+    required this.trailing,
+    required this.icon,
+    required this.color,
   });
-}
-
-class _DailyActivityAccumulator {
-  final String key;
-  int checkedIn = 0;
-  int fullyVerified = 0;
-  int printAttempts = 0;
-  int printFailures = 0;
-
-  _DailyActivityAccumulator(this.key);
-
-  _DailyActivityRow toRow() {
-    final date = DateTime.parse(key);
-    return _DailyActivityRow(
-      date: date,
-      label: DateFormat('EEE, MMM d').format(date),
-      checkedIn: checkedIn,
-      fullyVerified: fullyVerified,
-      printAttempts: printAttempts,
-      printFailures: printFailures,
-    );
-  }
-}
-
-class _SyncTaskEntry {
-  final int id;
-  final String type;
-  final String status;
-  final int attempts;
-  final String? lastError;
-  final int createdAt;
-  final Map<String, dynamic> payload;
-
-  const _SyncTaskEntry({
-    required this.id,
-    required this.type,
-    required this.status,
-    required this.attempts,
-    required this.lastError,
-    required this.createdAt,
-    required this.payload,
-  });
-
-  factory _SyncTaskEntry.fromRow(Map<String, Object?> row) {
-    Map<String, dynamic> payload = const {};
-    final rawPayload = row['payload'] as String? ?? '{}';
-    try {
-      payload = Map<String, dynamic>.from(jsonDecode(rawPayload));
-    } catch (_) {
-      payload = const {};
-    }
-
-    return _SyncTaskEntry(
-      id: row['id'] as int? ?? 0,
-      type: row['type'] as String? ?? 'unknown',
-      status: row['status'] as String? ?? 'pending',
-      attempts: row['attempts'] as int? ?? 0,
-      lastError: row['last_error'] as String?,
-      createdAt: row['created_at'] as int? ?? 0,
-      payload: payload,
-    );
-  }
-
-  String get displayType {
-    switch (type) {
-      case 'mark_registered':
-        return 'Check-in sync';
-      case 'mark_printed':
-        return 'Print sync';
-      case 'mark_unverified':
-        return 'Undo sync';
-      default:
-        return type;
-    }
-  }
 }

@@ -47,6 +47,8 @@ class ParticipantsDao {
         'medical_info': p.medicalInfo,
         'note': p.note,
         'status': p.status,
+        'registration_source': p.registrationSource,
+        'signed_by': p.signedBy,
         'verified_at': shouldPreserveVerificationState
             ? existing.verifiedAt
             : p.verifiedAt,
@@ -81,6 +83,8 @@ class ParticipantsDao {
             'medical_info': p.medicalInfo,
             'note': p.note,
             'status': p.status,
+            'registration_source': p.registrationSource,
+            'signed_by': p.signedBy,
             'verified_at': p.verifiedAt,
             'printed_at': p.printedAt,
             'registered_by': p.registeredBy,
@@ -268,12 +272,14 @@ class ParticipantsDao {
         LOWER(COALESCE(p.table_number, '')) LIKE ? OR
         LOWER(COALESCE(p.gender, '')) LIKE ? OR
         LOWER(COALESCE(p.status, '')) LIKE ? OR
+        LOWER(COALESCE(p.registration_source, '')) LIKE ? OR
+        LOWER(COALESCE(p.signed_by, '')) LIKE ? OR
         LOWER(COALESCE(p.tshirt_size, '')) LIKE ? OR
         LOWER(COALESCE(p.medical_info, '')) LIKE ? OR
         LOWER(COALESCE(p.note, '')) LIKE ? OR
         LOWER(COALESCE(p.birthday, '')) LIKE ? OR
         CAST(COALESCE(p.age, '') AS TEXT) LIKE ?
-      ''', List<String>.filled(12, searchTerm));
+      ''', List<String>.filled(14, searchTerm));
     return result.first['count'] as int? ?? 0;
   }
 
@@ -321,6 +327,8 @@ class ParticipantsDao {
         LOWER(COALESCE(p.table_number, '')) LIKE ? OR
         LOWER(COALESCE(p.gender, '')) LIKE ? OR
         LOWER(COALESCE(p.status, '')) LIKE ? OR
+        LOWER(COALESCE(p.registration_source, '')) LIKE ? OR
+        LOWER(COALESCE(p.signed_by, '')) LIKE ? OR
         LOWER(COALESCE(p.tshirt_size, '')) LIKE ? OR
         LOWER(COALESCE(p.medical_info, '')) LIKE ? OR
         LOWER(COALESCE(p.note, '')) LIKE ? OR
@@ -329,7 +337,7 @@ class ParticipantsDao {
       ORDER BY p.full_name ASC
       LIMIT ? OFFSET ?
       ''',
-      [...List<String>.filled(12, searchTerm), limit, offset],
+      [...List<String>.filled(14, searchTerm), limit, offset],
     );
     return ParticipantQueryResult(
       participants: results.map(Participant.fromDbRow).toList(),
@@ -351,5 +359,104 @@ class ParticipantsDao {
       'SELECT COUNT(*) AS count FROM participants WHERE verified_at IS NOT NULL',
     );
     return result.first['count'] as int? ?? 0;
+  }
+
+  // Add this inside ParticipantsDao after the existing search methods.
+
+  Future<ParticipantQueryResult> searchParticipantsFiltered(
+    String query, {
+    required int limit,
+    required int offset,
+    bool? isVerified,
+    bool? isFullyVerified,
+    bool? hasMedical,
+    bool? hasPendingPrintConfirmation,
+    required Set<String> pendingConfirmationParticipantIds,
+  }) async {
+    final searchTerm = _buildSearchTerm(query);
+
+    String? searchWhere;
+    if (searchTerm != null) {
+      searchWhere = '''
+        (LOWER(COALESCE(p.full_name, '')) LIKE ? OR
+        LOWER(COALESCE(p.stake, '')) LIKE ? OR
+        LOWER(COALESCE(p.ward, '')) LIKE ? OR
+        LOWER(COALESCE(p.room_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.table_number, '')) LIKE ? OR
+        LOWER(COALESCE(p.gender, '')) LIKE ? OR
+        LOWER(COALESCE(p.status, '')) LIKE ? OR
+        LOWER(COALESCE(p.registration_source, '')) LIKE ? OR
+        LOWER(COALESCE(p.signed_by, '')) LIKE ? OR
+        LOWER(COALESCE(p.tshirt_size, '')) LIKE ? OR
+        LOWER(COALESCE(p.medical_info, '')) LIKE ? OR
+        LOWER(COALESCE(p.note, '')) LIKE ? OR
+        LOWER(COALESCE(p.birthday, '')) LIKE ? OR
+        CAST(COALESCE(p.age, '') AS TEXT) LIKE ?)
+      ''';
+    }
+
+    final conditions = <String>[];
+    final params = <dynamic>[];
+
+    if (searchWhere != null) {
+      conditions.add(searchWhere);
+      params.addAll(List.filled(14, searchTerm));
+    }
+
+    if (isVerified == true) {
+      conditions.add('p.verified_at IS NOT NULL');
+    } else if (isVerified == false) {
+      conditions.add('p.verified_at IS NULL');
+    }
+
+    if (isFullyVerified == true) {
+      conditions.add('p.printed_at IS NOT NULL');
+    } else if (isFullyVerified == false) {
+      conditions.add('p.verified_at IS NOT NULL AND p.printed_at IS NULL');
+    }
+
+    if (hasMedical == true) {
+      conditions.add(
+        "COALESCE(p.medical_info, '') != '' AND LOWER(COALESCE(p.medical_info, '')) NOT IN ('none', 'n/a', 'na')",
+      );
+    } else if (hasMedical == false) {
+      conditions.add(
+        "(COALESCE(p.medical_info, '') = '' OR LOWER(COALESCE(p.medical_info, '')) IN ('none', 'n/a', 'na'))",
+      );
+    }
+
+    if (hasPendingPrintConfirmation == true) {
+      if (pendingConfirmationParticipantIds.isEmpty) {
+        conditions.add('1=0');
+      } else {
+        final placeholders =
+            List.filled(pendingConfirmationParticipantIds.length, '?')
+                .join(',');
+        conditions.add('p.id IN ($placeholders)');
+        params.addAll(pendingConfirmationParticipantIds);
+      }
+    }
+
+    final whereClause =
+        conditions.isNotEmpty ? 'WHERE ${conditions.join(' AND ')}' : '';
+
+    final countSql =
+        'SELECT COUNT(*) AS count FROM participants p $whereClause';
+    final countResult = await _db.rawQuery(countSql, params);
+    final totalCount = countResult.first['count'] as int? ?? 0;
+
+    final dataSql = '''
+      SELECT p.* FROM participants p
+      $whereClause
+      ORDER BY p.full_name ASC
+      LIMIT ? OFFSET ?
+    ''';
+    final dataParams = [...params, limit, offset];
+    final rows = await _db.rawQuery(dataSql, dataParams);
+
+    return ParticipantQueryResult(
+      participants: rows.map(Participant.fromDbRow).toList(),
+      totalCount: totalCount,
+    );
   }
 }
