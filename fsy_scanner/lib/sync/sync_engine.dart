@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/sync_queue_dao.dart';
+import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../utils/logger.dart';
 import 'puller.dart';
