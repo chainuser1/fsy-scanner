@@ -46,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int? _lastPrintSuccessAt;
   int? _lastPrintFailureAt;
   String? _lastPrintFailureReason;
+  bool _automaticRetryFailedPrintsEnabled = false;
   List<PrinterQueuedJob> _queuedPrintJobs = [];
   List<PrinterQueuedJob> _recentPrintJobs = [];
 
@@ -423,6 +424,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final status = await PrinterService.getSelectedPrinterStatus(
       revalidateConnection: revalidateConnection,
     );
+    final automaticRetryFailedPrintsEnabled =
+        await PrinterService.getAutomaticRetryFailedPrintsEnabled();
     final queuedPrintJobs = await PrinterService.getQueuedJobs();
     final recentPrintJobs = await PrinterService.getRecentPrintJobs(limit: 8);
     if (!mounted) {
@@ -442,6 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _lastPrintSuccessAt = status.lastPrintSuccessAt;
       _lastPrintFailureAt = status.lastPrintFailureAt;
       _lastPrintFailureReason = status.lastPrintFailureReason;
+      _automaticRetryFailedPrintsEnabled = automaticRetryFailedPrintsEnabled;
       _queuedPrintJobs = queuedPrintJobs;
       _recentPrintJobs = recentPrintJobs;
     });
@@ -547,7 +551,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     for (final job in jobs) {
       attempted++;
-      var result = await PrinterService.retryQueuedJob(job.jobId);
+      var result = await PrinterService.retryQueuedJob(
+        job.jobId,
+        manualRetry: true,
+      );
       if (result.requiresOperatorConfirmation &&
           result.confirmationJobId != null &&
           mounted) {
@@ -614,19 +621,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _setCutMode(String printerAddress, String mode) async {
+    final previousMode = await PrinterService.getCutMode(printerAddress);
     await PrinterService.setCutMode(printerAddress, mode);
+    await _refreshPrinterInfo();
     if (!mounted) {
       return;
     }
 
-    setState(() {});
     final label = switch (mode) {
       PrinterService.cutModeOff => 'No Cut',
       PrinterService.cutModeSafe => 'Safe Tear',
       PrinterService.cutModeForce => 'Full Cut',
       _ => mode,
     };
+    if (mode == PrinterService.cutModeForce &&
+        previousMode != PrinterService.cutModeForce) {
+      _showSnackBar(
+        'Paper finish mode set to $label. Use Full Cut only if this printer truly supports automatic full cutting.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
+    if (previousMode == PrinterService.cutModeForce &&
+        mode != PrinterService.cutModeForce) {
+      _showSnackBar(
+        'Paper finish mode set to $label. Automatic retry for failed prints was turned off because manual paper handling is now required.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
     _showSnackBar('Paper finish mode set to $label');
+  }
+
+  Future<void> _setAutomaticRetryFailedPrintsEnabled(bool enabled) async {
+    if (enabled) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Enable Automatic Retry?'),
+          content: const Text(
+            'Automatic retry for failed prints is only safe when this printer truly supports Full Cut. The app will send a full-cut command after each failed-job retry. If the printer cannot fully cut, repeated receipts may stack or jam. Enable automatic retry only if you are sure this printer has a working full cutter.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Enable'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) {
+        return;
+      }
+    }
+
+    try {
+      await PrinterService.setAutomaticRetryFailedPrintsEnabled(enabled);
+      await _refreshPrinterInfo();
+      if (!mounted) {
+        return;
+      }
+      _showSnackBar(
+        enabled
+            ? 'Automatic retry for failed prints enabled. Reconnected printers will prioritize queued failed jobs first.'
+            : 'Automatic retry for failed prints disabled.',
+        backgroundColor: enabled ? Colors.orange : Colors.green,
+      );
+    } catch (error) {
+      await _refreshPrinterInfo();
+      if (!mounted) {
+        return;
+      }
+      _showSnackBar(
+        error.toString().replaceFirst('Bad state: ', ''),
+        backgroundColor: Colors.red,
+      );
+    }
   }
 
   Future<PrintReceiptResult> _confirmPrintedOutput(String jobId) async {
@@ -1132,13 +1206,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Text(
                                 switch (currentMode) {
                                   PrinterService.cutModeSafe =>
-                                    'Safe Tear sends a gentler cut command for printers that may support partial cutting.',
+                                    'Safe Tear sends a gentler cut command for printers that may support partial cutting. Failed-job auto retry stays off and manual retry will pause for confirmation after every print.',
                                   PrinterService.cutModeForce =>
-                                    'Full Cut sends the strongest cut command. Use this only on printers with an auto-cutter.',
+                                    'Full Cut sends the strongest cut command. Use this only on printers with a true auto-cutter. Failed-job auto retry can be enabled only in this mode.',
                                   _ =>
-                                    'No Cut is safest for portable printers like the PT-200 and leaves extra paper for manual tearing.',
+                                    'No Cut is safest for portable printers like the PT-200 and leaves extra paper for manual tearing. Failed-job auto retry stays off and manual retry will pause for confirmation after every print.',
                                 },
                                 style: Theme.of(context).textTheme.bodySmall),
+                            const SizedBox(height: 8),
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              value: currentMode == PrinterService.cutModeForce
+                                  ? _automaticRetryFailedPrintsEnabled
+                                  : false,
+                              onChanged:
+                                  currentMode == PrinterService.cutModeForce
+                                      ? _setAutomaticRetryFailedPrintsEnabled
+                                      : null,
+                              title: const Text(
+                                'Automatic Retry Failed Prints',
+                              ),
+                              subtitle: Text(
+                                currentMode == PrinterService.cutModeForce
+                                    ? 'Off by default. When enabled, reconnected printers will drain older failed jobs first and send a full-cut command after each retry.'
+                                    : 'Unavailable for No Cut and Safe Tear. These modes require manual paper handling, so failed-job retry must be manual and pause for confirmation after every print.',
+                              ),
+                            ),
                             const SizedBox(height: 8),
                           ],
                         );

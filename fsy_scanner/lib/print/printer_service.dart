@@ -19,6 +19,8 @@ class PrinterService {
   static const String _printerAddressKey = 'printer_address';
   static const String _receiptConfirmationPolicyKey =
       'receipt_confirmation_policy';
+  static const String _automaticRetryFailedPrintsKey =
+      'automatic_retry_failed_prints';
   static const String _pendingSummaryConfirmationKey =
       'pending_summary_confirmation';
   static const String _failedPrintJobsKey = 'failed_print_jobs';
@@ -72,6 +74,7 @@ class PrinterService {
   static bool _automationStarted = false;
   static bool _automationCycleRunning = false;
   static bool _isQueueDraining = false;
+  static bool _wasAutomationConnected = false;
   static final Map<String, bool> _pendingPrints = <String, bool>{};
   static final Set<String> _cancelledPrints = <String>{};
   static final List<_FailedPrintJob> _failedJobs = <_FailedPrintJob>[];
@@ -238,7 +241,60 @@ class PrinterService {
           'value': mode,
         },
         conflictAlgorithm: ConflictAlgorithm.replace);
+    if (mode != cutModeForce) {
+      await db.insert(
+          'app_settings',
+          {
+            'key': _automaticRetryFailedPrintsKey,
+            'value': 'false',
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
     debugPrint('[PrinterService] Cut mode for $printerAddress set to $mode');
+  }
+
+  static Future<bool> getAutomaticRetryFailedPrintsEnabled() async {
+    final printerAddress = await getSelectedPrinterAddress();
+    if (printerAddress == null || printerAddress.isEmpty) {
+      return false;
+    }
+    return _isAutomaticRetryAllowedForPrinter(printerAddress);
+  }
+
+  static Future<void> setAutomaticRetryFailedPrintsEnabled(
+    bool enabled,
+  ) async {
+    final printerAddress = await getSelectedPrinterAddress();
+    if (printerAddress == null || printerAddress.isEmpty) {
+      throw StateError(
+        'Select a printer before changing automatic failed-print retry.',
+      );
+    }
+    if (enabled && await getCutMode(printerAddress) != cutModeForce) {
+      throw StateError(
+        'Automatic retry for failed prints requires Full Cut paper finish.',
+      );
+    }
+
+    final db = await DatabaseHelper.database;
+    await db.insert(
+        'app_settings',
+        {
+          'key': _automaticRetryFailedPrintsKey,
+          'value': enabled ? 'true' : 'false',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _emitStateChanged();
+  }
+
+  static Future<bool> shouldForceManualRetryConfirmation() async {
+    final printerAddress = await getSelectedPrinterAddress();
+    if (printerAddress == null || printerAddress.isEmpty) {
+      return false;
+    }
+    return !_supportsAutomaticRetryForCutMode(
+      await getCutMode(printerAddress),
+    );
   }
 
   static Future<List<BluetoothDevice>> _getBondedDevicesUnsafe() async {
@@ -263,6 +319,20 @@ class PrinterService {
       }
     }
     return null;
+  }
+
+  static bool _supportsAutomaticRetryForCutMode(String cutMode) {
+    return cutMode == cutModeForce;
+  }
+
+  static Future<bool> _isAutomaticRetryAllowedForPrinter(
+    String printerAddress,
+  ) async {
+    if (!_supportsAutomaticRetryForCutMode(await getCutMode(printerAddress))) {
+      return false;
+    }
+    final value = await _readStringSetting(_automaticRetryFailedPrintsKey);
+    return value == 'true';
   }
 
   static Future<List<BluetoothDevice>> scanPrinters() async {
@@ -328,7 +398,13 @@ class PrinterService {
         _connectedDevice = device;
         debugPrint('[PrinterService] Connected to ${device.name}');
         await _emitStateChanged();
-        unawaited(_drainQueuedJobs());
+        if (await _isAutomaticRetryAllowedForPrinter(address)) {
+          unawaited(
+            _drainQueuedJobs(
+              ignoreBackoff: true,
+            ),
+          );
+        }
         return PrinterConnectionResult(
           success: true,
           message: rememberSelection
@@ -840,12 +916,17 @@ class PrinterService {
   }
 
   static Future<PrinterRetrySummary> retryFailedPrints() async {
-    return _drainQueuedJobs(ignoreBackoff: true);
+    return _drainQueuedJobs(
+      ignoreBackoff: true,
+      triggeredAutomatically: false,
+      forceBlockingConfirmation: await shouldForceManualRetryConfirmation(),
+    );
   }
 
   static Future<PrintReceiptResult> retryQueuedJob(
     String jobId, {
     bool forceBlockingConfirmation = false,
+    bool manualRetry = false,
   }) async {
     await _loadFailedJobs();
     final job = _firstMatchingJob((entry) => entry.jobId == jobId);
@@ -880,19 +961,39 @@ class PrinterService {
       );
     }
 
+    final shouldForceBlockingConfirmation = forceBlockingConfirmation ||
+        (manualRetry && await shouldForceManualRetryConfirmation());
+
     return _attemptPrint(
       retryParticipant,
       job.deviceId,
       isReprint: job.isReprint,
-      forceBlockingConfirmation: forceBlockingConfirmation,
+      forceBlockingConfirmation: shouldForceBlockingConfirmation,
       retryJob: job,
     );
   }
 
   static Future<PrinterRetrySummary> _drainQueuedJobs({
     bool ignoreBackoff = false,
+    bool triggeredAutomatically = true,
+    bool forceBlockingConfirmation = false,
   }) async {
     await _loadFailedJobs();
+    if (triggeredAutomatically &&
+        !await getAutomaticRetryFailedPrintsEnabled()) {
+      return PrinterRetrySummary(
+        attempted: 0,
+        succeeded: 0,
+        remaining: _failedJobs.length,
+      );
+    }
+    if (triggeredAutomatically && await _isCircuitBreakerOpen()) {
+      return PrinterRetrySummary(
+        attempted: 0,
+        succeeded: 0,
+        remaining: _failedJobs.length,
+      );
+    }
     if (!ignoreBackoff && await _isCircuitBreakerOpen()) {
       return PrinterRetrySummary(
         attempted: 0,
@@ -939,7 +1040,7 @@ class PrinterService {
           retryParticipant,
           job.deviceId,
           isReprint: job.isReprint,
-          forceBlockingConfirmation: false,
+          forceBlockingConfirmation: forceBlockingConfirmation,
           retryJob: job,
         );
         if (result.success) {
@@ -1913,8 +2014,13 @@ class PrinterService {
       final refreshedStatus = await getSelectedPrinterStatus(
         requestPermissions: false,
       );
+      final reconnectedNow =
+          refreshedStatus.isConnected && !_wasAutomationConnected;
+      _wasAutomationConnected = refreshedStatus.isConnected;
       if (refreshedStatus.isConnected) {
-        await _drainQueuedJobs();
+        await _drainQueuedJobs(
+          ignoreBackoff: reconnectedNow,
+        );
       }
     } finally {
       _automationCycleRunning = false;

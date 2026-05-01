@@ -4072,3 +4072,41 @@ Investigated a production-impacting printer queue bug where automatic retry coul
 
 ### Deviations from Plan
 - This pass focused on the receipt auto-retry loop specifically and did not require broader UX or policy changes.
+
+---
+
+## 66.0 — Full-Cut Failed-Retry Safety Enforcement
+**Date/Time:** 2026-05-01 10:21:14
+**Status:** ✅ Complete
+
+### What I Did
+Completed the failed-print retry safety pass so automatic retry stays off by default, remains available only for `FULL CUT`, manual retry in manual-tear modes pauses for per-print confirmation, and reconnect-driven automation still respects the unhealthy printer circuit-breaker.
+
+### Changes Made
+**Locked failed-job automation to the printer cut-mode rules.**
+- Kept automatic retry for failed jobs tied to `FULL CUT` only and forced it off for `SAFE CUT` and `NO CUT`.
+- Preserved the stronger operator warning before enabling automatic retry on a full-cut printer.
+- Kept manual `Retry Failed` forcing immediate confirmation in manual-tear modes so the operator has time to cut paper safely.
+
+**Hardened reconnect behavior without reopening the retry loop risk.**
+- Ensured reconnect-driven retry draining still prioritizes older queued failed jobs first.
+- Fixed the remaining safety gap so automatic retry does not bypass the unhealthy printer circuit-breaker just because reconnect handling ignores retry backoff.
+
+### Files Modified
+- `fsy_scanner/lib/print/printer_service.dart` – enforced reconnect auto-retry safety against the circuit-breaker while keeping failed-job prioritization.
+- `fsy_scanner/lib/screens/settings_screen.dart` – exposes the failed-job retry rules, full-cut warning, and manual-tear messaging in printer settings.
+
+### Verification Result
+- `dart format .`
+- `dart fix --apply .` → nothing to fix
+- `flutter analyze` → no issues found
+- Diagnostics are clean for `printer_service.dart` and `settings_screen.dart`.
+
+### Issues Encountered
+- Reconnect automation needed to skip retry backoff so old failed jobs can resume first, but that same bypass could also let unhealthy automatic retry continue when it should have stayed paused.
+
+### Corrections Made
+- Separated retry backoff bypass from the unhealthy safety stop so reconnect prioritization remains intact without weakening the circuit-breaker.
+
+### Deviations from Plan
+- The plan rules were already present in `FSY_SCANNER_PLAN.md`; this pass focused on finishing enforcement and verification rather than adding a new rule set.
