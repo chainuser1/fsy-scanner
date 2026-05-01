@@ -213,6 +213,7 @@ class SyncEngine {
 
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
+      await PrinterService.removeStalePrintJobs();
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
       appState.setSyncError(null);
@@ -272,6 +273,7 @@ class SyncEngine {
       _setSyncing(true, message: 'Fetching data...', progress: 0.5);
       final db = await DatabaseHelper.database;
       await Puller.pull(db, token, sheetId, sheetName);
+      await PrinterService.removeStalePrintJobs();
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
       appState.setSyncError(null);
@@ -424,6 +426,7 @@ class SyncEngine {
 
         final db = await DatabaseHelper.database;
         await Puller.pull(db, token, sheetId, sheetName);
+        await PrinterService.removeStalePrintJobs();
         unawaited(appState.refreshParticipantsCount());
         appState.setLastSyncedAt(DateTime.now());
         appState.setSyncError(null);

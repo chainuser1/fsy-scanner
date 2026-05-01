@@ -2465,6 +2465,41 @@ class PrinterService {
     }
     return int.tryParse(raw);
   }
+
+  /// Cancel any queued or awaiting‑confirmation print jobs that are no longer
+  /// needed because the participant has been de‑verified or already printed
+  /// (by any device, as reflected in the latest synced data).
+  static Future<void> removeStalePrintJobs() async {
+    await _loadFailedJobs();
+    final db = await DatabaseHelper.database;
+    final dao = ParticipantsDao(db);
+    final jobsToCancel = <_FailedPrintJob>[];
+
+    for (final job in _failedJobs) {
+      final participant = await dao.getParticipantById(job.participant.id);
+      if (participant == null || participant.verifiedAt == null) {
+        // Participant no longer exists or has been de‑verified
+        jobsToCancel.add(job);
+      } else if (participant.printedAt != null) {
+        // Participant already has a confirmed print (from any device)
+        jobsToCancel.add(job);
+      }
+      // If participant is still partially verified and no printed timestamp,
+      // the job remains valid.
+    }
+
+    for (final job in jobsToCancel) {
+      await _cancelQueuedJob(
+        job,
+        reason:
+            'Stale job removed – participant state changed (de‑verified or already printed elsewhere).',
+      );
+    }
+
+    if (jobsToCancel.isNotEmpty) {
+      await _emitStateChanged();
+    }
+  }
 }
 
 class PrinterConnectionResult {

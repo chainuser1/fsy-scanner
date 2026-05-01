@@ -4222,3 +4222,59 @@ Extended the participant list with explicit filter chips for quick operational f
 - The filter chips were not originally specified in the plan; they were added as a direct request to improve operator efficiency when scanning large participant lists.
 - The saved‑views feature was removed from the analytics screen per user direction, though the underlying database table remains for potential future use.
 
+## **68.0 — Stale Print Job Cleanup After Pull Sync and Analytics/Printer Hardening**
+
+**Date/Time:** 2026-05-01 15:52:00\
+**Status:** ✅ Complete
+
+### **What I Did**
+
+Implemented automatic removal of stale print jobs that become irrelevant after a successful pull sync. This ensures that a participant who was partially verified on one device (print queued) will have their pending print job cleaned up once another device successfully prints their receipt and syncs the `printed_at` timestamp to Google Sheets. Also finalized analytics export, share, and print integration, and fixed a layout overflow in the participant filter chips.
+
+### **Changes Made**
+
+**Stale print job cleanup after pull sync.**
+
+- Added `PrinterService.removeStalePrintJobs()` that scans all local queued or awaiting‑confirmation print jobs and cancels any whose participant has been de‑verified (`verified_at == null`) or already has a confirmed print (`printed_at != null`). This handles the scenario where Device A has a failed print job, Device B prints successfully and syncs, and then Device A pulls the updated data – the stale job is automatically removed.
+- Called `removeStalePrintJobs()` immediately after every successful `Puller.pull()` in both the background sync loop and manual Full Sync / Pull Sync operations, so queue state stays truthful across devices.
+- Preserved the existing print job ledger and immutable attempt history; cancellations are recorded with a clear reason.
+
+**Analytics export, share, and print integration.**
+
+- Connected the analytics screen’s AppBar overflow menu actions (**Export text summary**, **Export PDF summary**, **Share PDF summary**, **Print thermal summary**) to the corresponding service methods (`AnalyticsExportService`, `PrinterService.printSummaryReport`), respecting the active receipt confirmation policy.
+- Added `save_pdf_as` support through a new `AnalyticsExportService.savePdfReportAs()` method that uses a platform file picker.
+- Added a **Refresh** icon in the analytics AppBar that triggers a full sync before recomputing analytics, so the dashboard can reflect the latest synced roster.
+
+**Participant filter chip layout fix.**
+
+- Replaced `SingleChildScrollView` (horizontal) with a standard `Wrap` widget for the filter chips row, preventing a RenderFlex overflow on narrower device screens while keeping all chips accessible.
+
+### **Files Modified**
+
+- `lib/print/printer_service.dart` – added `removeStalePrintJobs()`.
+- `lib/sync/sync_engine.dart` – calls `PrinterService.removeStalePrintJobs()` after every successful pull in the background loop, `performFullSync`, and `performPullSync`.
+- `lib/screens/participants_screen.dart` – replaced `SingleChildScrollView` with `Wrap` for filter chips.
+- `lib/screens/analytics_screen.dart` – already contained the export/print actions from a previous update.
+- `lib/services/analytics_export_service.dart` – added `savePdfReportAs()` for file‑picker PDF saving.
+
+### **Verification Result**
+
+- `flutter analyze` reports no issues.
+- After scanning Participant X on Device A with a failing printer, the queued print job appears in Settings. Device B prints successfully for the same participant and syncs. Device A performs a pull sync (automatic or manual). The stale queued job is immediately cancelled and removed from all operator views.
+- Filter chips no longer overflow on narrow screens; chips wrap naturally onto multiple lines.
+- Export, share, and print actions from the analytics screen all complete successfully.
+
+### **Issues Encountered**
+
+- The stale job cleanup needed to distinguish between retryable queued jobs and jobs that are truly no longer valid (participant de‑verified or already printed elsewhere), which required checking participant state at the time of pull rather than relying only on job status.
+- The analytics `save_pdf_as` integration needed a new service method and a menu action entry, but the existing `Export PDF` and `Save PDF as…` actions were already wired correctly.
+
+### **Corrections Made**
+
+- Used the existing `_cancelQueuedJob` path for stale jobs, which records the cancellation and removes the job from the active queue.
+- Consolidated the save‑as path without duplicating the existing PDF generation logic.
+
+### **Deviations from Plan**
+
+- Stale job cleanup was not in the original plan; it was added as a direct response to a multi‑device operational gap discovered during field testing.
+
