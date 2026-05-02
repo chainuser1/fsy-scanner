@@ -123,7 +123,7 @@ class _ParticipantDetailsScreenState extends State<ParticipantDetailsScreen> {
                   _infoTile('Ward', _participant.ward),
                   _infoTile('Stake', _participant.stake),
                   _infoTile('Room', _participant.roomNumber),
-                  _infoTile('Table', _participant.tableNumber),
+                  _infoTile('Group', _participant.tableNumber),
                 ],
               ),
               const SizedBox(height: 12),

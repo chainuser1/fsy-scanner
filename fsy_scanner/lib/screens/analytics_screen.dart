@@ -476,7 +476,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle: 'Materials, transport grouping, and on-site assignment gaps.',
         lines: [
           '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
-          '${analytics.checkedInMissingRoomCount} attendees still need a room and ${analytics.checkedInMissingTableCount} still need a table.',
+          '${analytics.checkedInMissingRoomCount} attendees still need a room and ${analytics.checkedInMissingTableCount} still need a group.',
           topTshirtSummary,
           '${analytics.pendingCount} no-shows currently affect transport and supply planning.',
         ],
@@ -502,7 +502,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '${analytics.urgentMedicalOnSiteCount} appear to need priority review and ${analytics.generalMedicalAwarenessOnSiteCount} are general awareness cases.',
           '${analytics.medicalNotArrivedCount} participants with medical notes have not arrived yet.',
           '${analytics.medicalOnlyOnSiteCount} are medical-only and ${analytics.medicalAndFoodOnSiteCount} have both medical and food follow-up.',
-          '${analytics.medicalWithoutLocationCount} medical-flagged attendees are harder to locate because room or table data is missing.',
+          '${analytics.medicalWithoutLocationCount} medical-flagged attendees are harder to locate because room or group data is missing.',
         ],
       ),
       const SizedBox(height: 12),
@@ -520,11 +520,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       const SizedBox(height: 12),
       _buildSectionSummaryCard(
         title: 'Operations / Activities',
-        subtitle: 'Grouping, table readiness, and attendance.',
+        subtitle: 'Grouping, group readiness, and attendance.',
         lines: [
           '${analytics.fullyVerifiedCount} participants are fully ready for activities.',
           '${analytics.completedTableCount} tables are fully ready and ${analytics.activeTableCount} tables have assigned participants.',
-          '${analytics.checkedInMissingTableCount} checked-in participants still need a table assignment.',
+          '${analytics.checkedInMissingTableCount} checked-in participants still need a group assignment.',
           topGenderSummary,
         ],
       ),
@@ -551,7 +551,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _AttentionItem(
             label: 'Assignment gaps',
             value:
-                '${analytics.checkedInMissingRoomCount} missing room, ${analytics.checkedInMissingTableCount} missing table among checked-in participants',
+                '${analytics.checkedInMissingRoomCount} missing room, ${analytics.checkedInMissingTableCount} missing group among checked-in participants',
           ),
           _AttentionItem(
             label: 'Device-local backlog',
@@ -595,7 +595,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
-        title: 'Room And Table Readiness',
+        title: 'Room And Group Readiness',
         subtitle:
             'Shows where participants are gathering and how close those groups are to being fully ready.',
         rows: analytics.locationReadinessRows,
@@ -748,7 +748,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildSentenceList([
             '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
             '${analytics.pendingCount} participants are still absent, which affects unused supplies and transport plans.',
-            '${analytics.missingAssignmentCount} checked-in participants still need room or table follow-up.',
+            '${analytics.missingAssignmentCount} checked-in participants still need room or group follow-up.',
           ]),
         ],
       ),
@@ -776,7 +776,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           color: FSYScannerApp.accentGold,
         ),
         _MetricCardData(
-          label: 'Missing Table',
+          label: 'Missing Group',
           value: '${analytics.checkedInMissingTableCount}',
           helper: 'Attendees who still need activity grouping',
           icon: Icons.grid_off_outlined,
@@ -820,12 +820,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
-        title: 'Participants Missing Table Assignment',
+        title: 'Participants Missing Group Assignment',
         subtitle:
-            'These attendees are already on site but still need a table assignment for movement and coordination.',
+            'These attendees are already on site but still need a group assignment for movement and coordination.',
         items: analytics.missingTableAlerts,
         emptyMessage:
-            'No checked-in participant is missing a table assignment.',
+            'No checked-in participant is missing a group assignment.',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -836,9 +836,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
-        title: 'Table Assignments',
+        title: 'Group Assignments',
         subtitle:
-            'Useful when logistics also supports table-based group movement or materials distribution.',
+            'Useful when logistics also supports group-based group movement or materials distribution.',
         rows: analytics.tableRows,
       ),
       const SizedBox(height: 12),
@@ -916,7 +916,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
-        title: 'Meal Groups By Table',
+        title: 'Meal Groups By Group',
         subtitle:
             'Use assigned tables when meal release or seating is organized by group.',
         rows: analytics.tablePresenceRows,
@@ -1092,7 +1092,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _AttentionItem(
             label: 'Assignment follow-up',
             value:
-                '${analytics.checkedInMissingRoomCount} missing room and ${analytics.checkedInMissingTableCount} missing table among attendees on site',
+                '${analytics.checkedInMissingRoomCount} missing room and ${analytics.checkedInMissingTableCount} missing group among attendees on site',
           ),
           _AttentionItem(
             label: 'Health awareness',
@@ -1174,7 +1174,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildSentenceList([
             '${analytics.checkedInCount} participants are physically present on site.',
             '${analytics.fullyVerifiedCount} are fully cleared and easiest to move into classes or activities.',
-            '${analytics.checkedInMissingTableCount} checked-in participants still need a table assignment.',
+            '${analytics.checkedInMissingTableCount} checked-in participants still need a group assignment.',
           ]),
         ],
       ),
@@ -1202,7 +1202,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           color: FSYScannerApp.primaryBlue,
         ),
         _MetricCardData(
-          label: 'No Table',
+          label: 'No Group',
           value: '${analytics.checkedInMissingTableCount}',
           helper: 'Participants needing activity grouping',
           icon: Icons.grid_off_outlined,
@@ -1211,9 +1211,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ]),
       const SizedBox(height: 12),
       _buildBreakdownCard(
-        title: 'Table Assignments',
+        title: 'Group Assignments',
         subtitle:
-            'Table-by-table summary for games, classes, and release sequencing.',
+            'Group-by-group summary for games, classes, and release sequencing.',
         rows: analytics.tablePresenceRows,
       ),
       const SizedBox(height: 12),
@@ -1231,12 +1231,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
-        title: 'Participants Without Table Assignment',
+        title: 'Participants Without Group Assignment',
         subtitle:
-            'These participants are present but still need table placement for activity grouping.',
+            'These participants are present but still need group placement for activity grouping.',
         items: analytics.missingTableAlerts,
         emptyMessage:
-            'Every checked-in participant currently has a table assignment.',
+            'Every checked-in participant currently has a group assignment.',
       ),
     ];
   }
@@ -2070,7 +2070,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '- Confirmed headcount on site: ${analytics.checkedInCount}',
           '- No-shows: ${analytics.pendingCount}',
           '- Checked-in missing room: ${analytics.checkedInMissingRoomCount}',
-          '- Checked-in missing table: ${analytics.checkedInMissingTableCount}',
+          '- Checked-in missing group: ${analytics.checkedInMissingTableCount}',
         ]);
         _appendBreakdown(lines, 'T-shirt sizes', analytics.tshirtRows);
         break;
@@ -2082,7 +2082,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '- No restrictions recorded on site: ${analytics.noRestrictionOnSiteCount}',
           '- Food-only restrictions on site: ${analytics.foodOnlyOnSiteCount}',
           '- Shared medical and food cases on site: ${analytics.medicalAndFoodOnSiteCount}',
-          '- Table meal groups available: ${analytics.activeTableCount}',
+          '- Group meal groups available: ${analytics.activeTableCount}',
         ]);
         _appendBreakdown(
             lines, 'Food attention categories', analytics.foodCategoryRows);
@@ -2123,10 +2123,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '- Fully ready participants: ${analytics.fullyVerifiedCount}',
           '- Tables with assignments: ${analytics.activeTableCount}',
           '- Tables fully ready: ${analytics.completedTableCount}',
-          '- Participants without table assignment: ${analytics.checkedInMissingTableCount}',
+          '- Participants without group assignment: ${analytics.checkedInMissingTableCount}',
         ]);
         _appendBreakdown(
-            lines, 'Table assignments', analytics.tablePresenceRows);
+            lines, 'Group assignments', analytics.tablePresenceRows);
         break;
       case _CommitteeView.developers:
         lines.addAll([
@@ -2184,7 +2184,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       case _CommitteeView.admin:
         return '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived, ${analytics.notApprovedCount} still need roster follow-up, and ${analytics.exceptionCount} issues need oversight.';
       case _CommitteeView.activities:
-        return '${analytics.fullyVerifiedCount} participants are fully activity-ready and ${analytics.checkedInMissingTableCount} still need table placement.';
+        return '${analytics.fullyVerifiedCount} participants are fully activity-ready and ${analytics.checkedInMissingTableCount} still need group placement.';
       case _CommitteeView.developers:
         return 'This device currently has ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed tasks, and ${analytics.queuedPrintCount} queued print jobs.';
     }
@@ -2543,7 +2543,7 @@ class _AnalyticsSnapshot {
     final tableRows = _buildLocationRows(
       participants: participants,
       selector: (participant) => participant.tableNumber,
-      unknownLabel: 'No table',
+      unknownLabel: 'No group',
     );
     final stakeRows = _buildPresenceRows(
       participants: participants,
@@ -2583,7 +2583,7 @@ class _AnalyticsSnapshot {
     final tablePresenceRows = _buildAssignedGroupPresenceRows(
       participants: participants,
       selector: (participant) => participant.tableNumber,
-      unknownLabel: 'No table',
+      unknownLabel: 'No group',
     );
     final activeRoomCount =
         roomRows.where((row) => row.label != 'No room').length;
@@ -2595,11 +2595,11 @@ class _AnalyticsSnapshot {
         )
         .length;
     final activeTableCount =
-        tableRows.where((row) => row.label != 'No table').length;
+        tableRows.where((row) => row.label != 'No group').length;
     final completedTableCount = tableRows
         .where(
           (row) =>
-              row.label != 'No table' &&
+              row.label != 'No group' &&
               row.trailing.startsWith('${row.total}/'),
         )
         .length;
@@ -2667,7 +2667,7 @@ class _AnalyticsSnapshot {
           (participant) => _ParticipantAlert(
             name: participant.fullName,
             detail:
-                'Checked in already, but logistics still needs to assign a table.',
+                'Checked in already, but logistics still needs to assign a group.',
             trailing: _participantRoomWardLabel(participant),
             icon: Icons.table_restaurant_outlined,
             color: Colors.orangeAccent,
@@ -3369,14 +3369,14 @@ class _AnalyticsSnapshot {
 
   static String _participantLocationLabel(Participant participant) {
     final room = _cleanValue(participant.roomNumber, 'No room');
-    final table = _cleanValue(participant.tableNumber, 'No table');
-    return 'Room $room • Table $table';
+    final group = _cleanValue(participant.tableNumber, 'No group');
+    return 'Room $room • Group $group';
   }
 
   static String _participantTableWardLabel(Participant participant) {
-    final table = _cleanValue(participant.tableNumber, 'No table');
+    final group = _cleanValue(participant.tableNumber, 'No group');
     final ward = _cleanValue(participant.ward, 'No ward');
-    return 'Table $table • $ward';
+    return 'Group $group • $ward';
   }
 
   static String _participantRoomWardLabel(Participant participant) {

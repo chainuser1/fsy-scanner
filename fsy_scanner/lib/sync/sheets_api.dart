@@ -23,7 +23,7 @@ class SheetColumns {
   static const String tshirtSize = 'T-Shirt Size';
   static const String age = 'Age';
   static const String birthday = 'Birthday';
-  static const String tableNumber = 'Table Number';
+  static const String tableNumber = 'Group Number';
   static const String roomNumber = 'Hotel Room Number';
   static const String verifiedAt = 'Verified At';
   static const String printedAt = 'Printed At';

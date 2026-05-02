@@ -28,10 +28,10 @@ class ReceiptBuilder {
     final now = DateTime.now();
     final formatter = DateFormat('dd MMM yyyy HH:mm');
     final timestamp = formatter.format(now);
-    final shortDeviceId =
-        deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
-    final event = _cleanValue(eventName);
-    final organization = _toReceiptUpper(_cleanValue(organizationName));
+    // final shortDeviceId =
+        // deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
+    // final event = _cleanValue(eventName);
+    // final organization = _toReceiptUpper(_cleanValue(organizationName));
     final fullName = _toReceiptUpper(_cleanValue(participant.fullName)) ?? '-';
 
     final lines = <ReceiptLine>[
@@ -46,7 +46,7 @@ class ReceiptBuilder {
       _labeledLines('Room', participant.roomNumber ?? '(not assigned)'),
     );
     lines.addAll(
-      _labeledLines('Table', participant.tableNumber ?? '(not assigned)'),
+      _labeledLines('Group', participant.tableNumber ?? '(not assigned)'),
     );
 
     final ward = _cleanValue(participant.ward);
@@ -61,21 +61,21 @@ class ReceiptBuilder {
 
     lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
     lines.add(ReceiptLine(_printerSafe('Verified: $timestamp')));
-    lines.add(ReceiptLine(_printerSafe('Device: $shortDeviceId')));
+    // lines.add(ReceiptLine(_printerSafe('Device: $shortDeviceId')));
     lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
 
-    if (organization != null) {
-      lines.add(const ReceiptLine('Hosted by', align: 1));
-      lines.addAll(_wrappedLines(organization, width: _receiptWidth, align: 1));
-    }
+    // if (organization != null) {
+    //   lines.add(const ReceiptLine('Hosted by', align: 1));
+    //   lines.addAll(_wrappedLines(organization, width: _receiptWidth, align: 1));
+    // }
 
-    lines.add(const ReceiptLine(''));
+    // lines.add(const ReceiptLine(''));
 
-    lines.add(const ReceiptLine('Welcome to', align: 1));
-    lines.addAll(
-      _wrappedLines(event ?? 'FSY Event', width: _receiptWidth, align: 1),
-    );
-    lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
+    // lines.add(const ReceiptLine('Welcome to', align: 1));
+    // lines.addAll(
+    //   _wrappedLines(event ?? 'FSY Event', width: _receiptWidth, align: 1),
+    // );
+    // lines.add(ReceiptLine(_printerSafe('=' * _receiptWidth)));
 
     return lines;
   }
