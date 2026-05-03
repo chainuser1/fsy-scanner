@@ -490,7 +490,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '${analytics.dietAttentionOnSiteCount} checked-in participants are explicitly marked for food attention or have matching restriction notes.',
           '${analytics.noRestrictionOnSiteCount} checked-in participants currently show no restriction recorded.',
           '${analytics.foodOnlyOnSiteCount} are food-only, while ${analytics.medicalAndFoodOnSiteCount} have both medical and food attention.',
-          'Meal grouping can use assigned tables when needed.',
+          'Meal grouping can use assigned groups when needed.',
         ],
       ),
       const SizedBox(height: 12),
@@ -523,7 +523,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle: 'Grouping, group readiness, and attendance.',
         lines: [
           '${analytics.fullyVerifiedCount} participants are fully ready for activities.',
-          '${analytics.completedTableCount} tables are fully ready and ${analytics.activeTableCount} tables have assigned participants.',
+          '${analytics.completedTableCount} groups are fully ready and ${analytics.activeTableCount} groups have assigned participants.',
           '${analytics.checkedInMissingTableCount} checked-in participants still need a group assignment.',
           topGenderSummary,
         ],
@@ -893,7 +893,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Meal Groups',
           value: '${analytics.activeTableCount}',
-          helper: 'Assigned tables available for group serving',
+          helper: 'Assigned groups available for group serving',
           icon: Icons.table_restaurant_outlined,
           color: Colors.redAccent,
         ),
@@ -918,7 +918,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _buildBreakdownCard(
         title: 'Meal Groups By Group',
         subtitle:
-            'Use assigned tables when meal release or seating is organized by group.',
+            'Use assigned groups when meal release or seating is organized by group.',
         rows: analytics.tablePresenceRows,
       ),
       const SizedBox(height: 12),
@@ -1169,7 +1169,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _buildBriefingCard(
         title: 'Operations / Activities',
         subtitle:
-            'Use this for tables, grouping, and who is physically present and ready for activities.',
+            'Use this for groups, grouping, and who is physically present and ready for activities.',
         children: [
           _buildSentenceList([
             '${analytics.checkedInCount} participants are physically present on site.',
@@ -1195,9 +1195,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           color: FSYScannerApp.accentGreen,
         ),
         _MetricCardData(
-          label: 'Tables Ready',
+          label: 'Groups Ready',
           value: '${analytics.completedTableCount}',
-          helper: '${analytics.activeTableCount} active tables total',
+          helper: '${analytics.activeTableCount} active groups total',
           icon: Icons.table_bar_outlined,
           color: FSYScannerApp.primaryBlue,
         ),
@@ -1818,7 +1818,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              'Event-wide data: participant attendance, verification, wards, stakes, rooms, tables, gender, age, and note-derived welfare groupings use the latest synced roster across devices.',
+              'Event-wide data: participant attendance, verification, wards, stakes, rooms, groups, gender, age, and note-derived welfare groupings use the latest synced roster across devices.',
               style: TextStyle(color: Colors.grey[800]),
             ),
             const SizedBox(height: 8),
@@ -2121,8 +2121,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           'Activities priorities',
           '- Present on site: ${analytics.checkedInCount}',
           '- Fully ready participants: ${analytics.fullyVerifiedCount}',
-          '- Tables with assignments: ${analytics.activeTableCount}',
-          '- Tables fully ready: ${analytics.completedTableCount}',
+          '- Groups with assignments: ${analytics.activeTableCount}',
+          '- Groups fully ready: ${analytics.completedTableCount}',
           '- Participants without group assignment: ${analytics.checkedInMissingTableCount}',
         ]);
         _appendBreakdown(
@@ -2614,10 +2614,10 @@ class _AnalyticsSnapshot {
         highlightColor: FSYScannerApp.accentGreen,
       ),
       _BreakdownRow(
-        label: 'Tables',
+        label: 'Groups',
         trailing: '$completedTableCount/$activeTableCount ready',
         caption:
-            '${participants.where((p) => _hasText(p.tableNumber)).length} assigned participants across populated tables',
+            '${participants.where((p) => _hasText(p.tableNumber)).length} assigned participants across populated groups',
         total: activeTableCount,
         highlightColor: FSYScannerApp.primaryBlue,
       ),
