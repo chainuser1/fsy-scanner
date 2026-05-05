@@ -558,32 +558,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ],
       ),
       const SizedBox(height: 12),
-      _buildAttentionCard(
-        title: 'Cross-Committee Attention Needed',
-        items: [
-          _AttentionItem(
-            label: 'Participants blocked from full completion',
-            value:
-                '${analytics.partiallyVerifiedCount} partial, ${analytics.pendingConfirmationCount} waiting for operator confirmation',
-          ),
-          _AttentionItem(
-            label: 'Assignment gaps',
-            value:
-                '${analytics.checkedInMissingRoomCount} missing room, ${analytics.checkedInMissingTableCount} missing group among checked-in participants',
-          ),
-          _AttentionItem(
-            label: 'Device-local backlog',
-            value:
-                '${analytics.queuedPrintCount} queued print jobs, ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks',
-          ),
-          _AttentionItem(
-            label: 'Food and medical review',
-            value:
-                '${analytics.dietAttentionOnSiteCount} food-related attention flags and ${analytics.urgentMedicalOnSiteCount} urgent-looking medical flags are on site',
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Check-In Activity Timeline',
         subtitle:
@@ -1304,32 +1278,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
       ]),
       const SizedBox(height: 12),
-      _buildAttentionCard(
-        title: 'Admin Oversight Priorities',
-        items: [
-          _AttentionItem(
-            label: 'Registration completion gap',
-            value:
-                '${analytics.partiallyVerifiedCount} partial, ${analytics.pendingCount} pending, ${analytics.notApprovedCount} still needing roster follow-up',
-          ),
-          _AttentionItem(
-            label: 'Assignment follow-up',
-            value:
-                '${analytics.checkedInMissingRoomCount} missing room and ${analytics.checkedInMissingTableCount} missing group among attendees on site',
-          ),
-          _AttentionItem(
-            label: 'Health awareness',
-            value:
-                '${analytics.checkedInMedicalFlagCount} medical-flagged attendees already on site',
-          ),
-          _AttentionItem(
-            label: 'Local device risk',
-            value:
-                '${analytics.staleQueuedPrintCount} stale queued print jobs, ${analytics.printFailuresLastHour} print failures in the last hour, ${analytics.failedSyncTaskCount} failed sync tasks',
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Check-In Timeline',
         subtitle:
@@ -1528,52 +1476,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           color: FSYScannerApp.accentGreen,
         ),
       ]),
-      const SizedBox(height: 12),
-      _buildAttentionCard(
-        title: 'Local Device Diagnostics',
-        items: [
-          _AttentionItem(
-            label: 'App build',
-            value:
-                'Version $_appVersion ($_appBuildNumber), database version $_dbVersion',
-          ),
-          _AttentionItem(
-            label: 'API and roster refresh',
-            value:
-                '${_formatLastSync(appState.lastSyncedAt)} Last roster pull ${_formatOptionalTimestamp(_lastPulledAt)}.',
-          ),
-          _AttentionItem(
-            label: 'Printer state',
-            value: appState.printerStatusMessage,
-          ),
-          _AttentionItem(
-            label: 'Oldest queued print age',
-            value: analytics.oldestQueuedPrintAgeMinutes == 0
-                ? 'No queued print jobs'
-                : '${analytics.oldestQueuedPrintAgeMinutes.toStringAsFixed(1)} minutes',
-          ),
-          _AttentionItem(
-            label: 'Average attempt duration',
-            value:
-                '${analytics.averagePrintAttemptSeconds.toStringAsFixed(1)} seconds',
-          ),
-          _AttentionItem(
-            label: 'Recent sync health',
-            value:
-                '${analytics.pendingSyncTaskCount} pending tasks, ${analytics.failedSyncTaskCount} failed tasks, ${analytics.syncErrorSampleCount} tasks with last_error text',
-          ),
-          _AttentionItem(
-            label: 'Oldest pending sync task age',
-            value: analytics.oldestSyncTaskAgeMinutes == 0
-                ? 'No pending sync tasks'
-                : '${analytics.oldestSyncTaskAgeMinutes.toStringAsFixed(1)} minutes old — tasks stuck this long may need manual review.',
-          ),
-          _AttentionItem(
-            label: 'Print success rate trend',
-            value: analytics.printSuccessRateTrendLabel,
-          ),
-        ],
-      ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Device IDs And Check-In Counts',
@@ -1860,73 +1762,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttentionCard({
-    required String title,
-    required List<_AttentionItem> items,
-  }) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.orange.shade200, width: 1.5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.warning_amber_rounded,
-                    size: 20, color: Colors.orange.shade700),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Attention',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...items.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Icon(Icons.circle, size: 6, color: Colors.grey),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: DefaultTextStyle.of(context)
-                              .style
-                              .copyWith(height: 1.4),
-                          children: [
-                            TextSpan(
-                              text: '${item.label}: ',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            TextSpan(text: item.value),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -4090,16 +3925,6 @@ class _MetricCardData {
     required this.icon,
     required this.color,
     this.delta,
-  });
-}
-
-class _AttentionItem {
-  final String label;
-  final String value;
-
-  const _AttentionItem({
-    required this.label,
-    required this.value,
   });
 }
 
