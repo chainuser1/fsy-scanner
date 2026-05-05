@@ -9,6 +9,9 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+        <!-- Required for Android 12+ to query Bluetooth devices -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
 
     <application
         android:label="FSY 2026"

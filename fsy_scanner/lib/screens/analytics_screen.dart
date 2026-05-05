@@ -50,6 +50,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String _appVersion = 'Unknown';
   String _appBuildNumber = 'Unknown';
 
+  final Map<String, int> _breakdownPage = {};
+  final Map<String, int> _participantListPage = {};
+  _AnalyticsSnapshot? _previousSnapshot;
+
   @override
   void initState() {
     super.initState();
@@ -165,12 +169,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
+    final previous = _previousSnapshot;
     final analytics = _AnalyticsSnapshot.fromData(
       participants: _participants,
       syncTasks: _syncTasks,
       printJobs: _printJobs,
       printAttempts: _printAttempts,
     );
+    // Store for next build so metric cards can show deltas.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _previousSnapshot = analytics;
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -217,7 +226,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(12),
-                    children: _buildSelectedView(appState, analytics),
+                    children: _buildSelectedView(appState, analytics, previous),
                   ),
                 ),
     );
@@ -251,6 +260,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildSelectedView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     final widgets = <Widget>[
       _buildHeader(appState, analytics),
@@ -263,28 +273,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     switch (_committeeView) {
       case _CommitteeView.comprehensiveSummary:
-        widgets.addAll(_buildComprehensiveSummaryView(appState, analytics));
+        widgets.addAll(
+            _buildComprehensiveSummaryView(appState, analytics, previous));
         break;
       case _CommitteeView.registration:
-        widgets.addAll(_buildRegistrationView(appState, analytics));
+        widgets.addAll(_buildRegistrationView(appState, analytics, previous));
         break;
       case _CommitteeView.logistics:
-        widgets.addAll(_buildLogisticsView(appState, analytics));
+        widgets.addAll(_buildLogisticsView(appState, analytics, previous));
         break;
       case _CommitteeView.food:
-        widgets.addAll(_buildFoodView(appState, analytics));
+        widgets.addAll(_buildFoodView(appState, analytics, previous));
         break;
       case _CommitteeView.medical:
-        widgets.addAll(_buildMedicalView(appState, analytics));
+        widgets.addAll(_buildMedicalView(appState, analytics, previous));
         break;
       case _CommitteeView.admin:
-        widgets.addAll(_buildAdminView(appState, analytics));
+        widgets.addAll(_buildAdminView(appState, analytics, previous));
         break;
       case _CommitteeView.activities:
-        widgets.addAll(_buildActivitiesView(appState, analytics));
+        widgets.addAll(_buildActivitiesView(appState, analytics, previous));
         break;
       case _CommitteeView.developers:
-        widgets.addAll(_buildDevelopersView(appState, analytics));
+        widgets.addAll(_buildDevelopersView(appState, analytics, previous));
         break;
     }
     return widgets;
@@ -379,6 +390,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       onSelected: (_) {
                         setState(() {
                           _committeeView = view;
+                          _breakdownPage.clear();
+                          _participantListPage.clear();
                         });
                       },
                     ),
@@ -394,6 +407,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildComprehensiveSummaryView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     final topTshirtSummary = analytics.tshirtRows.isEmpty
         ? 'No t-shirt sizes are recorded yet.'
@@ -413,9 +427,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.',
             '${analytics.pendingCount} are still not checked in, ${analytics.partiallyVerifiedCount} are still finishing registration, and ${analytics.checkedInMedicalFlagCount} on site have medical flags.',
             'This device currently shows ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks, and ${analytics.queuedPrintCount} queued prints.',
+            analytics.estimatedCompletionLabel,
+            analytics.velocityTrendLabel,
           ]),
         ],
       ),
+      const SizedBox(height: 12),
+      _buildCriticalBlockersCard(analytics),
       const SizedBox(height: 12),
       _buildProgressCard(
         title: 'Overall Event Progress',
@@ -571,6 +589,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Latest hourly check-in pace for leadership and registration.',
         rows: analytics.hourlyCheckInRows,
+        pageKey: 'comp_hourly_checkin',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -578,6 +597,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows how many participants are online-only, printed-only, or have both registration paths recorded.',
         rows: analytics.registrationSourceRows,
+        pageKey: 'comp_reg_source',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -585,6 +605,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful for leadership and admin follow-up before all participants are fully ready.',
         rows: analytics.statusRows,
+        pageKey: 'comp_status',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -592,6 +613,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful when leadership wants to see where attendee volume is concentrated right now.',
         rows: analytics.stakeRows,
+        pageKey: 'comp_stake',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -599,6 +621,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows where participants are gathering and how close those groups are to being fully ready.',
         rows: analytics.locationReadinessRows,
+        pageKey: 'comp_location_readiness',
       ),
       const SizedBox(height: 12),
       _buildGapNoteCard(
@@ -617,6 +640,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildRegistrationView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     return [
       _buildBriefingCard(
@@ -629,6 +653,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             '${analytics.recentHourCount} checked in during the last hour, and ${analytics.recent15MinuteCount} arrived in the last 15 minutes.',
             '${analytics.pendingCount} participants still have no QR scan/check-in recorded.',
             '${analytics.notApprovedCount} still need approval or online-registration follow-up.',
+            analytics.estimatedCompletionLabel,
+            analytics.velocityTrendLabel,
           ]),
         ],
       ),
@@ -650,11 +676,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           helper: '${analytics.pendingCount} still not arrived',
           icon: Icons.how_to_reg_outlined,
           color: FSYScannerApp.primaryBlue,
+          delta: previous == null
+              ? null
+              : analytics.checkedInCount - previous.checkedInCount,
         ),
         _MetricCardData(
           label: 'Last Hour',
           value: '${analytics.recentHourCount}',
-          helper: '${analytics.recent15MinuteCount} in the last 15 minutes',
+          helper:
+              '${analytics.recent15MinuteCount} in last 15 min • ${analytics.velocityShortLabel}',
           icon: Icons.schedule_outlined,
           color: FSYScannerApp.accentGreen,
         ),
@@ -672,6 +702,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               '${analytics.pendingConfirmationCount} awaiting print confirmation',
           icon: Icons.receipt_long_outlined,
           color: Colors.orangeAccent,
+          delta: previous == null
+              ? null
+              : analytics.partiallyVerifiedCount -
+                  previous.partiallyVerifiedCount,
         ),
       ]),
       const SizedBox(height: 12),
@@ -680,12 +714,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Pace over time so the team can see whether arrivals are accelerating or slowing.',
         rows: analytics.hourlyCheckInRows,
+        pageKey: 'reg_hourly_checkin',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Peak Check-In Times',
         subtitle: 'The busiest check-in windows from the current data sample.',
         rows: analytics.peakCheckInRows,
+        pageKey: 'reg_peak_checkin',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -693,6 +729,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows how many participants are online only, printed only, or recorded in both channels.',
         rows: analytics.registrationSourceRows,
+        pageKey: 'reg_source',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -700,6 +737,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful when registration needs to follow up on unsigned forms or no printed copy cases.',
         rows: analytics.signedByRows,
+        pageKey: 'reg_signed_by',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -707,6 +745,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Which device or scanner has handled the most completed check-ins.',
         rows: analytics.deviceCheckInRows,
+        pageKey: 'reg_scanner_activity',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -716,6 +755,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.partialParticipantAlerts,
         emptyMessage:
             'No checked-in participant is currently waiting for final registration completion.',
+        pageKey: 'reg_partial',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -724,6 +764,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'These participants still have no recorded check-in and may still be arriving or need follow-up.',
         items: analytics.noShowAlerts,
         emptyMessage: 'Every participant currently has a recorded check-in.',
+        pageKey: 'reg_no_show',
       ),
       const SizedBox(height: 12),
       _buildGapNoteCard(
@@ -738,6 +779,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildLogisticsView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     return [
       _buildBriefingCard(
@@ -789,12 +831,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Use this to order or stage shirt sizes in the language logistics needs.',
         rows: analytics.tshirtRows,
+        pageKey: 'log_tshirt',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Participants By Stake',
         subtitle: 'Helpful when transport or movement is grouped by stake.',
         rows: analytics.stakeRows,
+        pageKey: 'log_stake',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -802,6 +846,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful for transport grouping, supplies handoff, and localized follow-up.',
         rows: analytics.wardRows,
+        maxItems: 19,
+        pageKey: 'log_ward',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -809,6 +855,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'For gender-specific supply planning when it is operationally relevant.',
         rows: analytics.genderRows,
+        pageKey: 'log_gender',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -817,6 +864,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'These attendees are already on site but still need a room assignment for logistics follow-through.',
         items: analytics.missingRoomAlerts,
         emptyMessage: 'No checked-in participant is missing a room assignment.',
+        pageKey: 'log_missing_room',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -826,6 +874,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.missingTableAlerts,
         emptyMessage:
             'No checked-in participant is missing a group assignment.',
+        pageKey: 'log_missing_group',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -833,6 +882,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows room concentration so logistics can see where people are being placed.',
         rows: analytics.roomRows,
+        pageKey: 'log_rooms',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -840,6 +890,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful when logistics also supports group-based group movement or materials distribution.',
         rows: analytics.tableRows,
+        pageKey: 'log_tables',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -848,11 +899,100 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'These participants have not arrived yet and may affect transport loads or unused materials.',
         items: analytics.noShowAlerts,
         emptyMessage: 'No no-shows are currently recorded.',
+        pageKey: 'log_no_show',
       ),
+      const SizedBox(height: 12),
+      // NEW: Groups ready for hotel check-in card
+      _buildGroupsReadyForCheckInCard(),
     ];
   }
 
-  List<Widget> _buildFoodView(AppState appState, _AnalyticsSnapshot analytics) {
+  // ---------------------------------------------------------------------------
+  // NEW CARD: Groups Ready for Hotel Check‑in (Logistics view)
+  // ---------------------------------------------------------------------------
+  Widget _buildGroupsReadyForCheckInCard() {
+    // Compute groups that are fully ready: all assigned participants are fully verified.
+    final Map<String, List<String>> groupRooms = {};
+    final Map<String, int> groupAssigned = {};
+    final Map<String, int> groupFullyReady = {};
+    for (final p in _participants) {
+      final group = p.tableNumber?.trim();
+      if (group == null || group.isEmpty) continue;
+      groupAssigned[group] = (groupAssigned[group] ?? 0) + 1;
+      if (p.isFullyVerified) {
+        groupFullyReady[group] = (groupFullyReady[group] ?? 0) + 1;
+        if (p.roomNumber != null && p.roomNumber!.trim().isNotEmpty) {
+          groupRooms.putIfAbsent(group, () => <String>[]);
+          if (!groupRooms[group]!.contains(p.roomNumber!.trim())) {
+            groupRooms[group]!.add(p.roomNumber!.trim());
+          }
+        }
+      }
+    }
+
+    final readyGroups = <String>[];
+    for (final entry in groupAssigned.entries) {
+      if ((groupFullyReady[entry.key] ?? 0) == entry.value) {
+        readyGroups.add(entry.key);
+      }
+    }
+    readyGroups.sort((a, b) =>
+        int.tryParse(a)?.compareTo(int.tryParse(b) ?? 0) ?? a.compareTo(b));
+
+    if (readyGroups.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Groups Ready for Hotel Check‑in',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            ...readyGroups.map((group) {
+              final rooms = groupRooms[group] ?? [];
+              final roomsText =
+                  rooms.isEmpty ? 'No rooms assigned' : rooms.join(', ');
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.meeting_room,
+                        size: 20, color: FSYScannerApp.primaryBlue),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          style: DefaultTextStyle.of(context).style,
+                          children: [
+                            TextSpan(
+                              text: 'Group $group ',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            TextSpan(text: '→ rooms $roomsText'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildFoodView(AppState appState, _AnalyticsSnapshot analytics,
+      _AnalyticsSnapshot? previous) {
     return [
       _buildBriefingCard(
         title: 'Food',
@@ -906,6 +1046,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.foodAttentionAlerts,
         emptyMessage:
             'No checked-in participant is currently marked for food attention.',
+        pageKey: 'food_restriction_list',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -913,6 +1054,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Counts grouped from the structured medical/food category plus available detail notes.',
         rows: analytics.foodCategoryRows,
+        pageKey: 'food_categories',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -920,12 +1062,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Use assigned groups when meal release or seating is organized by group.',
         rows: analytics.tablePresenceRows,
+        pageKey: 'food_table_presence',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Serving Load By Stake',
         subtitle: 'Helpful when meal flow is coordinated at a group level.',
         rows: analytics.stakeRows,
+        pageKey: 'food_stake',
       ),
       const SizedBox(height: 12),
     ];
@@ -934,6 +1078,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildMedicalView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     return [
       _buildBriefingCard(
@@ -988,6 +1133,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.urgentMedicalAlerts,
         emptyMessage:
             'No checked-in participant currently matches urgent medical attention signals.',
+        pageKey: 'med_urgent',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -996,6 +1142,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this list for general awareness, follow-up, and local coordination.',
         items: analytics.medicalOnSiteAlerts,
         emptyMessage: 'No checked-in participant currently has medical notes.',
+        pageKey: 'med_on_site',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -1005,6 +1152,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.medicalNotArrivedAlerts,
         emptyMessage:
             'Every participant with medical notes has already arrived.',
+        pageKey: 'med_not_arrived',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1012,6 +1160,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'A practical grouping using the structured medical category and the available note detail.',
         rows: analytics.medicalCategoryRows,
+        pageKey: 'med_categories',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Medical Participants Without Room or Group',
+        subtitle:
+            'These on-site participants have medical flags but are harder to locate because room or group assignment is missing.',
+        items: analytics.medicalWithoutLocationAlerts,
+        emptyMessage:
+            'All on-site medical-flagged participants currently have a room and group assigned.',
+        pageKey: 'med_without_location',
       ),
       const SizedBox(height: 12),
       _buildGapNoteCard(
@@ -1023,8 +1182,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ];
   }
 
-  List<Widget> _buildAdminView(
-      AppState appState, _AnalyticsSnapshot analytics) {
+  List<Widget> _buildAdminView(AppState appState, _AnalyticsSnapshot analytics,
+      _AnalyticsSnapshot? previous) {
     return [
       _buildBriefingCard(
         title: 'Admin',
@@ -1050,6 +1209,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             '${analytics.fullyVerifiedCount} are fully complete, ${analytics.pendingCount} are still absent.',
       ),
       const SizedBox(height: 12),
+      _buildCriticalBlockersCard(analytics),
+      const SizedBox(height: 12),
       _buildMetricGrid([
         _MetricCardData(
           label: 'Approved',
@@ -1057,6 +1218,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           helper: '${analytics.notApprovedCount} still not approved',
           icon: Icons.verified_outlined,
           color: FSYScannerApp.accentGreen,
+          delta: previous == null
+              ? null
+              : analytics.approvedCount - previous.approvedCount,
         ),
         _MetricCardData(
           label: 'Sync Queue',
@@ -1064,6 +1228,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           helper: '${analytics.failedSyncTaskCount} failed tasks need review',
           icon: Icons.sync_problem_outlined,
           color: FSYScannerApp.accentGold,
+          delta: previous == null
+              ? null
+              : analytics.pendingSyncTaskCount - previous.pendingSyncTaskCount,
         ),
         _MetricCardData(
           label: 'Top Scanner',
@@ -1078,6 +1245,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           helper: 'Cross-committee issues requiring attention',
           icon: Icons.crisis_alert_outlined,
           color: Colors.redAccent,
+          delta: previous == null
+              ? null
+              : analytics.exceptionCount - previous.exceptionCount,
         ),
       ]),
       const SizedBox(height: 12),
@@ -1112,6 +1282,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Headline timeline of check-in movement for leadership updates.',
         rows: analytics.hourlyCheckInRows,
+        pageKey: 'admin_hourly_checkin',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1119,6 +1290,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful when leadership needs a quick view of readiness before arrival and check-in are complete.',
         rows: analytics.statusRows,
+        pageKey: 'admin_status',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1126,6 +1298,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows how many participants are online-only, printed-only, or have both sources recorded.',
         rows: analytics.registrationSourceRows,
+        pageKey: 'admin_reg_source',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1133,6 +1306,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Useful for seeing which groups have already arrived and how heavily each stake is represented on site.',
         rows: analytics.stakeRows,
+        pageKey: 'admin_stake',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1140,6 +1314,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Helpful for oversight when specific wards need additional follow-up or coordination.',
         rows: analytics.wardRows,
+        maxItems: 19,
+        pageKey: 'admin_ward',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1147,6 +1323,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows which scanners have recorded the most check-ins in the latest data sample.',
         rows: analytics.deviceCheckInRows,
+        pageKey: 'admin_device_activity',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -1155,6 +1332,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'These participants are still absent and may need follow-up before the reporting deadline.',
         items: analytics.noShowAlerts,
         emptyMessage: 'No no-shows are currently recorded.',
+        pageKey: 'admin_no_show',
       ),
       const SizedBox(height: 12),
       _buildDeviceScopeCard(appState, analytics),
@@ -1164,6 +1342,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildActivitiesView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     return [
       _buildBriefingCard(
@@ -1215,12 +1394,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Group-by-group summary for games, classes, and release sequencing.',
         rows: analytics.tablePresenceRows,
+        pageKey: 'act_table_presence',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Group / Stake Breakdown',
         subtitle: 'Useful when forming teams or activity groups by stake.',
         rows: analytics.stakeRows,
+        pageKey: 'act_stake',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1228,6 +1409,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Use only when it is operationally relevant for group balancing or space planning.',
         rows: analytics.genderRows,
+        pageKey: 'act_gender',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -1237,6 +1419,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.missingTableAlerts,
         emptyMessage:
             'Every checked-in participant currently has a group assignment.',
+        pageKey: 'act_missing_group',
       ),
     ];
   }
@@ -1244,6 +1427,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildDevelopersView(
     AppState appState,
     _AnalyticsSnapshot analytics,
+    _AnalyticsSnapshot? previous,
   ) {
     return [
       _buildBriefingCard(
@@ -1325,6 +1509,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             value:
                 '${analytics.pendingSyncTaskCount} pending tasks, ${analytics.failedSyncTaskCount} failed tasks, ${analytics.syncErrorSampleCount} tasks with last_error text',
           ),
+          _AttentionItem(
+            label: 'Oldest pending sync task age',
+            value: analytics.oldestSyncTaskAgeMinutes == 0
+                ? 'No pending sync tasks'
+                : '${analytics.oldestSyncTaskAgeMinutes.toStringAsFixed(1)} minutes old — tasks stuck this long may need manual review.',
+          ),
+          _AttentionItem(
+            label: 'Print success rate trend',
+            value: analytics.printSuccessRateTrendLabel,
+          ),
         ],
       ),
       const SizedBox(height: 12),
@@ -1333,12 +1527,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Shows which scanner IDs have been associated with completed check-ins.',
         rows: analytics.deviceCheckInRows,
+        pageKey: 'dev_device_ids',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
         title: 'Pending Sync Tasks By Type',
         subtitle: 'Shows which local writes are waiting to leave the device.',
         rows: analytics.syncTypeRows,
+        pageKey: 'dev_sync_types',
       ),
       const SizedBox(height: 12),
       _buildBreakdownCard(
@@ -1346,6 +1542,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         subtitle:
             'Grouped from recent failed print attempts to make recurring hardware or transport issues easier to spot.',
         rows: analytics.printFailureReasonRows,
+        pageKey: 'dev_print_failures',
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
@@ -1355,6 +1552,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         items: analytics.technicalExceptionAlerts,
         emptyMessage:
             'No recent local exception sample is currently available.',
+        pageKey: 'dev_exceptions',
       ),
       const SizedBox(height: 12),
       _buildGapNoteCard(
@@ -1543,6 +1741,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildMetricCard(_MetricCardData data) {
+    final hasDelta = data.delta != null && data.delta != 0;
+    final deltaPositive = (data.delta ?? 0) > 0;
+    final deltaLabel = deltaPositive ? '+${data.delta}' : '${data.delta}';
+    final deltaColor =
+        deltaPositive ? FSYScannerApp.accentGreen : Colors.redAccent;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1551,27 +1754,59 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           children: [
             Row(
               children: [
-                Icon(data.icon, color: data.color),
+                Icon(data.icon, color: data.color, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     data.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              data.value,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  data.value,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (hasDelta) ...[
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: deltaColor.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        deltaLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: deltaColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 6),
             Text(
               data.helper,
-              maxLines: 3,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.grey[700]),
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
             ),
           ],
         ),
@@ -1605,7 +1840,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       padding: EdgeInsets.only(top: 3),
                       child: Icon(
                         Icons.warning_amber_rounded,
-                        size: 18,
+                        size: 12,
                         color: Colors.deepOrange,
                       ),
                     ),
@@ -1639,49 +1874,106 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required String title,
     required String subtitle,
     required List<_BreakdownRow> rows,
+    int maxItems = 8,
+    required String pageKey,
   }) {
+    final totalPages = rows.isEmpty ? 1 : (rows.length / maxItems).ceil();
+    // ensure page is valid
+    final currentPage = (_breakdownPage[pageKey] ?? 0).clamp(0, totalPages - 1);
+    final start = currentPage * maxItems;
+    final end = (start + maxItems).clamp(0, rows.length);
+    final pageRows = rows.sublist(start, end);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
+            Text(title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+            Text(subtitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey[700])),
             const SizedBox(height: 12),
             if (rows.isEmpty)
-              Text(
-                'No relevant data is available for this view yet.',
-                style: TextStyle(color: Colors.grey[700]),
-              )
-            else
-              ...rows.take(8).map(_buildBreakdownRow),
+              Text('No relevant data is available for this view yet.',
+                  style: TextStyle(color: Colors.grey[700]))
+            else ...[
+              ...pageRows.map(_buildBreakdownRow),
+              if (totalPages > 1) ...[
+                const SizedBox(height: 8),
+                _buildPaginationControls(
+                  currentPage: currentPage,
+                  totalPages: totalPages,
+                  onPageChanged: (newPage) {
+                    setState(() {
+                      _breakdownPage[pageKey] = newPage;
+                    });
+                  },
+                ),
+              ],
+            ],
           ],
         ),
       ),
     );
   }
 
+  Widget _buildPaginationControls({
+    required int currentPage,
+    required int totalPages,
+    required ValueChanged<int> onPageChanged,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.chevron_left),
+          onPressed:
+              currentPage > 0 ? () => onPageChanged(currentPage - 1) : null,
+        ),
+        Text('${currentPage + 1} of $totalPages'),
+        IconButton(
+          icon: const Icon(Icons.chevron_right),
+          onPressed: currentPage < totalPages - 1
+              ? () => onPageChanged(currentPage + 1)
+              : null,
+        ),
+      ],
+    );
+  }
+
   Widget _buildBreakdownRow(_BreakdownRow row) {
+    final hasCurrent = row.current != null && row.total > 0;
+    final progress =
+        hasCurrent ? (row.current! / row.total).clamp(0.0, 1.0) : 0.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
                   row.label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 row.trailing,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: row.highlightColor,
@@ -1689,8 +1981,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ],
           ),
+          if (hasCurrent) ...[
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(999),
+              color: row.highlightColor,
+              backgroundColor: row.highlightColor.withValues(alpha: 0.15),
+            ),
+          ],
           const SizedBox(height: 4),
-          Text(row.caption, style: TextStyle(color: Colors.grey[700])),
+          Text(
+            row.caption,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+          ),
         ],
       ),
     );
@@ -1701,62 +2008,186 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required String subtitle,
     required List<_ParticipantAlert> items,
     required String emptyMessage,
+    int maxItems = 8,
+    required String pageKey,
   }) {
+    final totalPages = items.isEmpty ? 1 : (items.length / maxItems).ceil();
+    final currentPage =
+        (_participantListPage[pageKey] ?? 0).clamp(0, totalPages - 1);
+    final start = currentPage * maxItems;
+    final end = (start + maxItems).clamp(0, items.length);
+    final pageItems = items.sublist(start, end);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
+            Text(title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
-            Text(subtitle, style: TextStyle(color: Colors.grey[700])),
+            Text(subtitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.grey[700])),
             const SizedBox(height: 12),
             if (items.isEmpty)
               Text(emptyMessage, style: TextStyle(color: Colors.grey[700]))
-            else
-              ...items.take(8).map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: item.color.withValues(alpha: 0.12),
-                            foregroundColor: item.color,
-                            child: Icon(item.icon, size: 18),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
+            else ...[
+              ...pageItems.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: item.color.withValues(alpha: 0.12),
+                          foregroundColor: item.color,
+                          child: Icon(item.icon, size: 12),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.detail,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (item.trailing != null) ...[
+                                const SizedBox(height: 4),
                                 Text(
-                                  item.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                  item.trailing!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(item.detail),
-                                if (item.trailing != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item.trailing!,
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
                               ],
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ),
+                  )),
+              if (totalPages > 1) ...[
+                const SizedBox(height: 8),
+                _buildPaginationControls(
+                  currentPage: currentPage,
+                  totalPages: totalPages,
+                  onPageChanged: (newPage) {
+                    setState(() {
+                      _participantListPage[pageKey] = newPage;
+                    });
+                  },
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCriticalBlockersCard(_AnalyticsSnapshot analytics) {
+    final blockers = <String>[];
+    if (analytics.checkedInMissingTableCount > 0) {
+      blockers.add(
+          '${analytics.checkedInMissingTableCount} arrived participants still need a group assignment.');
+    }
+    if (analytics.checkedInMissingRoomCount > 0) {
+      blockers.add(
+          '${analytics.checkedInMissingRoomCount} arrived participants still need a room assignment.');
+    }
+    if (analytics.failedSyncTaskCount > 0) {
+      blockers.add(
+          '${analytics.failedSyncTaskCount} sync tasks have failed and need review.');
+    }
+    if (analytics.staleQueuedPrintCount > 0) {
+      blockers.add(
+          '${analytics.staleQueuedPrintCount} print jobs have been queued for over 10 minutes.');
+    }
+    if (analytics.urgentMedicalOnSiteCount > 0) {
+      blockers.add(
+          '${analytics.urgentMedicalOnSiteCount} on-site participants need urgent medical review.');
+    }
+    if (analytics.medicalWithoutLocationCount > 0) {
+      blockers.add(
+          '${analytics.medicalWithoutLocationCount} medical-flagged participants have no room or group assigned.');
+    }
+    if (analytics.partiallyVerifiedCount > 0) {
+      blockers.add(
+          '${analytics.partiallyVerifiedCount} participants are partially registered and still not fully complete.');
+    }
+    if (blockers.isEmpty) {
+      return Card(
+        color: FSYScannerApp.accentGreen.withValues(alpha: 0.08),
+        child: const Padding(
+          padding: EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle_outline,
+                  color: FSYScannerApp.accentGreen),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'No critical blockers right now.',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Card(
+      color: Colors.red.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.crisis_alert_outlined,
+                    color: Colors.redAccent),
+                const SizedBox(width: 8),
+                Text(
+                  '${blockers.length} Critical Blocker${blockers.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...blockers.map(
+              (b) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Icon(Icons.error_outline,
+                          size: 14, color: Colors.redAccent),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(b)),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -2250,6 +2681,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helper model classes
+// ---------------------------------------------------------------------------
+
 class _AnalyticsSnapshot {
   final int totalParticipants;
   final int checkedInCount;
@@ -2327,6 +2762,16 @@ class _AnalyticsSnapshot {
   final List<_ParticipantAlert> medicalOnSiteAlerts;
   final List<_ParticipantAlert> medicalNotArrivedAlerts;
   final List<_ParticipantAlert> technicalExceptionAlerts;
+  final String estimatedCompletionLabel;
+  final int recentVelocity;
+  final int previousVelocity;
+  final String velocityShortLabel;
+  final String velocityTrendLabel;
+  final List<_ParticipantAlert> medicalWithoutLocationAlerts;
+  final double oldestSyncTaskAgeMinutes;
+  final double printSuccessRateLastHour;
+  final double printSuccessRatePreviousHour;
+  final String printSuccessRateTrendLabel;
 
   const _AnalyticsSnapshot({
     required this.totalParticipants,
@@ -2405,6 +2850,16 @@ class _AnalyticsSnapshot {
     required this.medicalOnSiteAlerts,
     required this.medicalNotArrivedAlerts,
     required this.technicalExceptionAlerts,
+    required this.estimatedCompletionLabel,
+    required this.recentVelocity,
+    required this.previousVelocity,
+    required this.velocityShortLabel,
+    required this.velocityTrendLabel,
+    required this.medicalWithoutLocationAlerts,
+    required this.oldestSyncTaskAgeMinutes,
+    required this.printSuccessRateLastHour,
+    required this.printSuccessRatePreviousHour,
+    required this.printSuccessRateTrendLabel,
   });
 
   factory _AnalyticsSnapshot.fromData({
@@ -2571,7 +3026,7 @@ class _AnalyticsSnapshot {
     final printFailureReasonRows = _buildSimpleCountRows(
       _buildPrintFailureReasonCounts(printAttempts),
     );
-    final tshirtRows = _buildSimpleCountRows(_buildTshirtCounts(participants));
+    final tshirtRows = _buildTshirtRows(participants);
     final deviceCheckInRows = _buildSimpleCountRows(
       _buildDeviceCheckInCounts(checkedIn),
     );
@@ -2777,6 +3232,102 @@ class _AnalyticsSnapshot {
         : deviceCheckInRows
             .reduce((left, right) => left.total >= right.total ? left : right);
 
+    final remainingCount = pending.length;
+    String estimatedCompletionLabel;
+    if (remainingCount == 0) {
+      estimatedCompletionLabel = 'All registered participants have arrived.';
+    } else if (recentHourCount <= 0) {
+      estimatedCompletionLabel =
+          'Pace is too slow to estimate arrival completion.';
+    } else {
+      final hoursLeft = remainingCount / recentHourCount;
+      if (hoursLeft < 1) {
+        final minutesLeft = (hoursLeft * 60).round();
+        estimatedCompletionLabel =
+            'At current pace, full arrival in ~$minutesLeft minutes.';
+      } else {
+        estimatedCompletionLabel =
+            'At current pace, full arrival in ~${hoursLeft.toStringAsFixed(1)} hours.';
+      }
+    }
+
+    final recent30MinAgo = now - const Duration(minutes: 30).inMilliseconds;
+    final prev30MinAgo = now - const Duration(minutes: 60).inMilliseconds;
+    final recentVelocity =
+        checkedIn.where((p) => (p.verifiedAt ?? 0) >= recent30MinAgo).length;
+    final previousVelocity = checkedIn
+        .where((p) =>
+            (p.verifiedAt ?? 0) >= prev30MinAgo &&
+            (p.verifiedAt ?? 0) < recent30MinAgo)
+        .length;
+    final String velocityShortLabel;
+    final String velocityTrendLabel;
+    if (recentVelocity > previousVelocity + 2) {
+      velocityShortLabel = '↑ $recentVelocity/30 min — accelerating';
+      velocityTrendLabel =
+          '↑ Pace accelerating: $recentVelocity check-ins in the last 30 min vs $previousVelocity in the prior 30 min.';
+    } else if (recentVelocity < previousVelocity - 2) {
+      velocityShortLabel = '↓ $recentVelocity/30 min — slowing';
+      velocityTrendLabel =
+          '↓ Pace slowing: $recentVelocity check-ins in the last 30 min vs $previousVelocity in the prior 30 min.';
+    } else {
+      velocityShortLabel = '→ $recentVelocity/30 min — steady';
+      velocityTrendLabel =
+          '→ Pace steady: $recentVelocity check-ins in the last 30 min.';
+    }
+
+    final medicalWithoutLocationAlerts = medicalOnSite
+        .where((p) => !_hasText(p.roomNumber) || !_hasText(p.tableNumber))
+        .map((p) => _ParticipantAlert(
+              name: p.fullName,
+              detail: _medicalSummary(p),
+              trailing:
+                  'No ${!_hasText(p.roomNumber) ? 'room' : 'group'} assigned',
+              icon: Icons.location_off_outlined,
+              color: Colors.redAccent,
+            ))
+        .toList();
+
+    final pendingTaskCreatedAts = activeSyncTasks.map((t) => t.createdAt);
+    final oldestSyncTaskAgeMinutes = pendingTaskCreatedAts.isEmpty
+        ? 0.0
+        : (now - pendingTaskCreatedAts.reduce((a, b) => a < b ? a : b)) /
+            const Duration(minutes: 1).inMilliseconds;
+
+    final prevHourAgo = now - const Duration(hours: 2).inMilliseconds;
+    final attemptsLastHour =
+        printAttempts.where((a) => a.finishedAt >= recentHourAgo).toList();
+    final attemptsPrevHour = printAttempts
+        .where(
+            (a) => a.finishedAt >= prevHourAgo && a.finishedAt < recentHourAgo)
+        .toList();
+    final printSuccessRateLastHour = attemptsLastHour.isEmpty
+        ? 0.0
+        : attemptsLastHour.where((a) => a.outcome == 'success').length /
+            attemptsLastHour.length *
+            100;
+    final printSuccessRatePreviousHour = attemptsPrevHour.isEmpty
+        ? 0.0
+        : attemptsPrevHour.where((a) => a.outcome == 'success').length /
+            attemptsPrevHour.length *
+            100;
+    final String printSuccessRateTrendLabel;
+    if (attemptsLastHour.isEmpty) {
+      printSuccessRateTrendLabel = 'No print attempts in the last hour.';
+    } else if (attemptsPrevHour.isEmpty) {
+      printSuccessRateTrendLabel =
+          '${printSuccessRateLastHour.toStringAsFixed(0)}% success rate this hour (no prior hour data).';
+    } else {
+      final diff = printSuccessRateLastHour - printSuccessRatePreviousHour;
+      final arrow = diff > 5
+          ? '↑'
+          : diff < -5
+              ? '↓'
+              : '→';
+      printSuccessRateTrendLabel =
+          '$arrow Print success ${printSuccessRateLastHour.toStringAsFixed(0)}% this hour vs ${printSuccessRatePreviousHour.toStringAsFixed(0)}% last hour.';
+    }
+
     return _AnalyticsSnapshot(
       totalParticipants: participants.length,
       checkedInCount: checkedIn.length,
@@ -2854,9 +3405,22 @@ class _AnalyticsSnapshot {
       medicalOnSiteAlerts: medicalOnSiteAlerts,
       medicalNotArrivedAlerts: medicalNotArrivedAlerts,
       technicalExceptionAlerts: technicalExceptionAlerts,
+      estimatedCompletionLabel: estimatedCompletionLabel,
+      recentVelocity: recentVelocity,
+      previousVelocity: previousVelocity,
+      velocityShortLabel: velocityShortLabel,
+      velocityTrendLabel: velocityTrendLabel,
+      medicalWithoutLocationAlerts: medicalWithoutLocationAlerts,
+      oldestSyncTaskAgeMinutes: oldestSyncTaskAgeMinutes,
+      printSuccessRateLastHour: printSuccessRateLastHour,
+      printSuccessRatePreviousHour: printSuccessRatePreviousHour,
+      printSuccessRateTrendLabel: printSuccessRateTrendLabel,
     );
   }
 
+  // -----------------------------------------------------------------------
+  // Static helper methods – complete, no placeholders
+  // -----------------------------------------------------------------------
   static List<_BreakdownRow> _buildLocationRows({
     required List<Participant> participants,
     required String? Function(Participant participant) selector,
@@ -2867,7 +3431,6 @@ class _AnalyticsSnapshot {
       final label = _cleanValue(selector(participant), unknownLabel);
       grouped.putIfAbsent(label, () => []).add(participant);
     }
-
     final rows = grouped.entries.map((entry) {
       final total = entry.value.length;
       final onSite =
@@ -2886,7 +3449,6 @@ class _AnalyticsSnapshot {
       );
     }).toList()
       ..sort((left, right) => right.total.compareTo(left.total));
-
     return rows;
   }
 
@@ -2900,7 +3462,6 @@ class _AnalyticsSnapshot {
       final label = _cleanValue(selector(participant), unknownLabel);
       grouped.putIfAbsent(label, () => []).add(participant);
     }
-
     final rows = grouped.entries.map((entry) {
       final total = entry.value.length;
       final onSite =
@@ -2919,7 +3480,6 @@ class _AnalyticsSnapshot {
       );
     }).toList()
       ..sort((left, right) => right.total.compareTo(left.total));
-
     return rows;
   }
 
@@ -2979,13 +3539,27 @@ class _AnalyticsSnapshot {
     return counts;
   }
 
-  static Map<String, int> _buildTshirtCounts(List<Participant> participants) {
-    final counts = <String, int>{};
-    for (final participant in participants) {
-      final label = _cleanValue(participant.tshirtSize, 'No size recorded');
-      counts.update(label, (value) => value + 1, ifAbsent: () => 1);
+  static List<_BreakdownRow> _buildTshirtRows(List<Participant> participants) {
+    final grouped = <String, List<Participant>>{};
+    for (final p in participants) {
+      final label = _cleanValue(p.tshirtSize, 'No size recorded');
+      grouped.putIfAbsent(label, () => []).add(p);
     }
-    return counts;
+    return grouped.entries.map((entry) {
+      final total = entry.value.length;
+      final onSite = entry.value.where((p) => p.verifiedAt != null).length;
+      return _BreakdownRow(
+        label: entry.key,
+        trailing: '$onSite / $total arrived',
+        caption: '${total - onSite} still not on site',
+        total: total,
+        current: onSite,
+        highlightColor: onSite == total && total > 0
+            ? FSYScannerApp.accentGreen
+            : FSYScannerApp.primaryBlue,
+      );
+    }).toList()
+      ..sort((a, b) => b.total.compareTo(a.total));
   }
 
   static Map<String, int> _buildDeviceCheckInCounts(
@@ -3071,7 +3645,6 @@ class _AnalyticsSnapshot {
       final label = _cleanValue(selector(participant), unknownLabel);
       grouped.putIfAbsent(label, () => []).add(participant);
     }
-
     final rows = grouped.entries.map((entry) {
       final assigned = entry.value.length;
       final present =
@@ -3090,7 +3663,6 @@ class _AnalyticsSnapshot {
       );
     }).toList()
       ..sort((left, right) => right.total.compareTo(left.total));
-
     return rows;
   }
 
@@ -3445,6 +4017,7 @@ class _MetricCardData {
   final String helper;
   final IconData icon;
   final Color color;
+  final int? delta;
 
   const _MetricCardData({
     required this.label,
@@ -3452,6 +4025,7 @@ class _MetricCardData {
     required this.helper,
     required this.icon,
     required this.color,
+    this.delta,
   });
 }
 
@@ -3471,6 +4045,7 @@ class _BreakdownRow {
   final String caption;
   final int total;
   final Color highlightColor;
+  final int? current;
 
   const _BreakdownRow({
     required this.label,
@@ -3478,6 +4053,7 @@ class _BreakdownRow {
     required this.caption,
     required this.total,
     required this.highlightColor,
+    this.current,
   });
 }
 

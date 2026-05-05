@@ -4278,3 +4278,42 @@ Implemented automatic removal of stale print jobs that become irrelevant after a
 
 - Stale job cleanup was not in the original plan; it was added as a direct response to a multi‑device operational gap discovered during field testing.
 
+# **69.0 — Group Completion Notifications & Hotel Check‑in View**
+
+## 2026-05-05 – Group Completion Notifications & Hotel Check‑in View
+
+### Features Added
+- **Phone notifications when a group becomes fully ready**  
+  After each successful sync pull, the app detects which groups have all members fully verified (checked in + printed). New completions trigger a local heads‑up notification showing the group name and assigned rooms.
+
+- **Persistence of notified groups**  
+  The list of already‑notified group names is stored in `app_settings` to avoid duplicate notifications.
+
+- **Tap‑to‑open notification**  
+  Tapping a group‑ready notification now opens the Analytics screen directly in the Logistics view and scrolls to the specific group.
+
+- **"Groups Ready for Hotel Check‑in" card in Logistics**  
+  The Logistics view in Analytics now displays a card listing all groups that are fully ready, along with their room assignments.
+
+### Files Changed / Added
+
+| File                                        | Description                                                                 |
+|---------------------------------------------|-----------------------------------------------------------------------------|
+| `lib/services/notification_service.dart`    | **New** – Abstracted local notification logic; supports payload for navigation. |
+| `lib/sync/sync_engine.dart`                 | Added `_checkAndNotifyGroupCompletions()`; called after every successful pull. |
+| `lib/screens/analytics_screen.dart`         | Added `_buildGroupsReadyForCheckInCard()`; extended constructor for initial view and group highlighting; `ScrollController` for auto‑scroll on tap. |
+| `lib/main.dart`                             | Initialised `NotificationService`; set up global navigator key and tapped‑notification handler. |
+| `lib/sync/sync_engine.dart`                 | Included import of `participants_dao.dart` and `notification_service.dart`. |
+| `pubspec.yaml`                              | Added `flutter_local_notifications: ^18.0.1`. |
+
+### Architectural Notes
+- Detection logic runs **only after a successful pull** from Google Sheets.  
+- The algorithm counts all participants per group and checks if all are `isFullyVerified`.  
+- Notified groups are stored as a comma‑separated string in `app_settings` under key `notified_completed_groups`.  
+- The notification payload uses a JSON object `{"view": "logistics", "group": <groupName>}` to enable deep linking.
+
+### Testing
+- [ ] Verify that a notification fires when the last member of a group is checked in and printed (after the next sync).  
+- [ ] Verify that tapping the notification opens the Logistics view and highlights the correct group.  
+- [ ] Verify that the same group is not notified again after the initial notification.  
+- [ ] Verify the "Groups Ready for Hotel Check‑in" card updates correctly as data changes.

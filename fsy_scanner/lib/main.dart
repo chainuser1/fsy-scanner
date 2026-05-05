@@ -8,6 +8,7 @@ import 'app.dart';
 import 'db/database_helper.dart'; // <-- added
 import 'db/sync_queue_dao.dart';
 import 'providers/app_state.dart';
+import 'services/notification_service.dart';
 import 'utils/logger.dart';
 
 void main() async {
@@ -58,7 +59,7 @@ class _BootstrapAppState extends State<BootstrapApp> {
       await appState.refreshParticipantsCount();
       appState.setPendingTaskCount(await SyncQueueDao.getPendingCount());
       await appState.startPrinterAutomation();
-
+      await NotificationService.init();
       if (!mounted) {
         return;
       }

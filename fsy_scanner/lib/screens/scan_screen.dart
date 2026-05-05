@@ -579,10 +579,8 @@ class _ScanScreenState extends State<ScanScreen>
                         Expanded(
                           child: Text(
                             appState.printerConnected
-                                ? '${appState.printerFailedJobCount} receipt${appState.printerFailedJobCount == 1 ? '' : 's'} waiting to retry automatically.'
-                                : appState.printerFailedJobCount > 0
-                                    ? 'Printer disconnected. Continue scanning; ${appState.printerFailedJobCount} receipt${appState.printerFailedJobCount == 1 ? '' : 's'} queued for auto-retry.'
-                                    : 'Printer disconnected. Continue scanning; receipts will queue until the printer reconnects.',
+                                ? '${appState.printerFailedJobCount} receipt${appState.printerFailedJobCount == 1 ? '' : 's'} waiting to retry manually.'
+                                : 'Printer disconnected. Check settings to retry failed prints. Continue scanning.',
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,

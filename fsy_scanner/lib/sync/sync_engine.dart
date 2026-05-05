@@ -6,9 +6,11 @@ import 'package:sqflite/sqflite.dart';
 
 import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
+import '../db/participants_dao.dart'; // added for group completion check
 import '../db/sync_queue_dao.dart';
 import '../print/printer_service.dart';
 import '../providers/app_state.dart';
+import '../services/notification_service.dart'; // added for local notifications
 import '../utils/logger.dart';
 import 'puller.dart';
 import 'pusher.dart';
@@ -50,7 +52,6 @@ class SyncEngine {
 
   static void notifyUserActivity() {
     _lastUserActivity = DateTime.now();
-    // When user becomes active, the loop will immediately see the shorter interval
   }
 
   static Future<void> startup(AppState appState) async {
@@ -219,6 +220,9 @@ class SyncEngine {
       appState.setLastSyncedAt(DateTime.now());
       appState.setSyncError(null);
 
+      // NEW: check group completions after successful pull
+      await _checkAndNotifyGroupCompletions(appState);
+
       _setSyncing(true, message: 'Sync complete', progress: 1.0);
       await Future.delayed(const Duration(seconds: 1));
       LoggerUtil.info('[SyncEngine] Full sync completed');
@@ -278,6 +282,9 @@ class SyncEngine {
       unawaited(appState.refreshParticipantsCount());
       appState.setLastSyncedAt(DateTime.now());
       appState.setSyncError(null);
+
+      // NEW: check group completions after successful pull
+      await _checkAndNotifyGroupCompletions(appState);
 
       _setSyncing(true, message: 'Pull complete', progress: 1.0);
       await Future.delayed(const Duration(seconds: 1));
@@ -432,6 +439,9 @@ class SyncEngine {
         appState.setLastSyncedAt(DateTime.now());
         appState.setSyncError(null);
 
+        // NEW: check group completions after successful pull
+        await _checkAndNotifyGroupCompletions(appState);
+
         _setSyncing(true, message: 'Sync done', progress: 1.0);
         await Future.delayed(const Duration(milliseconds: 500));
 
@@ -478,8 +488,6 @@ class SyncEngine {
         maxWait.inMilliseconds) {
       // Check if a user scan should shorten the remaining time
       final remaining = maxWait - DateTime.now().difference(start);
-      // (1 - _rateLimitBackoffMultiplier / 100.0); // approximate
-      // Actually, just check if the ideal wait (currentIntervalMs) is significantly shorter than the remaining time
       final idealWait = _currentIntervalMs();
       if (idealWait < remaining.inMilliseconds) {
         // It's now shorter – stop waiting and return so the loop can recalculate
@@ -522,6 +530,99 @@ class SyncEngine {
     } catch (e) {
       LoggerUtil.error('[SyncEngine] Error reading setting $key: $e', error: e);
       return null;
+    }
+  }
+
+  /// ------------------------------------------------------------------
+  /// NEW: Group completion detection and notification
+  /// ------------------------------------------------------------------
+  static Future<void> _checkAndNotifyGroupCompletions(AppState appState) async {
+    try {
+      final db = await DatabaseHelper.database;
+      final participants = await ParticipantsDao(db).getAllParticipants();
+
+      // Build map: group name -> list of distinct room numbers (only for fully verified participants)
+      final Map<String, Set<String>> groupRooms = {};
+      for (final p in participants) {
+        if (p.isFullyVerified &&
+            p.tableNumber != null &&
+            p.tableNumber!.trim().isNotEmpty) {
+          final group = p.tableNumber!.trim();
+          groupRooms.putIfAbsent(group, () => <String>{});
+          if (p.roomNumber != null && p.roomNumber!.trim().isNotEmpty) {
+            groupRooms[group]!.add(p.roomNumber!.trim());
+          }
+        }
+      }
+
+      // Determine which groups are fully ready: only if every assigned participant is fully verified
+      final Map<String, int> allAssignedCounts = {};
+      for (final p in participants) {
+        final group = p.tableNumber?.trim();
+        if (group == null || group.isEmpty) continue;
+        allAssignedCounts[group] = (allAssignedCounts[group] ?? 0) + 1;
+      }
+
+      final Map<String, int> fullyVerifiedCounts = {};
+      for (final p in participants) {
+        final group = p.tableNumber?.trim();
+        if (group == null || group.isEmpty) continue;
+        if (p.isFullyVerified) {
+          fullyVerifiedCounts[group] = (fullyVerifiedCounts[group] ?? 0) + 1;
+        }
+      }
+
+      final fullyReadyGroups = <String>{};
+      for (final entry in allAssignedCounts.entries) {
+        if ((fullyVerifiedCounts[entry.key] ?? 0) == entry.value) {
+          fullyReadyGroups.add(entry.key);
+        }
+      }
+
+      // Load previously notified set from app_settings
+      final prevResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['notified_completed_groups'],
+        limit: 1,
+      );
+      final Set<String> alreadyNotified = {};
+      if (prevResult.isNotEmpty) {
+        final raw = prevResult.first['value'] as String? ?? '';
+        if (raw.isNotEmpty) {
+          alreadyNotified.addAll(
+              raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty));
+        }
+      }
+
+      // Find new completions
+      final newCompletions = fullyReadyGroups.difference(alreadyNotified);
+
+      if (newCompletions.isNotEmpty) {
+        for (final group in newCompletions) {
+          final rooms = groupRooms[group] ?? <String>{};
+          final roomsText =
+              rooms.isEmpty ? 'no rooms assigned' : rooms.join(', ');
+          await NotificationService.showGroupReadyNotification(
+            groupName: group,
+            roomsText: roomsText,
+          );
+        }
+
+        // Update the stored set
+        final updatedSet = alreadyNotified.union(newCompletions);
+        final updatedValue = updatedSet.join(',');
+        await db.insert(
+            'app_settings',
+            {
+              'key': 'notified_completed_groups',
+              'value': updatedValue,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    } catch (e) {
+      LoggerUtil.error('[SyncEngine] Group completion check failed: $e',
+          error: e);
     }
   }
 }

@@ -29,7 +29,7 @@ class ReceiptBuilder {
     final formatter = DateFormat('dd MMM yyyy HH:mm');
     final timestamp = formatter.format(now);
     // final shortDeviceId =
-        // deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
+    // deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
     // final event = _cleanValue(eventName);
     // final organization = _toReceiptUpper(_cleanValue(organizationName));
     final fullName = _toReceiptUpper(_cleanValue(participant.fullName)) ?? '-';
