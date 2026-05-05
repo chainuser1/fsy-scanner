@@ -944,47 +944,100 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side:
+            BorderSide(color: FSYScannerApp.primaryBlue.withValues(alpha: 0.3)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Groups Ready for Hotel Check‑in',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            const Row(
+              children: [
+                Icon(Icons.meeting_room,
+                    size: 20, color: FSYScannerApp.primaryBlue),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Groups Ready for Hotel Check‑in',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            ...readyGroups.map((group) {
-              final rooms = groupRooms[group] ?? [];
-              final roomsText =
-                  rooms.isEmpty ? 'No rooms assigned' : rooms.join(', ');
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.meeting_room,
-                        size: 20, color: FSYScannerApp.primaryBlue),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: DefaultTextStyle.of(context).style,
+            ...readyGroups.map(
+              (group) {
+                final rooms = groupRooms[group] ?? [];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: Icon(Icons.circle, size: 6, color: Colors.grey),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            TextSpan(
-                              text: 'Group $group ',
+                            Text(
+                              'Group $group',
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            TextSpan(text: '→ rooms $roomsText'),
+                            const SizedBox(height: 4),
+                            if (rooms.isNotEmpty)
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: rooms
+                                    .map(
+                                      (room) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: FSYScannerApp.primaryBlue
+                                              .withValues(alpha: 0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          'Room $room',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: FSYScannerApp.primaryBlue,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                              )
+                            else
+                              Text(
+                                'No rooms assigned',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            }),
+                    ],
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -1819,17 +1872,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required List<_AttentionItem> items,
   }) {
     return Card(
-      color: Colors.orange.withValues(alpha: 0.08),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.orange.shade200, width: 1.5),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    size: 20, color: Colors.orange.shade700),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Attention',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             ...items.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
@@ -1837,18 +1903,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Padding(
-                      padding: EdgeInsets.only(top: 3),
-                      child: Icon(
-                        Icons.warning_amber_rounded,
-                        size: 12,
-                        color: Colors.deepOrange,
-                      ),
+                      padding: EdgeInsets.only(top: 8),
+                      child: Icon(Icons.circle, size: 6, color: Colors.grey),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: RichText(
                         text: TextSpan(
-                          style: DefaultTextStyle.of(context).style,
+                          style: DefaultTextStyle.of(context)
+                              .style
+                              .copyWith(height: 1.4),
                           children: [
                             TextSpan(
                               text: '${item.label}: ',
