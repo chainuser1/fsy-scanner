@@ -987,13 +987,11 @@ class PrinterService {
         remaining: _failedJobs.length,
       );
     }
-    if (triggeredAutomatically && await _isCircuitBreakerOpen()) {
-      return PrinterRetrySummary(
-        attempted: 0,
-        succeeded: 0,
-        remaining: _failedJobs.length,
-      );
-    }
+    // Bypass the circuit breaker when the printer has just reconnected
+    // (ignoreBackoff == true). This prevents a scenario where 3+ consecutive
+    // failures opened the breaker while the printer was offline, and then
+    // when the printer comes back, automatic retry is permanently blocked
+    // even though the underlying connectivity issue is resolved.
     if (!ignoreBackoff && await _isCircuitBreakerOpen()) {
       return PrinterRetrySummary(
         attempted: 0,
