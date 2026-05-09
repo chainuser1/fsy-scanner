@@ -13,6 +13,7 @@ import '../print/printer_service.dart';
 import '../providers/app_state.dart';
 import '../services/analytics_export_service.dart';
 import '../sync/sync_engine.dart';
+import '../utils/grammar_helpers.dart';
 
 enum _CommitteeView {
   comprehensiveSummary,
@@ -176,7 +177,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       printJobs: _printJobs,
       printAttempts: _printAttempts,
     );
-    // Store for next build so metric cards can show deltas.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _previousSnapshot = analytics;
     });
@@ -411,10 +411,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   ) {
     final topTshirtSummary = analytics.tshirtRows.isEmpty
         ? 'No t-shirt sizes are recorded yet.'
-        : '${analytics.tshirtRows.first.trailing} participants need ${analytics.tshirtRows.first.label} shirts, the largest recorded size group.';
+        : '${analytics.tshirtRows.first.trailing} participant${analytics.tshirtRows.first.total == 1 ? '' : 's'} need${analytics.tshirtRows.first.total == 1 ? '' : ''} ${analytics.tshirtRows.first.label} shirts, the largest recorded size group.';
     final topGenderSummary = analytics.genderRows.isEmpty
         ? 'Gender data is not recorded yet.'
-        : '${analytics.genderRows.first.trailing} participants are in the largest recorded gender group.';
+        : '${analytics.genderRows.first.trailing} participant${analytics.genderRows.first.total == 1 ? '' : 's'} ${areIs(analytics.genderRows.first.total)} in the largest recorded gender group.';
 
     return [
       _buildBriefingCard(
@@ -424,9 +424,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           _buildSentenceList([
             'Generated ${DateFormat('dd MMM yyyy h:mm a').format(DateTime.now())}.',
-            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.',
-            '${analytics.pendingCount} are still not checked in, ${analytics.partiallyVerifiedCount} are still finishing registration, and ${analytics.checkedInMedicalFlagCount} on site have medical flags.',
-            'This device currently shows ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks, and ${analytics.queuedPrintCount} queued prints.',
+            '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.',
+            '${sn(analytics.pendingCount, 'participant')} ${areIs(analytics.pendingCount)} still not checked in, ${sn(analytics.partiallyVerifiedCount, 'participant')} ${areIs(analytics.partiallyVerifiedCount)} still finishing registration, and ${sn(analytics.checkedInMedicalFlagCount, 'participant')} on site ${hasHave(analytics.checkedInMedicalFlagCount)} medical flags.',
+            'This device currently shows ${sn(analytics.pendingSyncTaskCount, 'pending sync task')}, ${sn(analytics.failedSyncTaskCount, 'failed sync task')}, and ${sn(analytics.queuedPrintCount, 'queued print')}.',
             analytics.estimatedCompletionLabel,
             analytics.velocityTrendLabel,
           ]),
@@ -442,7 +442,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         current: analytics.checkedInCount,
         total: analytics.totalParticipants,
         subtitle:
-            '${analytics.fullyVerifiedCount} are fully complete and ${analytics.printedCount} have confirmed print output.',
+            '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully complete and ${sn(analytics.printedCount, 'participant')} ${hasHave(analytics.printedCount)} confirmed print output.',
       ),
       const SizedBox(height: 12),
       _buildMetricGrid([
@@ -481,11 +481,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Registration & Check-In',
         subtitle: 'Arrival progress, pace, and unresolved check-in work.',
         lines: [
-          '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
-          '${analytics.approvedCount} are approved in the roster and ${analytics.notApprovedCount} still need admin readiness attention.',
-          '${analytics.recentHourCount} check-ins happened in the last hour and ${analytics.recent15MinuteCount} in the last 15 minutes.',
-          '${analytics.pendingCount} participants still have no QR/check-in recorded.',
-          'Top scanner: ${analytics.topCheckInDeviceLabel} with ${analytics.topCheckInDeviceCount} check-ins.',
+          '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived.',
+          '${sn(analytics.approvedCount, 'participant')} ${areIs(analytics.approvedCount)} approved in the roster and ${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} admin readiness attention.',
+          '${sn(analytics.recentHourCount, 'check-in')} happened in the last hour and ${sn(analytics.recent15MinuteCount, 'check-in')} in the last 15 minutes.',
+          '${sn(analytics.pendingCount, 'participant')} still ${hasHave(analytics.pendingCount)} no QR/check-in recorded.',
+          'Top scanner: ${analytics.topCheckInDeviceLabel} with ${sn(analytics.topCheckInDeviceCount, 'check-in')}.',
         ],
       ),
       const SizedBox(height: 12),
@@ -493,10 +493,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Logistics',
         subtitle: 'Materials, transport grouping, and on-site assignment gaps.',
         lines: [
-          '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
-          '${analytics.checkedInMissingRoomCount} attendees still need a room and ${analytics.checkedInMissingTableCount} still need a group.',
+          '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently confirmed on site for materials planning.',
+          '${sn(analytics.checkedInMissingRoomCount, 'attendee')} still ${verb(analytics.checkedInMissingRoomCount, 'needs', 'need')} a room and ${sn(analytics.checkedInMissingTableCount, 'attendee')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group.',
           topTshirtSummary,
-          '${analytics.pendingCount} no-shows currently affect transport and supply planning.',
+          '${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting transport and supply planning.',
         ],
       ),
       const SizedBox(height: 12),
@@ -504,10 +504,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Food',
         subtitle: 'Meal count and restriction follow-up.',
         lines: [
-          '${analytics.checkedInCount} plates are the current on-site serving estimate.',
-          '${analytics.dietAttentionOnSiteCount} checked-in participants are explicitly marked for food attention or have matching restriction notes.',
-          '${analytics.noRestrictionOnSiteCount} checked-in participants currently show no restriction recorded.',
-          '${analytics.foodOnlyOnSiteCount} are food-only, while ${analytics.medicalAndFoodOnSiteCount} have both medical and food attention.',
+          '${sn(analytics.checkedInCount, 'plate')} ${areIs(analytics.checkedInCount)} the current on-site serving estimate.',
+          '${sn(analytics.dietAttentionOnSiteCount, 'checked-in participant')} ${areIs(analytics.dietAttentionOnSiteCount)} explicitly marked for food attention or ${hasHave(analytics.dietAttentionOnSiteCount)} matching restriction notes.',
+          '${sn(analytics.noRestrictionOnSiteCount, 'checked-in participant')} currently ${verb(analytics.noRestrictionOnSiteCount, 'shows', 'show')} no restriction recorded.',
+          '${sn(analytics.foodOnlyOnSiteCount, 'participant')} ${areIs(analytics.foodOnlyOnSiteCount)} food-only, while ${sn(analytics.medicalAndFoodOnSiteCount, 'participant')} ${hasHave(analytics.medicalAndFoodOnSiteCount)} both medical and food attention.',
           'Meal grouping can use assigned groups when needed.',
         ],
       ),
@@ -516,11 +516,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Medical / Health',
         subtitle: 'Who needs awareness or follow-up.',
         lines: [
-          '${analytics.checkedInMedicalFlagCount} checked-in participants have medical attention flags.',
-          '${analytics.urgentMedicalOnSiteCount} appear to need priority review and ${analytics.generalMedicalAwarenessOnSiteCount} are general awareness cases.',
-          '${analytics.medicalNotArrivedCount} participants with medical notes have not arrived yet.',
-          '${analytics.medicalOnlyOnSiteCount} are medical-only and ${analytics.medicalAndFoodOnSiteCount} have both medical and food follow-up.',
-          '${analytics.medicalWithoutLocationCount} medical-flagged attendees are harder to locate because room or group data is missing.',
+          '${sn(analytics.checkedInMedicalFlagCount, 'checked-in participant')} ${hasHave(analytics.checkedInMedicalFlagCount)} medical attention flags.',
+          '${sn(analytics.urgentMedicalOnSiteCount, 'participant')} ${verb(analytics.urgentMedicalOnSiteCount, 'appears', 'appear')} to need priority review and ${sn(analytics.generalMedicalAwarenessOnSiteCount, 'participant')} ${areIs(analytics.generalMedicalAwarenessOnSiteCount)} general awareness cases.',
+          '${sn(analytics.medicalNotArrivedCount, 'participant')} with medical notes ${hasHave(analytics.medicalNotArrivedCount)} not arrived yet.',
+          '${sn(analytics.medicalOnlyOnSiteCount, 'participant')} ${areIs(analytics.medicalOnlyOnSiteCount)} medical-only and ${sn(analytics.medicalAndFoodOnSiteCount, 'participant')} ${hasHave(analytics.medicalAndFoodOnSiteCount)} both medical and food follow-up.',
+          '${sn(analytics.medicalWithoutLocationCount, 'medical-flagged attendee')} ${areIs(analytics.medicalWithoutLocationCount)} harder to locate because room or group data is missing.',
         ],
       ),
       const SizedBox(height: 12),
@@ -528,10 +528,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Admin',
         subtitle: 'Leadership headlines and operational risk.',
         lines: [
-          '${analytics.fullyVerifiedCount} participants are fully complete.',
-          '${analytics.approvedCount} are approved and ${analytics.notApprovedCount} still need approval or online registration follow-up.',
-          '${analytics.printedCount} have printed receipts and ${analytics.notPrintedCount} checked-in participants are still missing confirmed print output.',
-          '${analytics.pendingSyncTaskCount} pending sync tasks and ${analytics.failedSyncTaskCount} failed tasks affect device confidence.',
+          '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully complete.',
+          '${sn(analytics.approvedCount, 'participant')} ${areIs(analytics.approvedCount)} approved and ${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} approval or online registration follow-up.',
+          '${sn(analytics.printedCount, 'participant')} ${hasHave(analytics.printedCount)} printed receipts and ${sn(analytics.notPrintedCount, 'checked-in participant')} ${areIs(analytics.notPrintedCount)} still missing confirmed print output.',
+          '${sn(analytics.pendingSyncTaskCount, 'pending sync task')} and ${sn(analytics.failedSyncTaskCount, 'failed task')} affect device confidence.',
           _formatLastSync(appState.lastSyncedAt),
         ],
       ),
@@ -540,9 +540,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Operations / Activities',
         subtitle: 'Grouping, group readiness, and attendance.',
         lines: [
-          '${analytics.fullyVerifiedCount} participants are fully ready for activities.',
-          '${analytics.completedTableCount} groups are fully ready and ${analytics.activeTableCount} groups have assigned participants.',
-          '${analytics.checkedInMissingTableCount} checked-in participants still need a group assignment.',
+          '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully ready for activities.',
+          '${sn(analytics.completedTableCount, 'group')} ${areIs(analytics.completedTableCount)} fully ready and ${sn(analytics.activeTableCount, 'group')} ${hasHave(analytics.activeTableCount)} assigned participants.',
+          '${sn(analytics.checkedInMissingTableCount, 'checked-in participant')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group assignment.',
           topGenderSummary,
         ],
       ),
@@ -551,8 +551,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: 'Developers',
         subtitle: 'Software, sync, print, and build health on this device.',
         lines: [
-          '${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed sync tasks, and ${analytics.syncErrorSampleCount} tasks with error text are in the local sample.',
-          '${analytics.printFailuresLastHour} print failures happened in the last hour and ${analytics.queuedPrintCount} print jobs are still queued.',
+          '${sn(analytics.pendingSyncTaskCount, 'pending sync task')}, ${sn(analytics.failedSyncTaskCount, 'failed sync task')}, and ${sn(analytics.syncErrorSampleCount, 'task')} with error text ${areIs(analytics.syncErrorSampleCount)} in the local sample.',
+          '${sn(analytics.printFailuresLastHour, 'print failure')} happened in the last hour and ${sn(analytics.queuedPrintCount, 'print job')} ${areIs(analytics.queuedPrintCount)} still queued.',
           'App version $_appVersion ($_appBuildNumber), database version $_dbVersion.',
           'Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
         ],
@@ -623,10 +623,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use arrival language here: who has arrived, how quickly check-ins are moving, which scanner is busiest, and who still has no QR/check-in recorded.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
-            '${analytics.recentHourCount} checked in during the last hour, and ${analytics.recent15MinuteCount} arrived in the last 15 minutes.',
-            '${analytics.pendingCount} participants still have no QR scan/check-in recorded.',
-            '${analytics.notApprovedCount} still need approval or online-registration follow-up.',
+            '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived.',
+            '${sn(analytics.recentHourCount, 'participant')} checked in during the last hour, and ${sn(analytics.recent15MinuteCount, 'participant')} arrived in the last 15 minutes.',
+            '${sn(analytics.pendingCount, 'participant')} still ${hasHave(analytics.pendingCount)} no QR scan/check-in recorded.',
+            '${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} approval or online-registration follow-up.',
             analytics.estimatedCompletionLabel,
             analytics.velocityTrendLabel,
           ]),
@@ -636,18 +636,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _buildProgressCard(
         title: 'Arrival Progress',
         headline:
-            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived',
+            '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived',
         current: analytics.checkedInCount,
         total: analytics.totalParticipants,
         subtitle:
-            '${analytics.fullyVerifiedCount} are fully complete and ${analytics.partiallyVerifiedCount} are still finishing the process.',
+            '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully complete and ${sn(analytics.partiallyVerifiedCount, 'participant')} ${areIs(analytics.partiallyVerifiedCount)} still finishing the process.',
       ),
       const SizedBox(height: 12),
       _buildMetricGrid([
         _MetricCardData(
           label: 'Arrived',
           value: '${analytics.checkedInCount}',
-          helper: '${analytics.pendingCount} still not arrived',
+          helper: '${sn(analytics.pendingCount, 'participant')} still not arrived',
           icon: Icons.how_to_reg_outlined,
           color: FSYScannerApp.primaryBlue,
           delta: previous == null
@@ -658,7 +658,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           label: 'Last Hour',
           value: '${analytics.recentHourCount}',
           helper:
-              '${analytics.recent15MinuteCount} in last 15 min • ${analytics.velocityShortLabel}',
+              '${sn(analytics.recent15MinuteCount, 'check-in')} in last 15 min • ${analytics.velocityShortLabel}',
           icon: Icons.schedule_outlined,
           color: FSYScannerApp.accentGreen,
         ),
@@ -673,7 +673,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           label: 'Still Partial',
           value: '${analytics.partiallyVerifiedCount}',
           helper:
-              '${analytics.pendingConfirmationCount} awaiting print confirmation',
+              '${sn(analytics.pendingConfirmationCount, 'participant')} awaiting print confirmation',
           icon: Icons.receipt_long_outlined,
           color: Colors.orangeAccent,
           delta: previous == null
@@ -762,9 +762,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this for materials, transport grouping, and assignment cleanup. Speak in counts the logistics team can act on immediately.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInCount} participants are currently confirmed on site for materials planning.',
-            '${analytics.pendingCount} participants are still absent, which affects unused supplies and transport plans.',
-            '${analytics.missingAssignmentCount} checked-in participants still need room or group follow-up.',
+            '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently confirmed on site for materials planning.',
+            '${sn(analytics.pendingCount, 'participant')} ${areIs(analytics.pendingCount)} still absent, which affects unused supplies and transport plans.',
+            '${sn(analytics.missingAssignmentCount, 'checked-in participant')} still ${verb(analytics.missingAssignmentCount, 'needs', 'need')} room or group follow-up.',
           ]),
         ],
       ),
@@ -876,16 +876,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         pageKey: 'log_no_show',
       ),
       const SizedBox(height: 12),
-      // NEW: Groups ready for hotel check-in card
       _buildGroupsReadyForCheckInCard(),
     ];
   }
 
-  // ---------------------------------------------------------------------------
-  // NEW CARD: Groups Ready for Hotel Check‑in (Logistics view)
-  // ---------------------------------------------------------------------------
   Widget _buildGroupsReadyForCheckInCard() {
-    // Compute groups that are fully ready: all assigned participants are fully verified.
     final Map<String, List<String>> groupRooms = {};
     final Map<String, int> groupAssigned = {};
     final Map<String, int> groupFullyReady = {};
@@ -1027,9 +1022,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this for meal counts and restrictions. The wording here aims to help the food team act, not interpret generic charts.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInCount} participants are currently on site and are the best available estimate for immediate plates needed.',
-            '${analytics.dietAttentionOnSiteCount} checked-in participants are marked for food attention.',
-            '${analytics.foodOnlyOnSiteCount} are food-only restrictions and ${analytics.medicalAndFoodOnSiteCount} are shared with the medical team.',
+            '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently on site and ${areIs(analytics.checkedInCount)} the best available estimate for immediate plates needed.',
+            '${sn(analytics.dietAttentionOnSiteCount, 'checked-in participant')} ${areIs(analytics.dietAttentionOnSiteCount)} marked for food attention.',
+            '${sn(analytics.foodOnlyOnSiteCount, 'participant')} ${areIs(analytics.foodOnlyOnSiteCount)} food-only restrictions and ${sn(analytics.medicalAndFoodOnSiteCount, 'participant')} ${areIs(analytics.medicalAndFoodOnSiteCount)} shared with the medical team.',
           ]),
         ],
       ),
@@ -1114,10 +1109,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this for health awareness, first-aid readiness, and follow-up on participants who may need extra attention during the event.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInMedicalFlagCount} checked-in participants have medical information recorded.',
-            '${analytics.urgentMedicalOnSiteCount} look like priority review cases and ${analytics.generalMedicalAwarenessOnSiteCount} are general awareness cases.',
-            '${analytics.medicalNotArrivedCount} participants with medical notes have not arrived yet and may need welfare follow-up.',
-            '${analytics.medicalOnlyOnSiteCount} are medical-only cases and ${analytics.medicalAndFoodOnSiteCount} overlap with food follow-up.',
+            '${sn(analytics.checkedInMedicalFlagCount, 'checked-in participant')} ${hasHave(analytics.checkedInMedicalFlagCount)} medical information recorded.',
+            '${sn(analytics.urgentMedicalOnSiteCount, 'participant')} ${verb(analytics.urgentMedicalOnSiteCount, 'looks', 'look')} like priority review cases and ${sn(analytics.generalMedicalAwarenessOnSiteCount, 'participant')} ${areIs(analytics.generalMedicalAwarenessOnSiteCount)} general awareness cases.',
+            '${sn(analytics.medicalNotArrivedCount, 'participant')} with medical notes ${hasHave(analytics.medicalNotArrivedCount)} not arrived yet and may need welfare follow-up.',
+            '${sn(analytics.medicalOnlyOnSiteCount, 'participant')} ${areIs(analytics.medicalOnlyOnSiteCount)} medical-only cases and ${sn(analytics.medicalAndFoodOnSiteCount, 'participant')} ${verb(analytics.medicalAndFoodOnSiteCount, 'overlaps', 'overlap')} with food follow-up.',
           ]),
         ],
       ),
@@ -1218,9 +1213,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this for event oversight and leadership reporting. Keep it headline-driven and action-oriented.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.',
-            '${analytics.approvedCount} are approved and ${analytics.notApprovedCount} still need roster follow-up.',
-            '${analytics.exceptionCount} active issues need oversight across registration, logistics, medical, or device operations.',
+            '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.',
+            '${sn(analytics.approvedCount, 'participant')} ${areIs(analytics.approvedCount)} approved and ${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} roster follow-up.',
+            '${sn(analytics.exceptionCount, 'active issue')} ${verb(analytics.exceptionCount, 'needs', 'need')} oversight across registration, logistics, medical, or device operations.',
             _formatLastSync(appState.lastSyncedAt),
           ]),
         ],
@@ -1233,7 +1228,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         current: analytics.checkedInCount,
         total: analytics.totalParticipants,
         subtitle:
-            '${analytics.fullyVerifiedCount} are fully complete, ${analytics.pendingCount} are still absent.',
+            '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully complete, ${sn(analytics.pendingCount, 'participant')} ${areIs(analytics.pendingCount)} still absent.',
       ),
       const SizedBox(height: 12),
       _buildCriticalBlockersCard(analytics),
@@ -1242,7 +1237,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Approved',
           value: '${analytics.approvedCount}',
-          helper: '${analytics.notApprovedCount} still not approved',
+          helper: '${sn(analytics.notApprovedCount, 'participant')} still not approved',
           icon: Icons.verified_outlined,
           color: FSYScannerApp.accentGreen,
           delta: previous == null
@@ -1252,7 +1247,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Sync Queue',
           value: '${analytics.pendingSyncTaskCount}',
-          helper: '${analytics.failedSyncTaskCount} failed tasks need review',
+          helper: '${sn(analytics.failedSyncTaskCount, 'failed task')} ${verb(analytics.failedSyncTaskCount, 'needs', 'need')} review',
           icon: Icons.sync_problem_outlined,
           color: FSYScannerApp.accentGold,
           delta: previous == null
@@ -1352,9 +1347,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             'Use this for groups, grouping, and who is physically present and ready for activities.',
         children: [
           _buildSentenceList([
-            '${analytics.checkedInCount} participants are physically present on site.',
-            '${analytics.fullyVerifiedCount} are fully cleared and easiest to move into classes or activities.',
-            '${analytics.checkedInMissingTableCount} checked-in participants still need a group assignment.',
+            '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} physically present on site.',
+            '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully cleared and easiest to move into classes or activities.',
+            '${sn(analytics.checkedInMissingTableCount, 'checked-in participant')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group assignment.',
           ]),
         ],
       ),
@@ -1438,7 +1433,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           _buildSentenceList([
             'Participant counts remain event-wide from the latest synced roster, but printer queue and sync backlog in this view are local to this device.',
-            '${analytics.totalPrintAttemptCount} print attempts are available in the current local history sample.',
+            '${sn(analytics.totalPrintAttemptCount, 'print attempt')} ${areIs(analytics.totalPrintAttemptCount)} available in the current local history sample.',
             'Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
           ]),
         ],
@@ -1448,14 +1443,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Pending Sync',
           value: '${analytics.pendingSyncTaskCount}',
-          helper: '${analytics.retryingSyncTaskCount} already retried',
+          helper: '${sn(analytics.retryingSyncTaskCount, 'task')} already retried',
           icon: Icons.sync_outlined,
           color: FSYScannerApp.primaryBlue,
         ),
         _MetricCardData(
           label: 'Failed Sync',
           value: '${analytics.failedSyncTaskCount}',
-          helper: '${analytics.syncErrorSampleCount} tasks have error text',
+          helper: '${sn(analytics.syncErrorSampleCount, 'task')} ${hasHave(analytics.syncErrorSampleCount)} error text',
           icon: Icons.sync_problem_outlined,
           color: FSYScannerApp.accentGold,
         ),
@@ -1463,7 +1458,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           label: 'Queued Prints',
           value: '${analytics.queuedPrintCount}',
           helper:
-              '${analytics.staleQueuedPrintCount} stale, ${analytics.pendingConfirmationCount} awaiting confirmation',
+              '${analytics.staleQueuedPrintCount} stale, ${sn(analytics.pendingConfirmationCount, 'pending confirmation')}',
           icon: Icons.local_printshop_outlined,
           color: Colors.orangeAccent,
         ),
@@ -1471,7 +1466,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           label: 'Roster Records',
           value: '${analytics.totalParticipants}',
           helper:
-              '${analytics.uniqueRegisteredDeviceCount} device IDs have recorded check-ins',
+              '${sn(analytics.uniqueRegisteredDeviceCount, 'device ID')} ${hasHave(analytics.uniqueRegisteredDeviceCount)} recorded check-ins',
           icon: Icons.storage_outlined,
           color: FSYScannerApp.accentGreen,
         ),
@@ -1777,7 +1772,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     required String pageKey,
   }) {
     final totalPages = rows.isEmpty ? 1 : (rows.length / maxItems).ceil();
-    // ensure page is valid
     final currentPage = (_breakdownPage[pageKey] ?? 0).clamp(0, totalPages - 1);
     final start = currentPage * maxItems;
     final end = (start + maxItems).clamp(0, rows.length);
@@ -2003,31 +1997,31 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final blockers = <String>[];
     if (analytics.checkedInMissingTableCount > 0) {
       blockers.add(
-          '${analytics.checkedInMissingTableCount} arrived participants still need a group assignment.');
+          '${sn(analytics.checkedInMissingTableCount, 'arrived participant')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group assignment.');
     }
     if (analytics.checkedInMissingRoomCount > 0) {
       blockers.add(
-          '${analytics.checkedInMissingRoomCount} arrived participants still need a room assignment.');
+          '${sn(analytics.checkedInMissingRoomCount, 'arrived participant')} still ${verb(analytics.checkedInMissingRoomCount, 'needs', 'need')} a room assignment.');
     }
     if (analytics.failedSyncTaskCount > 0) {
       blockers.add(
-          '${analytics.failedSyncTaskCount} sync tasks have failed and need review.');
+          '${sn(analytics.failedSyncTaskCount, 'sync task')} ${hasHave(analytics.failedSyncTaskCount)} failed and ${verb(analytics.failedSyncTaskCount, 'needs', 'need')} review.');
     }
     if (analytics.staleQueuedPrintCount > 0) {
       blockers.add(
-          '${analytics.staleQueuedPrintCount} print jobs have been queued for over 10 minutes.');
+          '${sn(analytics.staleQueuedPrintCount, 'print job')} ${hasHave(analytics.staleQueuedPrintCount)} been queued for over 10 minutes.');
     }
     if (analytics.urgentMedicalOnSiteCount > 0) {
       blockers.add(
-          '${analytics.urgentMedicalOnSiteCount} on-site participants need urgent medical review.');
+          '${sn(analytics.urgentMedicalOnSiteCount, 'on-site participant')} ${verb(analytics.urgentMedicalOnSiteCount, 'needs', 'need')} urgent medical review.');
     }
     if (analytics.medicalWithoutLocationCount > 0) {
       blockers.add(
-          '${analytics.medicalWithoutLocationCount} medical-flagged participants have no room or group assigned.');
+          '${sn(analytics.medicalWithoutLocationCount, 'medical-flagged participant')} ${hasHave(analytics.medicalWithoutLocationCount)} no room or group assigned.');
     }
     if (analytics.partiallyVerifiedCount > 0) {
       blockers.add(
-          '${analytics.partiallyVerifiedCount} participants are partially registered and still not fully complete.');
+          '${sn(analytics.partiallyVerifiedCount, 'participant')} ${areIs(analytics.partiallyVerifiedCount)} partially registered and still not fully complete.');
     }
     if (blockers.isEmpty) {
       return Card(
@@ -2504,19 +2498,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       case _CommitteeView.comprehensiveSummary:
         return 'Leadership summary with committee headlines, attendance progress, welfare signals, and local device status in one view.';
       case _CommitteeView.registration:
-        return '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived so far.';
+        return '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.';
       case _CommitteeView.logistics:
-        return '${analytics.checkedInCount} confirmed on site, with ${analytics.pendingCount} no-shows currently affecting logistics planning.';
+        return '${sn(analytics.checkedInCount, 'participant')} confirmed on site, with ${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting logistics planning.';
       case _CommitteeView.food:
-        return '${analytics.dietAttentionOnSiteCount} checked-in participants currently need restriction review before meals are served.';
+        return '${sn(analytics.dietAttentionOnSiteCount, 'checked-in participant')} currently ${verb(analytics.dietAttentionOnSiteCount, 'needs', 'need')} restriction review before meals are served.';
       case _CommitteeView.medical:
-        return '${analytics.checkedInMedicalFlagCount} checked-in participants have medical flags and ${analytics.urgentMedicalOnSiteCount} need priority review.';
+        return '${sn(analytics.checkedInMedicalFlagCount, 'checked-in participant')} ${hasHave(analytics.checkedInMedicalFlagCount)} medical flags and ${sn(analytics.urgentMedicalOnSiteCount, 'participant')} ${verb(analytics.urgentMedicalOnSiteCount, 'needs', 'need')} priority review.';
       case _CommitteeView.admin:
-        return '${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived, ${analytics.notApprovedCount} still need roster follow-up, and ${analytics.exceptionCount} issues need oversight.';
+        return '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived, ${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} roster follow-up, and ${sn(analytics.exceptionCount, 'issue')} ${verb(analytics.exceptionCount, 'needs', 'need')} oversight.';
       case _CommitteeView.activities:
-        return '${analytics.fullyVerifiedCount} participants are fully activity-ready and ${analytics.checkedInMissingTableCount} still need group placement.';
+        return '${sn(analytics.fullyVerifiedCount, 'participant')} ${areIs(analytics.fullyVerifiedCount)} fully activity-ready and ${sn(analytics.checkedInMissingTableCount, 'participant')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} group placement.';
       case _CommitteeView.developers:
-        return 'This device currently has ${analytics.pendingSyncTaskCount} pending sync tasks, ${analytics.failedSyncTaskCount} failed tasks, and ${analytics.queuedPrintCount} queued print jobs.';
+        return 'This device currently has ${sn(analytics.pendingSyncTaskCount, 'pending sync task')}, ${sn(analytics.failedSyncTaskCount, 'failed task')}, and ${sn(analytics.queuedPrintCount, 'queued print job')}.';
     }
   }
 
@@ -2579,10 +2573,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helper model classes
-// ---------------------------------------------------------------------------
 
 class _AnalyticsSnapshot {
   final int totalParticipants;
@@ -3143,10 +3133,10 @@ class _AnalyticsSnapshot {
       if (hoursLeft < 1) {
         final minutesLeft = (hoursLeft * 60).round();
         estimatedCompletionLabel =
-            'At current pace, full arrival in ~$minutesLeft minutes.';
+            'At current pace, full arrival in ~${sn(minutesLeft, 'minute')}.';
       } else {
         estimatedCompletionLabel =
-            'At current pace, full arrival in ~${hoursLeft.toStringAsFixed(1)} hours.';
+            'At current pace, full arrival in ~${hoursLeft.toStringAsFixed(1)} ${noun(remainingCount, 'hour', 'hours')}.';
       }
     }
 
@@ -3162,17 +3152,20 @@ class _AnalyticsSnapshot {
     final String velocityShortLabel;
     final String velocityTrendLabel;
     if (recentVelocity > previousVelocity + 2) {
-      velocityShortLabel = '↑ $recentVelocity/30 min — accelerating';
+      velocityShortLabel =
+          '↑ ${sn(recentVelocity, 'check-in')}/30 min — accelerating';
       velocityTrendLabel =
-          '↑ Pace accelerating: $recentVelocity check-ins in the last 30 min vs $previousVelocity in the prior 30 min.';
+          '↑ Pace accelerating: ${sn(recentVelocity, 'check-in')} in the last 30 min vs ${sn(previousVelocity, 'check-in')} in the prior 30 min.';
     } else if (recentVelocity < previousVelocity - 2) {
-      velocityShortLabel = '↓ $recentVelocity/30 min — slowing';
+      velocityShortLabel =
+          '↓ ${sn(recentVelocity, 'check-in')}/30 min — slowing';
       velocityTrendLabel =
-          '↓ Pace slowing: $recentVelocity check-ins in the last 30 min vs $previousVelocity in the prior 30 min.';
+          '↓ Pace slowing: ${sn(recentVelocity, 'check-in')} in the last 30 min vs ${sn(previousVelocity, 'check-in')} in the prior 30 min.';
     } else {
-      velocityShortLabel = '→ $recentVelocity/30 min — steady';
+      velocityShortLabel =
+          '→ ${sn(recentVelocity, 'check-in')}/30 min — steady';
       velocityTrendLabel =
-          '→ Pace steady: $recentVelocity check-ins in the last 30 min.';
+          '→ Pace steady: ${sn(recentVelocity, 'check-in')} in the last 30 min.';
     }
 
     final medicalWithoutLocationAlerts = medicalOnSite
@@ -3317,9 +3310,6 @@ class _AnalyticsSnapshot {
     );
   }
 
-  // -----------------------------------------------------------------------
-  // Static helper methods – complete, no placeholders
-  // -----------------------------------------------------------------------
   static List<_BreakdownRow> _buildLocationRows({
     required List<Participant> participants,
     required String? Function(Participant participant) selector,

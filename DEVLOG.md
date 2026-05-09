@@ -4317,3 +4317,17 @@ Implemented automatic removal of stale print jobs that become irrelevant after a
 - [ ] Verify that tapping the notification opens the Logistics view and highlights the correct group.  
 - [ ] Verify that the same group is not notified again after the initial notification.  
 - [ ] Verify the "Groups Ready for Hotel Check‑in" card updates correctly as data changes.
+## 64.1 — Documentation Comment Cleanup in Grammar Helpers
+**Date/Time:** 2026-05-09 08:17:17
+**Status:** ✅ Complete
+
+### What I Did
+Removed all documentation comments from `grammar_helpers.dart` as requested to streamline code maintenance and reduce file noise.
+
+### Changes Made
+- Stripped all Dart doc comments from `/lib/utils/grammar_helpers.dart`
+- Verified no syntax errors via `get_problems` validation
+
+### Verification Result
+- `flutter analyze` shows 0 errors
+- Code functionality preserved with identical runtime behavior
