@@ -647,7 +647,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Arrived',
           value: '${analytics.checkedInCount}',
-          helper: '${sn(analytics.pendingCount, 'participant')} still not arrived',
+          helper:
+              '${sn(analytics.pendingCount, 'participant')} still not arrived',
           icon: Icons.how_to_reg_outlined,
           color: FSYScannerApp.primaryBlue,
           delta: previous == null
@@ -1237,7 +1238,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Approved',
           value: '${analytics.approvedCount}',
-          helper: '${sn(analytics.notApprovedCount, 'participant')} still not approved',
+          helper:
+              '${sn(analytics.notApprovedCount, 'participant')} still not approved',
           icon: Icons.verified_outlined,
           color: FSYScannerApp.accentGreen,
           delta: previous == null
@@ -1247,7 +1249,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Sync Queue',
           value: '${analytics.pendingSyncTaskCount}',
-          helper: '${sn(analytics.failedSyncTaskCount, 'failed task')} ${verb(analytics.failedSyncTaskCount, 'needs', 'need')} review',
+          helper:
+              '${sn(analytics.failedSyncTaskCount, 'failed task')} ${verb(analytics.failedSyncTaskCount, 'needs', 'need')} review',
           icon: Icons.sync_problem_outlined,
           color: FSYScannerApp.accentGold,
           delta: previous == null
@@ -1443,14 +1446,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _MetricCardData(
           label: 'Pending Sync',
           value: '${analytics.pendingSyncTaskCount}',
-          helper: '${sn(analytics.retryingSyncTaskCount, 'task')} already retried',
+          helper:
+              '${sn(analytics.retryingSyncTaskCount, 'task')} already retried',
           icon: Icons.sync_outlined,
           color: FSYScannerApp.primaryBlue,
         ),
         _MetricCardData(
           label: 'Failed Sync',
           value: '${analytics.failedSyncTaskCount}',
-          helper: '${sn(analytics.syncErrorSampleCount, 'task')} ${hasHave(analytics.syncErrorSampleCount)} error text',
+          helper:
+              '${sn(analytics.syncErrorSampleCount, 'task')} ${hasHave(analytics.syncErrorSampleCount)} error text',
           icon: Icons.sync_problem_outlined,
           color: FSYScannerApp.accentGold,
         ),

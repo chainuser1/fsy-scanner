@@ -32,6 +32,11 @@ class SyncEngine {
   static bool _loopStarted = false;
   static Future<void>? _startupFuture;
 
+  /// Set to true when sheet configuration or credentials change mid-session.
+  /// The sync loop picks this up on the next iteration and re-checks all
+  /// settings before starting a new tick.
+  static bool _configChanged = false;
+
   // flag to suppress text messages during automatic syncs
   static bool _suppressProgressText = false;
 
@@ -82,6 +87,10 @@ class SyncEngine {
         'sheets_tab': dotenv.env['SHEETS_TAB'],
         'event_name': dotenv.env['EVENT_NAME'],
         'organization_name': dotenv.env['ORGANIZATION_NAME'],
+        'google_service_account_email':
+            dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'],
+        'google_service_account_private_key':
+            dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'],
       };
 
       for (final entry in settingsToSeed.entries) {
@@ -326,6 +335,20 @@ class SyncEngine {
     );
 
     while (true) {
+      // If config changed mid-session, reset the flag and start the next
+      // iteration immediately so settings are re-read from the DB.
+      if (_configChanged) {
+        _configChanged = false;
+        LoggerUtil.info('[SyncEngine] Config change detected — re-checking settings.');
+        if (_isSyncing) {
+          // An in-progress manual sync will finish with old settings; the
+          // next tick will use the new ones.  Wait for it to complete.
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        // Fall through to the normal tick — settings are read fresh below.
+      }
+
       if (_isSyncing) {
         await Future.delayed(const Duration(seconds: 1));
         continue;
@@ -531,6 +554,19 @@ class SyncEngine {
       LoggerUtil.error('[SyncEngine] Error reading setting $key: $e', error: e);
       return null;
     }
+  }
+
+  /// ------------------------------------------------------------------
+  /// Config-change signalling
+  /// ------------------------------------------------------------------
+
+  /// Called when sheet configuration, Google credentials, or column mapping
+  /// changes mid-session.  Aborts any in-progress sync tick and tells the
+  /// background loop to re-check all settings immediately.
+  static void signalConfigChanged() {
+    _configChanged = true;
+    _rateLimitBackoffMultiplier = 1;
+    LoggerUtil.info('[SyncEngine] Config change signalled — next tick will re-read all settings.');
   }
 
   /// ------------------------------------------------------------------

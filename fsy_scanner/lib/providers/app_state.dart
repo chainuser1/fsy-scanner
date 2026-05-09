@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../auth/google_auth.dart';
 import '../db/database_helper.dart';
 import '../db/participants_dao.dart';
 import '../models/participant.dart';
 import '../print/printer_service.dart';
+import '../sync/sheets_api.dart';
+import '../sync/sync_engine.dart';
 import '../utils/logger.dart';
 
 class AppState extends ChangeNotifier {
@@ -43,6 +47,29 @@ class AppState extends ChangeNotifier {
 
   String _eventName = '';
   String _organizationName = '';
+
+  // ── Sheet identifiers (loaded from DB or .env) ───────────────
+  String _sheetsId = '';
+  String _sheetsTab = '';
+
+  /// Monotonically increasing counter bumped on every `loadPreferences()` call
+  /// so downstream widgets can reliably detect external state refreshes.
+  int _preferencesVersion = 0;
+  int get preferencesVersion => _preferencesVersion;
+
+  // ── Google Service Account (Advanced) ─────────────────────────
+  String _googleServiceAccountEmail = '';
+  String _googleServiceAccountPrivateKey = '';
+
+  // ── Column Mapping Overrides (Advanced) ────────────────────
+  /// Maps internal field key → sheet header name (user-configured).
+  /// If empty, the build-time SheetColumns constants are used.
+  Map<String, String> _columnHeaderOverrides = {};
+
+  // ── Event Profiles (Advanced) ────────────────────────────────
+  List<Map<String, dynamic>> _eventProfiles = [];
+  int? _activeProfileId;
+
   StreamSubscription<PrinterServiceEvent>? _printerSubscription;
 
   static const int maxRecentScans = 10;
@@ -78,6 +105,22 @@ class AppState extends ChangeNotifier {
   String get receiptConfirmationPolicy => _receiptConfirmationPolicy;
   String get eventName => _eventName;
   String get organizationName => _organizationName;
+  String get sheetsId => _sheetsId;
+  String get sheetsTab => _sheetsTab;
+
+  // ── Google creds getters ─────────────────────────────────────
+  String get googleServiceAccountEmail => _googleServiceAccountEmail;
+  String get googleServiceAccountPrivateKey =>
+      _googleServiceAccountPrivateKey;
+
+  // ── Column overrides getter ──────────────────────────────────
+  Map<String, String> get columnHeaderOverrides =>
+      Map.unmodifiable(_columnHeaderOverrides);
+
+  // ── Event profiles getters ───────────────────────────────────
+  List<Map<String, dynamic>> get eventProfiles =>
+      List.unmodifiable(_eventProfiles);
+  int? get activeProfileId => _activeProfileId;
 
   void addRecentScan(Participant participant) {
     _recentScans.insert(
@@ -253,6 +296,73 @@ class AppState extends ChangeNotifier {
       _organizationName = dotenv.env['ORGANIZATION_NAME'] ?? '';
     }
 
+    // ── Load sheet identifiers ─────────────────────────────────
+    final sheetsIdResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_id'],
+    );
+    final sheetsTabResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_tab'],
+    );
+    _sheetsId = sheetsIdResult.isNotEmpty
+        ? sheetsIdResult.first['value'] as String? ?? ''
+        : dotenv.env['SHEETS_ID'] ?? '';
+    _sheetsTab = sheetsTabResult.isNotEmpty
+        ? sheetsTabResult.first['value'] as String? ?? ''
+        : dotenv.env['SHEETS_TAB'] ?? '';
+
+    // ── Load Google service account credentials ────────────────
+    final googleEmailResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_email'],
+    );
+    final googleKeyResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_private_key'],
+    );
+    _googleServiceAccountEmail = googleEmailResult.isNotEmpty
+        ? googleEmailResult.first['value'] as String? ?? ''
+        : dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'] ?? '';
+    _googleServiceAccountPrivateKey = googleKeyResult.isNotEmpty
+        ? googleKeyResult.first['value'] as String? ?? ''
+        : dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'] ?? '';
+
+    // ── Load column header overrides ───────────────────────────
+    final colOverrideResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['column_header_overrides'],
+    );
+    if (colOverrideResult.isNotEmpty) {
+      final raw = colOverrideResult.first['value'] as String? ?? '';
+      if (raw.isNotEmpty) {
+        try {
+          _columnHeaderOverrides =
+              Map<String, String>.from(jsonDecode(raw));
+        } catch (_) {
+          _columnHeaderOverrides = {};
+        }
+      }
+    }
+
+    // ── Load event profiles ────────────────────────────────────
+    _eventProfiles = await db.query('event_profiles');
+    final activeResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['active_profile_id'],
+    );
+    if (activeResult.isNotEmpty) {
+      _activeProfileId =
+          int.tryParse(activeResult.first['value'] as String? ?? '');
+    }
+
+    _preferencesVersion++;
     notifyListeners();
   }
 
@@ -348,6 +458,231 @@ class AppState extends ChangeNotifier {
     await PrinterService.setReceiptConfirmationPolicy(policy);
     _receiptConfirmationPolicy = policy;
     notifyListeners();
+  }
+
+  // ── Google credentials ───────────────────────────────────────
+  Future<void> setGoogleServiceAccountCredentials({
+    required String email,
+    required String privateKey,
+  }) async {
+    final db = await DatabaseHelper.database;
+    await db.insert(
+      'app_settings',
+      {'key': 'google_service_account_email', 'value': email},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': 'google_service_account_private_key', 'value': privateKey},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    _googleServiceAccountEmail = email;
+    _googleServiceAccountPrivateKey = privateKey;
+    GoogleAuth.invalidateCache();
+    notifyListeners();
+  }
+
+  // ── Column header overrides ─────────────────────────────────
+  Future<void> setColumnHeaderOverrides(Map<String, String> overrides) async {
+    final db = await DatabaseHelper.database;
+    final raw = jsonEncode(overrides);
+    await db.insert(
+      'app_settings',
+      {'key': 'column_header_overrides', 'value': raw},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    _columnHeaderOverrides = Map.from(overrides);
+    notifyListeners();
+  }
+
+  /// Clear column overrides so the next column detection uses raw headers.
+  Future<void> clearColumnHeaderOverrides() async {
+    final db = await DatabaseHelper.database;
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['column_header_overrides'],
+    );
+    _columnHeaderOverrides = {};
+    notifyListeners();
+  }
+
+  // ── Event profiles ───────────────────────────────────────────
+  Future<void> refreshEventProfiles() async {
+    final db = await DatabaseHelper.database;
+    _eventProfiles = await db.query('event_profiles');
+    notifyListeners();
+  }
+
+  Future<int> createEventProfile({
+    required String name,
+    required String sheetsId,
+    required String sheetsTab,
+    required String eventName,
+    required String organizationName,
+    String? colMapOverride,
+    String? googleEmail,
+    String? googlePrivateKey,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final id = await db.insert('event_profiles', {
+      'name': name,
+      'sheets_id': sheetsId,
+      'sheets_tab': sheetsTab,
+      'event_name': eventName,
+      'organization_name': organizationName,
+      'col_map_override': colMapOverride ?? '',
+      'google_service_account_email': googleEmail ?? '',
+      'google_service_account_private_key': googlePrivateKey ?? '',
+    });
+    await refreshEventProfiles();
+    return id;
+  }
+
+  Future<void> updateEventProfile(
+    int profileId, {
+    String? name,
+    String? sheetsId,
+    String? sheetsTab,
+    String? eventName,
+    String? organizationName,
+    String? colMapOverride,
+    String? googleEmail,
+    String? googlePrivateKey,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (sheetsId != null) updates['sheets_id'] = sheetsId;
+    if (sheetsTab != null) updates['sheets_tab'] = sheetsTab;
+    if (eventName != null) updates['event_name'] = eventName;
+    if (organizationName != null) {
+      updates['organization_name'] = organizationName;
+    }
+    if (colMapOverride != null) {
+      updates['col_map_override'] = colMapOverride;
+    }
+    if (googleEmail != null) {
+      updates['google_service_account_email'] = googleEmail;
+    }
+    if (googlePrivateKey != null) {
+      updates['google_service_account_private_key'] = googlePrivateKey;
+    }
+    if (updates.isNotEmpty) {
+      await db.update(
+        'event_profiles',
+        updates,
+        where: 'id = ?',
+        whereArgs: [profileId],
+      );
+    }
+    await refreshEventProfiles();
+  }
+
+  Future<void> deleteEventProfile(int profileId) async {
+    final db = await DatabaseHelper.database;
+    await db.delete(
+      'event_profiles',
+      where: 'id = ?',
+      whereArgs: [profileId],
+    );
+    if (_activeProfileId == profileId) {
+      _activeProfileId = null;
+      await db.delete(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['active_profile_id'],
+      );
+    }
+    await refreshEventProfiles();
+  }
+
+  /// Activate a profile — copies its settings into app_settings and triggers
+  /// column re-detection and a full re-sync.
+  Future<void> activateEventProfile(int profileId) async {
+    final db = await DatabaseHelper.database;
+    final profiles = await db.query(
+      'event_profiles',
+      where: 'id = ?',
+      whereArgs: [profileId],
+    );
+    if (profiles.isEmpty) return;
+    final profile = profiles.first;
+
+    final sheetsId = (profile['sheets_id'] as String?) ?? '';
+    final sheetsTab = (profile['sheets_tab'] as String?) ?? '';
+    final eventName = (profile['event_name'] as String?) ?? '';
+    final orgName = (profile['organization_name'] as String?) ?? '';
+    final colMapRaw = (profile['col_map_override'] as String?) ?? '';
+    final googleEmail = (profile['google_service_account_email'] as String?) ?? '';
+    final googleKey = (profile['google_service_account_private_key'] as String?) ?? '';
+
+    // Clear stale col_map so the next sync rebuilds it from scratch
+    await db.delete('app_settings', where: 'key = ?', whereArgs: ['col_map']);
+
+    // Write values into app_settings
+    await db.insert(
+      'app_settings',
+      {'key': 'sheets_id', 'value': sheetsId},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': 'sheets_tab', 'value': sheetsTab},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': 'event_name', 'value': eventName},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'app_settings',
+      {'key': 'organization_name', 'value': orgName},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    if (colMapRaw.isNotEmpty) {
+      await db.insert(
+        'app_settings',
+        {'key': 'col_map', 'value': colMapRaw},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    if (googleEmail.isNotEmpty) {
+      await db.insert(
+        'app_settings',
+        {'key': 'google_service_account_email', 'value': googleEmail},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    if (googleKey.isNotEmpty) {
+      await db.insert(
+        'app_settings',
+        {'key': 'google_service_account_private_key', 'value': googleKey},
+      );
+    }
+
+    _activeProfileId = profileId;
+    await db.insert(
+      'app_settings',
+      {'key': 'active_profile_id', 'value': profileId.toString()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    GoogleAuth.invalidateCache();
+    await loadPreferences();
+    SyncEngine.signalConfigChanged();
+    notifyListeners();
+
+    // Re-detect column map so the upcoming full sync can use fresh data.
+    try {
+      final newToken = await GoogleAuth.getValidToken();
+      if (newToken != null) {
+        await SheetsApi.detectColMap(db, newToken, sheetsId, sheetsTab);
+      }
+    } catch (e) {
+      // Non-fatal: detection will be retried during the sync loop.
+    }
   }
 
   Future<void> clearAllData() async {

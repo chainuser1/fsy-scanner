@@ -1,3 +1,4 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
@@ -6,7 +7,7 @@ import 'schema.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'fsy_scanner.db';
-  static const String _dbVersion = '7';
+  static const String _dbVersion = '8';
   static Database? _database;
 
   static Future<Database> get database async {
@@ -19,7 +20,7 @@ class DatabaseHelper {
     final path = join(await getDatabasesPath(), _dbName);
     return openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: (Database db, int version) async {
         await db.execute(appSettingsDDL);
         await db.execute(participantsDDL);
@@ -55,6 +56,9 @@ class DatabaseHelper {
         }
         if (oldVersion < 7) {
           await _ensureParticipantColumns(db);
+        }
+        if (oldVersion < 8) {
+          await _migrateToV8(db);
         }
         if (oldVersion < 1) {
           await db.execute(appSettingsDDL);
@@ -145,6 +149,65 @@ class DatabaseHelper {
         'sheets_tab': '',
         'event_name': '',
       });
+    }
+  }
+
+  /// Migration v8: extend event_profiles with additional columns
+  static Future<void> _migrateToV8(Database db) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info(event_profiles)');
+    final existingColumns = tableInfo
+        .map((row) => row['name'] as String? ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    if (!existingColumns.contains('organization_name')) {
+      await db.execute(
+        "ALTER TABLE event_profiles ADD COLUMN organization_name TEXT DEFAULT ''",
+      );
+    }
+    if (!existingColumns.contains('col_map_override')) {
+      await db.execute(
+        "ALTER TABLE event_profiles ADD COLUMN col_map_override TEXT DEFAULT ''",
+      );
+    }
+    if (!existingColumns.contains('google_service_account_email')) {
+      await db.execute(
+        "ALTER TABLE event_profiles ADD COLUMN google_service_account_email TEXT DEFAULT ''",
+      );
+    }
+    if (!existingColumns.contains('google_service_account_private_key')) {
+      await db.execute(
+        "ALTER TABLE event_profiles ADD COLUMN google_service_account_private_key TEXT DEFAULT ''",
+      );
+    }
+    // Also seed google creds from .env if not already set
+    final emailResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_email'],
+    );
+    if (emailResult.isEmpty) {
+      final envEmail = dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'];
+      if (envEmail != null && envEmail.isNotEmpty) {
+        await db.insert('app_settings', {
+          'key': 'google_service_account_email',
+          'value': envEmail,
+        });
+      }
+    }
+    final keyResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_private_key'],
+    );
+    if (keyResult.isEmpty) {
+      final envKey = dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'];
+      if (envKey != null && envKey.isNotEmpty) {
+        await db.insert('app_settings', {
+          'key': 'google_service_account_private_key',
+          'value': envKey,
+        });
+      }
     }
   }
 

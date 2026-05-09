@@ -76,46 +76,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final db = await DatabaseHelper.database;
-    final settings = await db.query('app_settings');
+    // Read from AppState — already populated from DB + .env at startup via
+    // AppState.loadPreferences().  No need for a duplicate DB query.
+    final appState = context.read<AppState>();
 
-    // Reset fields to empty before loading
-    _sheetIdController.text = '';
-    _tabNameController.text = '';
-    _eventNameController.text = '';
-    _organizationNameController.text = '';
-    _selectedPrinterAddress = null;
+    _sheetIdController.text = appState.sheetsId;
+    _tabNameController.text = appState.sheetsTab;
+    _eventNameController.text = appState.eventName;
+    _organizationNameController.text = appState.organizationName;
+    _selectedPrinterAddress = appState.printerAddress;
 
-    for (final setting in settings) {
-      final key = setting['key'] as String;
-      final value = setting['value'] as String?;
-      if (value == null) continue;
-
-      if (key == 'sheets_id') _sheetIdController.text = value;
-      if (key == 'sheets_tab') _tabNameController.text = value;
-      if (key == 'event_name') _eventNameController.text = value;
-      if (key == 'organization_name') _organizationNameController.text = value;
-      if (key == 'printer_address') _selectedPrinterAddress = value;
-    }
-
-    // Fallback to .env if any field is still empty
-    if (_sheetIdController.text.isEmpty) {
-      _sheetIdController.text = dotenv.env['SHEETS_ID'] ?? '';
-    }
-    if (_tabNameController.text.isEmpty) {
-      _tabNameController.text = dotenv.env['SHEETS_TAB'] ?? '';
-    }
-    if (_eventNameController.text.isEmpty) {
-      _eventNameController.text = dotenv.env['EVENT_NAME'] ?? '';
-    }
-    if (_organizationNameController.text.isEmpty) {
-      _organizationNameController.text = dotenv.env['ORGANIZATION_NAME'] ?? '';
-    }
-
-    if (!mounted) {
-      return;
-    }
-
+    if (!mounted) return;
     setState(() {});
     await _loadPairedPrintersSilently();
     await _refreshPrinterInfo();
@@ -201,6 +172,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
+    // Guard: don't nuke the column map while a sync is reading it
+    if (!await _confirmSaveDuringSync()) return;
+
     final db = await DatabaseHelper.database;
 
     await db.insert(
@@ -235,12 +209,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       await context.read<AppState>().loadPreferences();
+      SyncEngine.signalConfigChanged();
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Settings saved'),
+          content: Text('Settings saved — a full re-sync will follow'),
           backgroundColor: Colors.green,
         ),
       );
@@ -281,7 +256,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _resetToDefaults() async {
+    // Guard: don't nuke settings while a sync is reading them
+    if (!await _confirmSaveDuringSync()) return;
+
     final db = await DatabaseHelper.database;
+
+    // Reset sheet and event settings
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['sheets_id']);
     await db.delete(
       'app_settings',
@@ -298,12 +278,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
       where: 'key = ?',
       whereArgs: ['organization_name'],
     );
+    // Reset advanced settings
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_email'],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['google_service_account_private_key'],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['column_header_overrides'],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['col_map'],
+    );
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['active_profile_id'],
+    );
 
     final settingsToSeed = {
       'sheets_id': dotenv.env['SHEETS_ID'],
       'sheets_tab': dotenv.env['SHEETS_TAB'],
       'event_name': dotenv.env['EVENT_NAME'],
       'organization_name': dotenv.env['ORGANIZATION_NAME'],
+      'google_service_account_email':
+          dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'],
+      'google_service_account_private_key':
+          dotenv.env['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'],
     };
     for (final entry in settingsToSeed.entries) {
       if (entry.value != null) {
@@ -319,7 +329,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     await _loadSettings();
     if (mounted) {
-      await context.read<AppState>().loadPreferences();
+      final appState = context.read<AppState>();
+      GoogleAuth.invalidateCache();
+      await appState.loadPreferences();
+      SyncEngine.signalConfigChanged();
     }
 
     try {
@@ -789,6 +802,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ) ??
         false;
+  }
+
+  /// If a sync is in progress, shows a dialog and returns true only if the
+  /// user chooses to save anyway.
+  Future<bool> _confirmSaveDuringSync() async {
+    if (!SyncEngine.isSyncing) return true;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync in Progress'),
+        content: const Text(
+          'A sync is currently running. Saving now will let the current '
+          'sync finish with the old settings, then a full re-sync with '
+          'the new configuration will start automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Save Anyway'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
   }
 
   bool _isPrinterHealthy() {
@@ -1589,8 +1630,874 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+
+          // ── Advanced Settings (collapsible) ──────────────────────
+          _AdvancedSettingsSection(appState: appState),
         ],
       ),
     );
   }
+}
+
+/// Separate widget for the collapsible Advanced Settings section to keep
+/// the main build method readable.
+class _AdvancedSettingsSection extends StatefulWidget {
+  final AppState appState;
+  const _AdvancedSettingsSection({required this.appState});
+
+  @override
+  State<_AdvancedSettingsSection> createState() =>
+      _AdvancedSettingsSectionState();
+}
+
+class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
+  bool _expanded = false;
+  bool _isTestingCredentials = false;
+  bool _isLoadingHeaders = false;
+  bool _isSavingProfile = false;
+
+  // Google credentials
+  final _googleEmailController = TextEditingController();
+  final _googlePrivateKeyController = TextEditingController();
+
+  // Column mapping
+  List<String> _detectedHeaders = [];
+  final Map<String, String> _workingOverrides = {};
+
+  // Event profiles
+  int? _selectedProfileId;
+  final _profileNameController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _googleEmailController.text = widget.appState.googleServiceAccountEmail;
+    _googlePrivateKeyController.text =
+        widget.appState.googleServiceAccountPrivateKey;
+    _workingOverrides.addAll(widget.appState.columnHeaderOverrides);
+    _selectedProfileId = widget.appState.activeProfileId;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AdvancedSettingsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync controllers if appState values changed externally (e.g. after reset
+    // or profile switch). Only update if the field isn't being actively edited.
+    if (_googleEmailController.text !=
+        widget.appState.googleServiceAccountEmail) {
+      _googleEmailController.text = widget.appState.googleServiceAccountEmail;
+    }
+    if (_googlePrivateKeyController.text !=
+        widget.appState.googleServiceAccountPrivateKey) {
+      _googlePrivateKeyController.text =
+          widget.appState.googleServiceAccountPrivateKey;
+    }
+    if (widget.appState.activeProfileId != _selectedProfileId) {
+      _selectedProfileId = widget.appState.activeProfileId;
+    }
+    // If the settings were refreshed externally (reset, profile switch, etc.),
+    // clear stale cached headers so the user must reload.
+    if (oldWidget.appState.preferencesVersion !=
+        widget.appState.preferencesVersion) {
+      _detectedHeaders = [];
+      _workingOverrides.clear();
+      _workingOverrides.addAll(widget.appState.columnHeaderOverrides);
+    }
+  }
+
+  @override
+  void dispose() {
+    _googleEmailController.dispose();
+    _googlePrivateKeyController.dispose();
+    _profileNameController.dispose();
+    super.dispose();
+  }
+
+  // ── Google Credentials ────────────────────────────────────────
+
+  Future<void> _testGoogleCredentials() async {
+    final email = _googleEmailController.text.trim();
+    final key = _googlePrivateKeyController.text.trim();
+    if (email.isEmpty || key.isEmpty) {
+      _showSnackBar('Please fill in both email and private key first.',
+          backgroundColor: Colors.orange);
+      return;
+    }
+    setState(() => _isTestingCredentials = true);
+    try {
+      final result = await GoogleAuth.testCredentials(
+        email: email,
+        privateKey: key,
+      );
+      if (!mounted) return;
+      _showSnackBar(
+        result.message,
+        backgroundColor: result.success ? Colors.green : Colors.red,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Connection test failed: $e',
+          backgroundColor: Colors.red);
+    } finally {
+      if (mounted) setState(() => _isTestingCredentials = false);
+    }
+  }
+
+  Future<void> _saveGoogleCredentials() async {
+    final email = _googleEmailController.text.trim();
+    final key = _googlePrivateKeyController.text.trim();
+    if (email.isEmpty || key.isEmpty) {
+      _showSnackBar('Email and private key cannot be empty.',
+          backgroundColor: Colors.orange);
+      return;
+    }
+    // Need the parent state's sync guard — use a simple check
+    if (SyncEngine.isSyncing) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sync in Progress'),
+          content: const Text(
+            'A sync is running. Save credentials now? The old token will '
+            'remain valid until cache expiry, then the new credentials will be used.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Save Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
+    await widget.appState.setGoogleServiceAccountCredentials(
+      email: email,
+      privateKey: key,
+    );
+    SyncEngine.signalConfigChanged();
+    if (!mounted) return;
+    _showSnackBar('Google credentials saved. A full re-sync will follow.',
+        backgroundColor: Colors.green);
+  }
+
+  // ── Column Mapping ────────────────────────────────────────────
+
+  Future<void> _loadColumnHeaders() async {
+    final db = await DatabaseHelper.database;
+    final sheetIdResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_id'],
+    );
+    final sheetTabResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_tab'],
+    );
+    if (sheetIdResult.isEmpty || sheetTabResult.isEmpty) {
+      _showSnackBar(
+        'Save the Sheet ID and Tab Name first.',
+        backgroundColor: Colors.orange,
+      );
+      return;
+    }
+
+    final token = await GoogleAuth.getValidToken();
+    if (token == null) {
+      _showSnackBar(
+        'Google authentication failed. Configure credentials first.',
+        backgroundColor: Colors.red,
+      );
+      return;
+    }
+
+    setState(() => _isLoadingHeaders = true);
+    try {
+      final headers = await SheetsApi.fetchHeaderRow(
+        token,
+        sheetIdResult.first['value'] as String,
+        sheetTabResult.first['value'] as String,
+      );
+      if (!mounted) return;
+      if (headers == null || headers.isEmpty) {
+        _showSnackBar('Could not fetch headers from the sheet.',
+            backgroundColor: Colors.red);
+        return;
+      }
+      setState(() {
+        _detectedHeaders = headers;
+        // Pre-fill overrides using current column map
+        if (_workingOverrides.isEmpty) {
+          for (final field in SheetColumnsFields.all) {
+            if (headers.contains(field.defaultHeader)) {
+              _workingOverrides[field.key] = field.defaultHeader;
+            }
+          }
+        }
+      });
+      _showSnackBar(
+        'Detected ${headers.length} columns. Map fields below.',
+        backgroundColor: Colors.green,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Error: $e', backgroundColor: Colors.red);
+    } finally {
+      if (mounted) setState(() => _isLoadingHeaders = false);
+    }
+  }
+
+  Future<void> _saveColumnOverrides() async {
+    // Guard: don't overwrite col_map while a sync is reading it
+    if (SyncEngine.isSyncing) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sync in Progress'),
+          content: const Text(
+            'A sync is running. Save column mapping now? The current '
+            'sync will finish with the old mapping, then a full re-sync '
+            'with the new mapping will start.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Save Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
+    // Remove entries where the override matches the default (no customization)
+    final cleaned = Map<String, String>.from(_workingOverrides);
+    await widget.appState.setColumnHeaderOverrides(cleaned);
+    SyncEngine.signalConfigChanged();
+
+    // Re-detect column map with overrides
+    final db = await DatabaseHelper.database;
+    final token = await GoogleAuth.getValidToken();
+    if (token != null) {
+      final sheetIdResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['sheets_id'],
+      );
+      final sheetTabResult = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['sheets_tab'],
+      );
+      if (sheetIdResult.isNotEmpty && sheetTabResult.isNotEmpty) {
+        try {
+          await SheetsApi.detectColMap(
+            db,
+            token,
+            sheetIdResult.first['value'] as String,
+            sheetTabResult.first['value'] as String,
+            headerOverrides: cleaned,
+          );
+          if (!mounted) return;
+          _showSnackBar(
+            'Column mapping saved. Existing col_map updated.',
+            backgroundColor: Colors.green,
+          );
+          return;
+        } catch (_) {}
+      }
+    }
+    if (!mounted) return;
+    _showSnackBar(
+      'Column mapping saved. Run a sync to apply changes.',
+      backgroundColor: Colors.green,
+    );
+  }
+
+  // ── Event Profiles ────────────────────────────────────────────
+
+  Future<void> _createNewProfile() async {
+    final name = _profileNameController.text.trim();
+    if (name.isEmpty) {
+      _showSnackBar('Enter a profile name.', backgroundColor: Colors.orange);
+      return;
+    }
+
+    final db = await DatabaseHelper.database;
+    final sheetIdResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_id'],
+    );
+    final sheetTabResult = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['sheets_tab'],
+    );
+
+    // Capture the current column mapping to store with the profile
+    final dbForProfile = await DatabaseHelper.database;
+    final colMapResult = await dbForProfile.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['col_map'],
+    );
+    final currentColMap = colMapResult.isNotEmpty
+        ? colMapResult.first['value'] as String?
+        : null;
+
+    setState(() => _isSavingProfile = true);
+    try {
+      await widget.appState.createEventProfile(
+        name: name,
+        sheetsId: sheetIdResult.isNotEmpty
+            ? sheetIdResult.first['value'] as String? ?? ''
+            : '',
+        sheetsTab: sheetTabResult.isNotEmpty
+            ? sheetTabResult.first['value'] as String? ?? ''
+            : '',
+        eventName: widget.appState.eventName,
+        organizationName: widget.appState.organizationName,
+        colMapOverride: currentColMap,
+        googleEmail: _googleEmailController.text.trim(),
+        googlePrivateKey: _googlePrivateKeyController.text.trim(),
+      );
+      _profileNameController.clear();
+      if (!mounted) return;
+      _showSnackBar('Profile "$name" created.',
+          backgroundColor: Colors.green);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Failed to create profile: $e',
+          backgroundColor: Colors.red);
+    } finally {
+      if (mounted) setState(() => _isSavingProfile = false);
+    }
+  }
+
+  Future<void> _activateProfile(int profileId) async {
+    await widget.appState.activateEventProfile(profileId);
+    if (!mounted) return;
+    setState(() {
+      _selectedProfileId = profileId;
+      _detectedHeaders = []; // Stale after profile switch
+    });
+    // Reload the credential fields
+    _googleEmailController.text = widget.appState.googleServiceAccountEmail;
+    _googlePrivateKeyController.text =
+        widget.appState.googleServiceAccountPrivateKey;
+    _workingOverrides.clear();
+    _workingOverrides.addAll(widget.appState.columnHeaderOverrides);
+    _showSnackBar('Profile activated. Re-syncing...',
+        backgroundColor: Colors.green);
+    // Trigger a full sync
+    SyncEngine.performFullSync(widget.appState);
+  }
+
+  Future<void> _deleteProfile(int profileId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Profile?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.appState.deleteEventProfile(profileId);
+      if (!mounted) return;
+      setState(() => _selectedProfileId = widget.appState.activeProfileId);
+      _showSnackBar('Profile deleted.', backgroundColor: Colors.green);
+    }
+  }
+
+  void _showSnackBar(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: backgroundColor),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = widget.appState;
+    final effectiveHeaders = _detectedHeaders.toList();
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        title: const Text(
+          'Advanced Settings',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        subtitle: const Text(
+          'Google credentials, column mapping, event profiles',
+          style: TextStyle(color: Colors.grey),
+        ),
+        initiallyExpanded: _expanded,
+        onExpansionChanged: (val) => setState(() => _expanded = val),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ══════ Google Service Account ══════
+                const Divider(),
+                const Text(
+                  'Google Service Account',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.blue.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'How to enter credentials:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '1. Service Account Email — paste the full email '
+                        '(e.g., scanner-bot@project.iam.gserviceaccount.com)',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        '2. Private Key — paste the full key including '
+                        '-----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY-----\n'
+                        r'Keep the \n escapes as-is from Google Cloud Console. '
+                        'The app handles them automatically.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _googleEmailController,
+                  decoration: InputDecoration(
+                    labelText: 'Service Account Email',
+                    hintText: 'name@project.iam.gserviceaccount.com',
+                    border: const OutlineInputBorder(),
+                    helperText: _googleEmailController.text.isEmpty &&
+                            dotenv.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'] == null
+                        ? 'Not set. Your .env file is also empty — configure this to use Google Sheets.'
+                        : null,
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _googlePrivateKeyController,
+                  decoration: const InputDecoration(
+                    labelText: 'Private Key',
+                    hintText:
+                        '-----BEGIN PRIVATE KEY-----\nMIIEv...\\n-----END PRIVATE KEY-----',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 4,
+                  minLines: 3,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _isTestingCredentials
+                            ? null
+                            : _testGoogleCredentials,
+                        icon: _isTestingCredentials
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.wifi_tethering),
+                        label: Text(
+                          _isTestingCredentials
+                              ? 'Testing...'
+                              : 'Test Connection',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _saveGoogleCredentials,
+                        icon: const Icon(Icons.save),
+                        label: const Text('Save Credentials'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ══════ Column Mapping ══════
+                const Divider(),
+                const Text(
+                  'Column Mapping',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'If your sheet uses different column headers (e.g. '
+                  '"Full Name" instead of "Name"), map them here.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed:
+                            _isLoadingHeaders ? null : _loadColumnHeaders,
+                        icon: _isLoadingHeaders
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.table_chart),
+                        label: Text(
+                          _isLoadingHeaders
+                              ? 'Loading...'
+                              : 'Load Headers from Sheet',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_detectedHeaders.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ...SheetColumnsFields.all.map((field) {
+                    final currentValue =
+                        _workingOverrides[field.key] ?? field.defaultHeader;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('colmap_${field.key}_$currentValue'),
+                        initialValue: effectiveHeaders.contains(currentValue)
+                            ? currentValue
+                            : null,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: field.label,
+                          border: const OutlineInputBorder(),
+                          helperText: 'Sheets header for "${field.key}"',
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            child: Text('(not mapped)'),
+                          ),
+                          ...effectiveHeaders.map(
+                            (h) => DropdownMenuItem(
+                              value: h,
+                              child: Text(
+                                h,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            if (val != null) {
+                              _workingOverrides[field.key] = val;
+                            } else {
+                              _workingOverrides.remove(field.key);
+                            }
+                          });
+                        },
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _saveColumnOverrides,
+                          icon: const Icon(Icons.save),
+                          label: const Text('Save Column Mapping'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await widget.appState.clearColumnHeaderOverrides();
+                          if (!mounted) return;
+                          setState(_workingOverrides.clear);
+                          _showSnackBar(
+                            'Column overrides cleared. Next sync will use raw headers.',
+                            backgroundColor: Colors.orange,
+                          );
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                // ══════ Event Profiles ══════
+                const Divider(),
+                const Text(
+                  'Event Profiles',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Save the current configuration as a reusable profile. '
+                  'Switch between profiles to change events without rebuilding the app.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                // Profile selector
+                if (appState.eventProfiles.isNotEmpty) ...[
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('profile_$_selectedProfileId'),
+                    initialValue: _selectedProfileId != null &&
+                            appState.eventProfiles
+                                .any((p) => p['id'] == _selectedProfileId)
+                        ? _selectedProfileId
+                        : null,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Active Profile',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        child: Text('(none)'),
+                      ),
+                      ...appState.eventProfiles.map(
+                        (p) => DropdownMenuItem(
+                          value: p['id'] as int,
+                          child: Text(
+                            (p['name'] as String?) ?? 'Unnamed',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        _activateProfile(val);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  if (_selectedProfileId != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            _deleteProfile(_selectedProfileId!),
+                        icon: const Icon(Icons.delete_forever,
+                            color: Colors.redAccent),
+                        label: const Text(
+                          'Delete Active Profile',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+                // Create new profile
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _profileNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'New Profile Name',
+                          hintText: 'e.g. FSY 2027 Cebu',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _isSavingProfile ? null : _createNewProfile,
+                      icon: _isSavingProfile
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.add),
+                      label: Text(
+                          _isSavingProfile ? 'Saving...' : 'Save as Profile'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Describes a single field that can be mapped to a sheet column.
+class SheetColumnField {
+  final String key;
+  final String label;
+  final String defaultHeader;
+  const SheetColumnField({
+    required this.key,
+    required this.label,
+    required this.defaultHeader,
+  });
+}
+
+/// All fields that can be remapped in the column mapping editor.
+class SheetColumnsFields {
+  static const all = <SheetColumnField>[
+    SheetColumnField(
+      key: 'ID',
+      label: 'Participant ID',
+      defaultHeader: 'ID',
+    ),
+    SheetColumnField(
+      key: 'QR Code',
+      label: 'QR Code',
+      defaultHeader: 'QR Code',
+    ),
+    SheetColumnField(
+      key: 'Stake',
+      label: 'Stake',
+      defaultHeader: 'Stake',
+    ),
+    SheetColumnField(
+      key: 'Ward',
+      label: 'Ward',
+      defaultHeader: 'Ward',
+    ),
+    SheetColumnField(
+      key: 'Name',
+      label: 'Name',
+      defaultHeader: 'Name',
+    ),
+    SheetColumnField(
+      key: 'Gender',
+      label: 'Gender',
+      defaultHeader: 'Gender',
+    ),
+    SheetColumnField(
+      key: 'Registered',
+      label: 'Registered',
+      defaultHeader: 'Registered',
+    ),
+    SheetColumnField(
+      key: 'Signed by',
+      label: 'Signed by',
+      defaultHeader: 'Signed by',
+    ),
+    SheetColumnField(
+      key: 'Status',
+      label: 'Status',
+      defaultHeader: 'Status',
+    ),
+    SheetColumnField(
+      key: 'Medical/Food Info',
+      label: 'Medical/Food Info',
+      defaultHeader: 'Medical/Food Info',
+    ),
+    SheetColumnField(
+      key: 'Note',
+      label: 'Note',
+      defaultHeader: 'Note',
+    ),
+    SheetColumnField(
+      key: 'T-Shirt Size',
+      label: 'T-Shirt Size',
+      defaultHeader: 'T-Shirt Size',
+    ),
+    SheetColumnField(
+      key: 'Age',
+      label: 'Age',
+      defaultHeader: 'Age',
+    ),
+    SheetColumnField(
+      key: 'Birthday',
+      label: 'Birthday',
+      defaultHeader: 'Birthday',
+    ),
+    SheetColumnField(
+      key: 'Group Number',
+      label: 'Group/Table Number',
+      defaultHeader: 'Group Number',
+    ),
+    SheetColumnField(
+      key: 'Hotel Room Number',
+      label: 'Hotel Room Number',
+      defaultHeader: 'Hotel Room Number',
+    ),
+    SheetColumnField(
+      key: 'Verified At',
+      label: 'Verified At',
+      defaultHeader: 'Verified At',
+    ),
+    SheetColumnField(
+      key: 'Printed At',
+      label: 'Printed At',
+      defaultHeader: 'Printed At',
+    ),
+    SheetColumnField(
+      key: 'Device ID',
+      label: 'Device ID',
+      defaultHeader: 'Device ID',
+    ),
+  ];
 }
