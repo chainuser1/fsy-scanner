@@ -4453,3 +4453,41 @@ Reorganized the analytics screen to correctly attribute room/group assignments t
 
 ### Deviations from Plan
 None — these are UX refinements based on operator feedback.
+
+***
+
+## Layout Overflow Hardening
+
+**Date/Time:** 2026-05-09
+**Status:** ✅ Complete
+
+### What I Did
+
+Audited `analytics_screen.dart` and `settings_screen.dart` for horizontal layout overflow issues and applied targeted fixes to prevent `Bottom overflow` / `RenderFlex overflow` errors on narrow screens.
+
+### Changes Made
+
+- **`analytics_screen.dart` — `_buildBreakdownRow`**: Wrapped `Text(row.trailing)` in a `Flexible` widget so that long trailing values don't overflow the `Row`. Without this, `overflow: TextOverflow.ellipsis` had no effect because the `Text` had no constrained width.
+- **`settings_screen.dart` — Save/Reset buttons**: Wrapped the "Reset" `OutlinedButton.icon` in `Flexible` so both buttons share available space properly on narrow screens.
+- **`settings_screen.dart` — Paper Finish `SegmentedButton`**: Wrapped the three-segment button ("No Cut", "Safe Tear", "Full Cut") in a `SingleChildScrollView(scrollDirection: Axis.horizontal)` to prevent overflow when segments don't fit the screen width.
+- **`settings_screen.dart` — Column Mapping Save/Clear buttons**: Wrapped the "Clear" button in `Flexible`.
+- **`settings_screen.dart` — Event Profiles "Save as Profile" button**: Wrapped the button in `Flexible` so the `Row` with the text field doesn't overflow when the button label is long.
+
+### Files Modified
+| File | Description |
+|------|-------------|
+| `lib/screens/analytics_screen.dart` | `Flexible` wrapper around `_buildBreakdownRow` trailing text |
+| `lib/screens/settings_screen.dart` | `Flexible` wrappers for Reset, Clear, and Save as Profile buttons; `SingleChildScrollView` wrapper for Paper Finish `SegmentedButton` |
+
+### Verification Result
+- `flutter analyze` reports **0 issues**
+- All `Row` widgets with non-flexible children now have either `Expanded`, `Flexible`, or `Wrap` to handle constrained widths
+
+### Issues Encountered
+None.
+
+### Corrections Made
+None.
+
+### Deviations from Plan
+None.

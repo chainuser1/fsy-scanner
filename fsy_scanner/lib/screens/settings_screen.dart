@@ -1038,10 +1038,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: _resetToDefaults,
-                        icon: const Icon(Icons.restore),
-                        label: const Text('Reset'),
+                      Flexible(
+                        child: OutlinedButton.icon(
+                          onPressed: _resetToDefaults,
+                          icon: const Icon(Icons.restore),
+                          label: const Text('Reset'),
+                        ),
                       ),
                     ],
                   ),
@@ -1218,30 +1220,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               style: TextStyle(color: Colors.grey),
                             ),
                             const SizedBox(height: 8),
-                            SegmentedButton<String>(
-                              segments: const [
-                                ButtonSegment<String>(
-                                  value: PrinterService.cutModeOff,
-                                  label: Text('No Cut'),
-                                ),
-                                ButtonSegment<String>(
-                                  value: PrinterService.cutModeSafe,
-                                  label: Text('Safe Tear'),
-                                ),
-                                ButtonSegment<String>(
-                                  value: PrinterService.cutModeForce,
-                                  label: Text('Full Cut'),
-                                ),
-                              ],
-                              selected: {currentMode},
-                              onSelectionChanged: (selection) {
-                                final printerAddress = _selectedPrinterAddress;
-                                if (printerAddress == null ||
-                                    selection.isEmpty) {
-                                  return;
-                                }
-                                _setCutMode(printerAddress, selection.first);
-                              },
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SegmentedButton<String>(
+                                segments: const [
+                                  ButtonSegment<String>(
+                                    value: PrinterService.cutModeOff,
+                                    label: Text('No Cut'),
+                                  ),
+                                  ButtonSegment<String>(
+                                    value: PrinterService.cutModeSafe,
+                                    label: Text('Safe Tear'),
+                                  ),
+                                  ButtonSegment<String>(
+                                    value: PrinterService.cutModeForce,
+                                    label: Text('Full Cut'),
+                                  ),
+                                ],
+                                selected: {currentMode},
+                                onSelectionChanged: (selection) {
+                                  final printerAddress = _selectedPrinterAddress;
+                                  if (printerAddress == null ||
+                                      selection.isEmpty) {
+                                    return;
+                                  }
+                                  _setCutMode(printerAddress, selection.first);
+                                },
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(
@@ -2263,18 +2268,20 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await widget.appState.clearColumnHeaderOverrides();
-                          if (!mounted) return;
-                          setState(_workingOverrides.clear);
-                          _showSnackBar(
-                            'Column overrides cleared. Next sync will use raw headers.',
-                            backgroundColor: Colors.orange,
-                          );
-                        },
-                        icon: const Icon(Icons.clear),
-                        label: const Text('Clear'),
+                      Flexible(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await widget.appState.clearColumnHeaderOverrides();
+                            if (!mounted) return;
+                            setState(_workingOverrides.clear);
+                            _showSnackBar(
+                              'Column overrides cleared. Next sync will use raw headers.',
+                              backgroundColor: Colors.orange,
+                            );
+                          },
+                          icon: const Icon(Icons.clear),
+                          label: const Text('Clear'),
+                        ),
                       ),
                     ],
                   ),
@@ -2363,19 +2370,22 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: _isSavingProfile ? null : _createNewProfile,
-                      icon: _isSavingProfile
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : const Icon(Icons.add),
-                      label: Text(
-                          _isSavingProfile ? 'Saving...' : 'Save as Profile'),
+                    Flexible(
+                      child: ElevatedButton.icon(
+                        onPressed: _isSavingProfile ? null : _createNewProfile,
+                        icon: _isSavingProfile
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.add),
+                        label: Text(_isSavingProfile
+                            ? 'Saving...'
+                            : 'Save as Profile'),
+                      ),
                     ),
                   ],
                 ),

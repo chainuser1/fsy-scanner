@@ -1852,13 +1852,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                row.trailing,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: row.highlightColor,
+              Flexible(
+                child: Text(
+                  row.trailing,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: row.highlightColor,
+                  ),
                 ),
               ),
             ],
