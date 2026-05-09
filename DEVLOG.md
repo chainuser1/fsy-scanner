@@ -4414,3 +4414,42 @@ Added safety guards to prevent settings mutations (sheet ID, tab name, Google cr
 
 ### Deviations from Plan
 None — these changes harden the existing dynamic-settings architecture against mid-session race conditions without altering the data model or sync semantics.
+
+## 66.0 — Analytics View Reorganization & Briefing Alignment
+
+**Date/Time:** 2026-05-09 12:15:00
+**Status:** ✅ Complete
+
+### What I Did
+Reorganized the analytics screen to correctly attribute room/group assignments to Coordinators (part of Admin) instead of Logistics, simplified the export menu, and rebuilt the briefing text to match what each view actually displays.
+
+### Changes Made
+- **Logistics tab repurposed** — Room assignment, group assignment, missing room/group lists, groups-ready-for-check-in card, and room/group breakdowns moved out of the Logistics view. Logistics tab now focuses only on materials, supplies, transport: headcount, no-shows, t-shirt sizes, stake/ward/gender breakdowns.
+- **Coordinator content added to Admin view** — Added Room Assignments breakdown, Group Assignments breakdown, Participants Missing Room list, Participants Missing Group list, and Groups Ready for Hotel Check-in card to the Admin tab.
+- **Comprehensive Summary updated** — Added separate "Coordinators" section alongside "Logistics" section in the overview.
+- **Alert text corrected** — Participant alert details now say "Coordinators still need to assign a room/group" instead of "logistics still needs".
+- **Export menu simplified** — Removed "Export text summary", "Save PDF as...", "Export PDF summary". Kept only "Share report" and "Print report via printer".
+- **Unused code removed** — Removed `_exportSelectedViewSummary()`, `_exportSelectedViewPdf()`, `_saveSelectedViewPdfAs()`, `_reportBaseName()`, and `_committeeViewKey()` methods.
+- **Briefing content rebuilt** — `_buildBriefingLines()` now generates text that matches each tab's actual displayed content including briefing cards, metrics, breakdowns, participant lists, critical blockers, progress, and data gaps.
+
+### Files Modified
+| File | Description |
+|------|-------------|
+| `lib/screens/analytics_screen.dart` | Coordinator/Logistics split, menu simplification, briefing alignment, unused method removal, `_appendBlockers()` helper added |
+
+### Verification Result
+- `flutter analyze` reports **0 issues**
+- Share and Print now produce report content matching the currently selected view
+- Logistics tab correctly scoped to materials/supplies/transport only
+- Admin tab includes full Coordinator room/group assignment data
+
+### Issues Encountered
+- Had to carefully iterate to avoid removing the Logistics tab entirely before restoring it correctly
+- Needed to add `_appendBlockers()` helper to avoid duplicating blocker logic in both comprehensive summary and admin briefing text
+
+### Corrections Made
+- Ensured comprehensive summary has both Logistics and Coordinators sections
+- Cleaned up unused methods and properties after menu simplification
+
+### Deviations from Plan
+None — these are UX refinements based on operator feedback.

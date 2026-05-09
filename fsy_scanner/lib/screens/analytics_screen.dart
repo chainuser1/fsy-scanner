@@ -194,24 +194,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             onSelected: _handleAnalyticsAction,
             itemBuilder: (context) => const [
               PopupMenuItem(
-                value: 'export_summary',
-                child: Text('Export text summary'),
-              ),
-              PopupMenuItem(
-                value: 'save_pdf_as',
-                child: Text('Save PDF as...'),
-              ),
-              PopupMenuItem(
-                value: 'export_pdf',
-                child: Text('Export PDF summary'),
-              ),
-              PopupMenuItem(
                 value: 'share_pdf',
-                child: Text('Share PDF summary'),
+                child: Text('Share report'),
               ),
               PopupMenuItem(
                 value: 'print_summary',
-                child: Text('Print thermal summary'),
+                child: Text('Print report via printer'),
               ),
             ],
           ),
@@ -491,12 +479,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       const SizedBox(height: 12),
       _buildSectionSummaryCard(
         title: 'Logistics',
-        subtitle: 'Materials, transport grouping, and on-site assignment gaps.',
+        subtitle: 'Materials, supplies, and transport planning.',
         lines: [
-          '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently confirmed on site for materials planning.',
-          '${sn(analytics.checkedInMissingRoomCount, 'attendee')} still ${verb(analytics.checkedInMissingRoomCount, 'needs', 'need')} a room and ${sn(analytics.checkedInMissingTableCount, 'attendee')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group.',
+          '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently confirmed on site for materials and supply planning.',
           topTshirtSummary,
           '${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting transport and supply planning.',
+        ],
+      ),
+      const SizedBox(height: 12),
+      _buildSectionSummaryCard(
+        title: 'Coordinators',
+        subtitle: 'Room assignments, group assignments, and on-site assignment gaps.',
+        lines: [
+          '${sn(analytics.checkedInMissingRoomCount, 'attendee')} still ${verb(analytics.checkedInMissingRoomCount, 'needs', 'need')} a room and ${sn(analytics.checkedInMissingTableCount, 'attendee')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group.',
+          '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} confirmed on site for coordination planning.',
+          '${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting room and group planning.',
         ],
       ),
       const SizedBox(height: 12),
@@ -751,6 +748,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ];
   }
 
+
+
   List<Widget> _buildLogisticsView(
     AppState appState,
     _AnalyticsSnapshot analytics,
@@ -760,12 +759,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _buildBriefingCard(
         title: 'Logistics',
         subtitle:
-            'Use this for materials, transport grouping, and assignment cleanup. Speak in counts the logistics team can act on immediately.',
+            'Use this for materials, supplies, and transport planning. Speak in counts the logistics team can act on immediately.',
         children: [
           _buildSentenceList([
             '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} currently confirmed on site for materials planning.',
             '${sn(analytics.pendingCount, 'participant')} ${areIs(analytics.pendingCount)} still absent, which affects unused supplies and transport plans.',
-            '${sn(analytics.missingAssignmentCount, 'checked-in participant')} still ${verb(analytics.missingAssignmentCount, 'needs', 'need')} room or group follow-up.',
           ]),
         ],
       ),
@@ -784,20 +782,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           helper: 'Still not checked in',
           icon: Icons.person_off_outlined,
           color: FSYScannerApp.primaryBlue,
-        ),
-        _MetricCardData(
-          label: 'Missing Room',
-          value: '${analytics.checkedInMissingRoomCount}',
-          helper: 'Attendees who still need lodging placement',
-          icon: Icons.location_off_outlined,
-          color: FSYScannerApp.accentGold,
-        ),
-        _MetricCardData(
-          label: 'Missing Group',
-          value: '${analytics.checkedInMissingTableCount}',
-          helper: 'Attendees who still need activity grouping',
-          icon: Icons.grid_off_outlined,
-          color: Colors.orangeAccent,
         ),
       ]),
       const SizedBox(height: 12),
@@ -834,41 +818,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
       const SizedBox(height: 12),
       _buildParticipantListCard(
-        title: 'Participants Missing Room Assignment',
-        subtitle:
-            'These attendees are already on site but still need a room assignment for logistics follow-through.',
-        items: analytics.missingRoomAlerts,
-        emptyMessage: 'No checked-in participant is missing a room assignment.',
-        pageKey: 'log_missing_room',
-      ),
-      const SizedBox(height: 12),
-      _buildParticipantListCard(
-        title: 'Participants Missing Group Assignment',
-        subtitle:
-            'These attendees are already on site but still need a group assignment for movement and coordination.',
-        items: analytics.missingTableAlerts,
-        emptyMessage:
-            'No checked-in participant is missing a group assignment.',
-        pageKey: 'log_missing_group',
-      ),
-      const SizedBox(height: 12),
-      _buildBreakdownCard(
-        title: 'Room Assignments',
-        subtitle:
-            'Shows room concentration so logistics can see where people are being placed.',
-        rows: analytics.roomRows,
-        pageKey: 'log_rooms',
-      ),
-      const SizedBox(height: 12),
-      _buildBreakdownCard(
-        title: 'Group Assignments',
-        subtitle:
-            'Useful when logistics also supports group-based group movement or materials distribution.',
-        rows: analytics.tableRows,
-        pageKey: 'log_tables',
-      ),
-      const SizedBox(height: 12),
-      _buildParticipantListCard(
         title: 'No-Shows',
         subtitle:
             'These participants have not arrived yet and may affect transport loads or unused materials.',
@@ -876,8 +825,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         emptyMessage: 'No no-shows are currently recorded.',
         pageKey: 'log_no_show',
       ),
-      const SizedBox(height: 12),
-      _buildGroupsReadyForCheckInCard(),
     ];
   }
 
@@ -1216,7 +1163,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _buildSentenceList([
             '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.',
             '${sn(analytics.approvedCount, 'participant')} ${areIs(analytics.approvedCount)} approved and ${sn(analytics.notApprovedCount, 'participant')} still ${verb(analytics.notApprovedCount, 'needs', 'need')} roster follow-up.',
-            '${sn(analytics.exceptionCount, 'active issue')} ${verb(analytics.exceptionCount, 'needs', 'need')} oversight across registration, logistics, medical, or device operations.',
+            '${sn(analytics.exceptionCount, 'active issue')} ${verb(analytics.exceptionCount, 'needs', 'need')} oversight across registration, coordination, medical, or device operations.',
             _formatLastSync(appState.lastSyncedAt),
           ]),
         ],
@@ -1333,6 +1280,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         emptyMessage: 'No no-shows are currently recorded.',
         pageKey: 'admin_no_show',
       ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Room Assignments',
+        subtitle:
+            'Shows room concentration so Coordinators can see where people are being placed.',
+        rows: analytics.roomRows,
+        pageKey: 'admin_rooms',
+      ),
+      const SizedBox(height: 12),
+      _buildBreakdownCard(
+        title: 'Group Assignments',
+        subtitle:
+            'Useful for Coordinators managing group-based movement or materials distribution.',
+        rows: analytics.tableRows,
+        pageKey: 'admin_groups',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Missing Room Assignment',
+        subtitle:
+            'These attendees are already on site but still need a room assignment for Coordinator follow-through.',
+        items: analytics.missingRoomAlerts,
+        emptyMessage: 'No checked-in participant is missing a room assignment.',
+        pageKey: 'admin_missing_room',
+      ),
+      const SizedBox(height: 12),
+      _buildParticipantListCard(
+        title: 'Participants Missing Group Assignment',
+        subtitle:
+            'These attendees are already on site but still need a group assignment for movement and coordination.',
+        items: analytics.missingTableAlerts,
+        emptyMessage:
+            'No checked-in participant is missing a group assignment.',
+        pageKey: 'admin_missing_group',
+      ),
+      const SizedBox(height: 12),
+      _buildGroupsReadyForCheckInCard(),
       const SizedBox(height: 12),
       _buildDeviceScopeCard(appState, analytics),
     ];
@@ -2174,15 +2158,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Future<void> _handleAnalyticsAction(String action) async {
     switch (action) {
-      case 'export_summary':
-        await _exportSelectedViewSummary();
-        break;
-      case 'save_pdf_as':
-        await _saveSelectedViewPdfAs();
-        break;
-      case 'export_pdf':
-        await _exportSelectedViewPdf();
-        break;
       case 'share_pdf':
         await _shareSelectedViewPdf();
         break;
@@ -2203,59 +2178,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       success
           ? 'Event-wide roster refreshed from the latest synced sheet data.'
           : 'Used the latest local data because full refresh did not complete.',
-    );
-  }
-
-  Future<void> _exportSelectedViewSummary() async {
-    final appState = context.read<AppState>();
-    final analytics = _currentAnalyticsSnapshot();
-    final result = await AnalyticsExportService.exportTextReport(
-      baseName: _reportBaseName(appState),
-      content: _buildBriefingText(appState, analytics),
-    );
-    if (!mounted) {
-      return;
-    }
-    _showMessage(
-      'Selected view exported to ${result.filePath} (${result.byteCount} bytes).',
-    );
-  }
-
-  Future<void> _exportSelectedViewPdf() async {
-    final appState = context.read<AppState>();
-    final analytics = _currentAnalyticsSnapshot();
-    final title = _buildBriefingTitle(appState);
-    final result = await AnalyticsExportService.exportPdfReport(
-      baseName: _reportBaseName(appState),
-      title: title,
-      content: _buildBriefingText(appState, analytics),
-    );
-    if (!mounted) {
-      return;
-    }
-    _showMessage(
-      'Selected view PDF exported to ${result.filePath} (${result.byteCount} bytes).',
-    );
-  }
-
-  Future<void> _saveSelectedViewPdfAs() async {
-    final appState = context.read<AppState>();
-    final analytics = _currentAnalyticsSnapshot();
-    final title = _buildBriefingTitle(appState);
-    final result = await AnalyticsExportService.savePdfReportAs(
-      suggestedBaseName: _reportBaseName(appState),
-      title: title,
-      content: _buildBriefingText(appState, analytics),
-    );
-    if (!mounted) {
-      return;
-    }
-    if (result == null) {
-      _showMessage('Save PDF cancelled.');
-      return;
-    }
-    _showMessage(
-      'Selected view PDF saved to ${result.filePath} (${result.byteCount} bytes).',
     );
   }
 
@@ -2341,10 +2263,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return '$eventTitle ${_committeeLabel(_committeeView)}';
   }
 
-  String _reportBaseName(AppState appState) {
-    return '${appState.eventName.isEmpty ? 'event' : appState.eventName}_${_committeeViewKey(_committeeView)}_briefing';
-  }
-
   String _buildBriefingText(AppState appState, _AnalyticsSnapshot analytics) {
     return _buildBriefingLines(appState, analytics).join('\n');
   }
@@ -2362,118 +2280,409 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       '',
     ];
 
+    final topTshirtSummary = analytics.tshirtRows.isEmpty
+        ? 'No t-shirt sizes are recorded yet.'
+        : '${analytics.tshirtRows.first.trailing} participant${analytics.tshirtRows.first.total == 1 ? '' : 's'} need${analytics.tshirtRows.first.total == 1 ? '' : ''} ${analytics.tshirtRows.first.label} shirts, the largest recorded size group.';
+    final topGenderSummary = analytics.genderRows.isEmpty
+        ? 'Gender data is not recorded yet.'
+        : '${analytics.genderRows.first.trailing} participant${analytics.genderRows.first.total == 1 ? '' : 's'} ${areIs(analytics.genderRows.first.total)} in the largest recorded gender group.';
+
     switch (_committeeView) {
       case _CommitteeView.comprehensiveSummary:
         lines.addAll([
-          'Comprehensive summary',
-          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
-          '- Fully complete: ${analytics.fullyVerifiedCount}',
-          '- Still absent: ${analytics.pendingCount}',
-          '- Approved in roster: ${analytics.approvedCount}',
-          '- Still needing roster follow-up: ${analytics.notApprovedCount}',
+          'BRIEFING',
+          '- ${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.',
+          '- ${sn(analytics.pendingCount, 'participant')} still not checked in, ${sn(analytics.partiallyVerifiedCount, 'participant')} still finishing registration, ${sn(analytics.checkedInMedicalFlagCount, 'participant')} on site with medical flags.',
+          '- Device: ${sn(analytics.pendingSyncTaskCount, 'pending sync task')}, ${sn(analytics.failedSyncTaskCount, 'failed sync task')}, ${sn(analytics.queuedPrintCount, 'queued print')}.',
+          analytics.estimatedCompletionLabel,
+          analytics.velocityTrendLabel,
+          '',
+          'CRITICAL BLOCKERS',
+        ]);
+        _appendBlockers(lines, analytics);
+        lines.addAll([
+          '',
+          'PROGRESS',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${sn(analytics.fullyVerifiedCount, 'participant')} fully complete and ${sn(analytics.printedCount, 'participant')} with confirmed print output.',
+          '',
+          'METRICS',
+          '- No-Shows: ${analytics.pendingCount}',
+          '- Food Attention: ${analytics.dietAttentionOnSiteCount}',
+          '- Medical Review: ${analytics.urgentMedicalOnSiteCount} (${analytics.checkedInMedicalFlagCount} on site have medical notes)',
+          '- Top Scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+          '',
+          'REGISTRATION & CHECK-IN',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${analytics.approvedCount} approved in roster, ${analytics.notApprovedCount} still need admin readiness.',
+          '- ${analytics.recentHourCount} check-in(s) in last hour, ${analytics.recent15MinuteCount} in last 15 minutes.',
+          '- ${analytics.pendingCount} still no QR/check-in recorded.',
+          '- Top scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+          '',
+          'LOGISTICS',
+          '- ${analytics.checkedInCount} confirmed on site for materials planning.',
+          topTshirtSummary,
+          '- ${analytics.pendingCount} no-show(s) affecting transport and supply planning.',
+          '',
+          'COORDINATORS',
+          '- ${analytics.checkedInMissingRoomCount} need(s) a room, ${analytics.checkedInMissingTableCount} need(s) a group.',
+          '- ${analytics.checkedInCount} on site for coordination planning.',
+          '- ${analytics.pendingCount} no-show(s) affecting room and group planning.',
+          '',
+          'FOOD',
+          '- Plates: ${analytics.checkedInCount}',
+          '- Restrictions: ${analytics.dietAttentionOnSiteCount}',
+          '- No restriction: ${analytics.noRestrictionOnSiteCount}',
+          '- Food-only: ${analytics.foodOnlyOnSiteCount}, Medical+Food: ${analytics.medicalAndFoodOnSiteCount}',
+          '',
+          'MEDICAL / HEALTH',
           '- Medical flags on site: ${analytics.checkedInMedicalFlagCount}',
-          '- Food restriction review: ${analytics.dietAttentionOnSiteCount}',
-          '- Local pending sync tasks: ${analytics.pendingSyncTaskCount}',
-          '- Local failed sync tasks: ${analytics.failedSyncTaskCount}',
+          '- Priority review: ${analytics.urgentMedicalOnSiteCount}',
+          '- General awareness: ${analytics.generalMedicalAwarenessOnSiteCount}',
+          '- Not arrived yet: ${analytics.medicalNotArrivedCount}',
+          '- Medical-only: ${analytics.medicalOnlyOnSiteCount}, Medical+Food: ${analytics.medicalAndFoodOnSiteCount}',
+          '- Missing location: ${analytics.medicalWithoutLocationCount}',
+          '',
+          'ADMIN',
+          '- Fully complete: ${analytics.fullyVerifiedCount}',
+          '- Approved: ${analytics.approvedCount}, Not approved: ${analytics.notApprovedCount}',
+          '- Printed: ${analytics.printedCount}, Missing print: ${analytics.notPrintedCount}',
+          '- Pending sync: ${analytics.pendingSyncTaskCount}, Failed: ${analytics.failedSyncTaskCount}',
+          _formatLastSync(appState.lastSyncedAt),
+          '',
+          'OPERATIONS / ACTIVITIES',
+          '- Fully ready: ${analytics.fullyVerifiedCount}',
+          '- Groups fully ready: ${analytics.completedTableCount}, Active groups: ${analytics.activeTableCount}',
+          '- Missing group: ${analytics.checkedInMissingTableCount}',
+          topGenderSummary,
+          '',
+          'DEVELOPERS',
+          '- Pending sync: ${analytics.pendingSyncTaskCount}, Failed: ${analytics.failedSyncTaskCount}, With error text: ${analytics.syncErrorSampleCount}',
+          '- Print failures last hour: ${analytics.printFailuresLastHour}, Queued: ${analytics.queuedPrintCount}',
+          '- App: $_appVersion ($_appBuildNumber), DB: $_dbVersion',
+          '- Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
         ]);
         _appendBreakdown(
-            lines, 'Check-in timeline', analytics.hourlyCheckInRows);
+            lines, 'Check-In Timeline', analytics.hourlyCheckInRows);
+        _appendBreakdown(
+            lines, 'Registration Source', analytics.registrationSourceRows);
+        _appendBreakdown(lines, 'Approval Status', analytics.statusRows);
+        _appendBreakdown(
+            lines, 'Stake Attendance', analytics.stakeRows);
+        _appendBreakdown(
+            lines, 'Room & Group Readiness', analytics.locationReadinessRows);
         break;
+
       case _CommitteeView.registration:
         lines.addAll([
-          'Registration priorities',
-          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
-          '- Check-ins in the last hour: ${analytics.recentHourCount}',
-          '- Check-ins in the last 15 minutes: ${analytics.recent15MinuteCount}',
-          '- Participants with no QR/check-in yet: ${analytics.pendingCount}',
-          '- Partial check-ins still waiting: ${analytics.partiallyVerifiedCount}',
-          '- Roster follow-up still needed: ${analytics.notApprovedCount}',
-          '- Top scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+          'BRIEFING',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${analytics.recentHourCount} checked in last hour, ${analytics.recent15MinuteCount} in last 15 minutes.',
+          '- ${analytics.pendingCount} still no QR scan/check-in recorded.',
+          '- ${analytics.notApprovedCount} still need approval or online-registration follow-up.',
+          analytics.estimatedCompletionLabel,
+          analytics.velocityTrendLabel,
+          '',
+          'PROGRESS',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${analytics.fullyVerifiedCount} fully complete, ${analytics.partiallyVerifiedCount} still finishing.',
+          '',
+          'METRICS',
+          '- Arrived: ${analytics.checkedInCount} (${analytics.pendingCount} not arrived)',
+          '- Last Hour: ${analytics.recentHourCount} (${analytics.recent15MinuteCount} in last 15 min)',
+          '- Top Scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+          '- Still Partial: ${analytics.partiallyVerifiedCount} (${analytics.pendingConfirmationCount} awaiting print confirmation)',
         ]);
         _appendBreakdown(
-            lines, 'Check-ins per hour', analytics.hourlyCheckInRows);
+            lines, 'Check-Ins Per Hour', analytics.hourlyCheckInRows);
+        _appendBreakdown(
+            lines, 'Peak Check-In Times', analytics.peakCheckInRows);
+        _appendBreakdown(
+            lines, 'Registration Source', analytics.registrationSourceRows);
+        _appendBreakdown(lines, 'Signed By', analytics.signedByRows);
+        _appendBreakdown(
+            lines, 'Scanner Activity', analytics.deviceCheckInRows);
+        lines.addAll([
+          '',
+          'NO-SHOWS (${analytics.noShowAlerts.length})',
+        ]);
+        for (final alert in analytics.noShowAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'PARTIAL CHECK-INS (${analytics.partialParticipantAlerts.length})',
+        ]);
+        for (final alert in analytics.partialParticipantAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
         break;
+
       case _CommitteeView.logistics:
         lines.addAll([
-          'Logistics priorities',
-          '- Confirmed headcount on site: ${analytics.checkedInCount}',
-          '- No-shows: ${analytics.pendingCount}',
-          '- Checked-in missing room: ${analytics.checkedInMissingRoomCount}',
-          '- Checked-in missing group: ${analytics.checkedInMissingTableCount}',
+          'BRIEFING',
+          '- ${analytics.checkedInCount} confirmed on site for materials planning.',
+          '- ${analytics.pendingCount} still absent, affecting unused supplies and transport.',
+          '',
+          'METRICS',
+          '- Confirmed Headcount: ${analytics.checkedInCount}',
+          '- No-Shows: ${analytics.pendingCount}',
         ]);
-        _appendBreakdown(lines, 'T-shirt sizes', analytics.tshirtRows);
+        _appendBreakdown(lines, 'T-Shirt Sizes', analytics.tshirtRows);
+        _appendBreakdown(
+            lines, 'Participants By Stake', analytics.stakeRows);
+        _appendBreakdown(
+            lines, 'Participants By Ward', analytics.wardRows);
+        _appendBreakdown(
+            lines, 'Gender Breakdown', analytics.genderRows);
+        lines.addAll([
+          '',
+          'NO-SHOWS (${analytics.noShowAlerts.length})',
+        ]);
+        for (final alert in analytics.noShowAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
         break;
+
       case _CommitteeView.food:
         lines.addAll([
-          'Food priorities',
-          '- Plates to prepare now: ${analytics.checkedInCount}',
-          '- Restriction review list: ${analytics.dietAttentionOnSiteCount}',
-          '- No restrictions recorded on site: ${analytics.noRestrictionOnSiteCount}',
-          '- Food-only restrictions on site: ${analytics.foodOnlyOnSiteCount}',
-          '- Shared medical and food cases on site: ${analytics.medicalAndFoodOnSiteCount}',
-          '- Group meal groups available: ${analytics.activeTableCount}',
+          'BRIEFING',
+          '- ${analytics.checkedInCount} on site — best estimate for plates needed immediately.',
+          '- ${analytics.dietAttentionOnSiteCount} marked for food attention.',
+          '- ${analytics.foodOnlyOnSiteCount} food-only, ${analytics.medicalAndFoodOnSiteCount} shared with medical.',
+          '',
+          'METRICS',
+          '- Plates To Prepare: ${analytics.checkedInCount}',
+          '- Restrictions: ${analytics.dietAttentionOnSiteCount} (${analytics.foodOnlyOnSiteCount} food-only, ${analytics.medicalAndFoodOnSiteCount} shared)',
+          '- No Restrictions: ${analytics.noRestrictionOnSiteCount}',
+          '- Meal Groups: ${analytics.activeTableCount}',
         ]);
         _appendBreakdown(
-            lines, 'Food attention categories', analytics.foodCategoryRows);
+            lines, 'Restriction Categories', analytics.foodCategoryRows);
+        _appendBreakdown(
+            lines, 'Meal Groups By Group', analytics.tablePresenceRows);
+        _appendBreakdown(
+            lines, 'Serving Load By Stake', analytics.stakeRows);
+        lines.addAll([
+          '',
+          'RESTRICTION LIST (${analytics.foodAttentionAlerts.length})',
+        ]);
+        for (final alert in analytics.foodAttentionAlerts.take(20)) {
+          lines.add('- ${alert.name}: ${alert.detail} (${alert.trailing})');
+        }
         break;
+
       case _CommitteeView.medical:
         lines.addAll([
-          'Medical priorities',
-          '- Medical flags in roster: ${analytics.totalMedicalFlagCount}',
-          '- Need priority review on site: ${analytics.urgentMedicalOnSiteCount}',
-          '- General awareness on site: ${analytics.generalMedicalAwarenessOnSiteCount}',
-          '- Medical-only cases on site: ${analytics.medicalOnlyOnSiteCount}',
-          '- Shared medical and food cases on site: ${analytics.medicalAndFoodOnSiteCount}',
-          '- Medical participants not yet arrived: ${analytics.medicalNotArrivedCount}',
-          '- Medical cases missing location: ${analytics.medicalWithoutLocationCount}',
+          'BRIEFING',
+          '- ${analytics.checkedInMedicalFlagCount} with medical info recorded.',
+          '- ${analytics.urgentMedicalOnSiteCount} need priority review, ${analytics.generalMedicalAwarenessOnSiteCount} general awareness.',
+          '- ${analytics.medicalNotArrivedCount} not arrived yet — may need welfare follow-up.',
+          '- ${analytics.medicalOnlyOnSiteCount} medical-only, ${analytics.medicalAndFoodOnSiteCount} overlap with food.',
+          '',
+          'METRICS',
+          '- Medical Flags: ${analytics.totalMedicalFlagCount} (total in roster)',
+          '- Need Attention: ${analytics.urgentMedicalOnSiteCount}',
+          '- General Awareness: ${analytics.generalMedicalAwarenessOnSiteCount}',
+          '- Not Arrived: ${analytics.medicalNotArrivedCount}',
         ]);
         _appendBreakdown(
-            lines, 'Medical categories', analytics.medicalCategoryRows);
+            lines, 'Medical Categories', analytics.medicalCategoryRows);
+        lines.addAll([
+          '',
+          'URGENT CASES ON SITE (${analytics.urgentMedicalAlerts.length})',
+        ]);
+        for (final alert in analytics.urgentMedicalAlerts.take(20)) {
+          lines.add('- ${alert.name}: ${alert.detail} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'MEDICAL NOTES — ON SITE (${analytics.medicalOnSiteAlerts.length})',
+        ]);
+        for (final alert in analytics.medicalOnSiteAlerts.take(20)) {
+          lines.add('- ${alert.name}: ${alert.detail} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'MEDICAL NOTES — NOT ARRIVED (${analytics.medicalNotArrivedAlerts.length})',
+        ]);
+        for (final alert in analytics.medicalNotArrivedAlerts.take(20)) {
+          lines.add('- ${alert.name}: ${alert.detail} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'MEDICAL WITHOUT ROOM/GROUP (${analytics.medicalWithoutLocationAlerts.length})',
+        ]);
+        for (final alert in analytics.medicalWithoutLocationAlerts.take(20)) {
+          lines.add('- ${alert.name}: ${alert.detail} (${alert.trailing})');
+        }
         break;
+
       case _CommitteeView.admin:
         lines.addAll([
-          'Admin priorities',
-          '- Arrived: ${analytics.checkedInCount} of ${analytics.totalParticipants}',
-          '- Fully complete: ${analytics.fullyVerifiedCount}',
-          '- Approved in roster: ${analytics.approvedCount}',
-          '- Still needing roster follow-up: ${analytics.notApprovedCount}',
-          '- Open issues: ${analytics.exceptionCount}',
-          '- Printed receipts: ${analytics.printedCount}',
-          '- Local pending sync tasks: ${analytics.pendingSyncTaskCount}',
-          '- Local failed sync tasks: ${analytics.failedSyncTaskCount}',
-          '- ${_formatLastSync(appState.lastSyncedAt)}',
+          'BRIEFING',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${analytics.approvedCount} approved, ${analytics.notApprovedCount} still need roster follow-up.',
+          '- ${analytics.exceptionCount} active issue(s) need oversight.',
+          _formatLastSync(appState.lastSyncedAt),
+          '',
+          'CRITICAL BLOCKERS',
         ]);
-        _appendBreakdown(lines, 'Attendance by stake', analytics.stakeRows);
-        break;
-      case _CommitteeView.activities:
+        _appendBlockers(lines, analytics);
         lines.addAll([
-          'Activities priorities',
-          '- Present on site: ${analytics.checkedInCount}',
-          '- Fully ready participants: ${analytics.fullyVerifiedCount}',
-          '- Groups with assignments: ${analytics.activeTableCount}',
-          '- Groups fully ready: ${analytics.completedTableCount}',
-          '- Participants without group assignment: ${analytics.checkedInMissingTableCount}',
+          '',
+          'PROGRESS',
+          '- ${analytics.checkedInCount} of ${analytics.totalParticipants} participants have arrived.',
+          '- ${analytics.fullyVerifiedCount} fully complete, ${analytics.pendingCount} still absent.',
+          '',
+          'METRICS',
+          '- Approved: ${analytics.approvedCount} (${analytics.notApprovedCount} not approved)',
+          '- Sync Queue: ${analytics.pendingSyncTaskCount} (${analytics.failedSyncTaskCount} failed)',
+          '- Top Scanner: ${analytics.topCheckInDeviceLabel} (${analytics.topCheckInDeviceCount})',
+          '- Open Issues: ${analytics.exceptionCount}',
         ]);
         _appendBreakdown(
-            lines, 'Group assignments', analytics.tablePresenceRows);
+            lines, 'Check-In Timeline', analytics.hourlyCheckInRows);
+        _appendBreakdown(
+            lines, 'Approval Status', analytics.statusRows);
+        _appendBreakdown(
+            lines, 'Registration Source', analytics.registrationSourceRows);
+        _appendBreakdown(
+            lines, 'Attendance By Stake', analytics.stakeRows);
+        _appendBreakdown(
+            lines, 'Attendance By Ward', analytics.wardRows);
+        _appendBreakdown(
+            lines, 'Device Activity', analytics.deviceCheckInRows);
+        lines.addAll([
+          '',
+          'ROOM ASSIGNMENTS',
+        ]);
+        for (final row in analytics.roomRows.take(20)) {
+          lines.add('- ${row.label}: ${row.trailing} (${row.caption})');
+        }
+        lines.addAll([
+          '',
+          'GROUP ASSIGNMENTS',
+        ]);
+        for (final row in analytics.tableRows.take(20)) {
+          lines.add('- ${row.label}: ${row.trailing} (${row.caption})');
+        }
+        lines.addAll([
+          '',
+          'NO-SHOWS (${analytics.noShowAlerts.length})',
+        ]);
+        for (final alert in analytics.noShowAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'MISSING ROOM (${analytics.missingRoomAlerts.length})',
+        ]);
+        for (final alert in analytics.missingRoomAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
+        lines.addAll([
+          '',
+          'MISSING GROUP (${analytics.missingTableAlerts.length})',
+        ]);
+        for (final alert in analytics.missingTableAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
         break;
+
+      case _CommitteeView.activities:
+        lines.addAll([
+          'BRIEFING',
+          '- ${analytics.checkedInCount} physically present on site.',
+          '- ${analytics.fullyVerifiedCount} fully cleared for activities.',
+          '- ${analytics.checkedInMissingTableCount} still need a group assignment.',
+          '',
+          'METRICS',
+          '- Present: ${analytics.checkedInCount}',
+          '- Activity Ready: ${analytics.fullyVerifiedCount}',
+          '- Groups Ready: ${analytics.completedTableCount} (${analytics.activeTableCount} active groups total)',
+          '- No Group: ${analytics.checkedInMissingTableCount}',
+        ]);
+        _appendBreakdown(
+            lines, 'Group Assignments', analytics.tablePresenceRows);
+        _appendBreakdown(
+            lines, 'Group / Stake Breakdown', analytics.stakeRows);
+        _appendBreakdown(
+            lines, 'Gender Mix', analytics.genderRows);
+        lines.addAll([
+          '',
+          'MISSING GROUP (${analytics.missingTableAlerts.length})',
+        ]);
+        for (final alert in analytics.missingTableAlerts.take(20)) {
+          lines.add('- ${alert.name} (${alert.trailing})');
+        }
+        break;
+
       case _CommitteeView.developers:
         lines.addAll([
-          'Developer priorities',
-          '- Pending sync tasks: ${analytics.pendingSyncTaskCount}',
-          '- Failed sync tasks: ${analytics.failedSyncTaskCount}',
-          '- Queued prints: ${analytics.queuedPrintCount}',
-          '- Print failures in the last hour: ${analytics.printFailuresLastHour}',
-          '- App version: $_appVersion ($_appBuildNumber)',
-          '- Database version: $_dbVersion',
-          '- ${_formatLastSync(appState.lastSyncedAt)}',
+          'BRIEFING',
+          '- ${analytics.totalPrintAttemptCount} print attempt(s) in local history.',
+          '- Last roster pull: ${_formatOptionalTimestamp(_lastPulledAt)}.',
+          '',
+          'METRICS',
+          '- Pending Sync: ${analytics.pendingSyncTaskCount} (${analytics.retryingSyncTaskCount} retried)',
+          '- Failed Sync: ${analytics.failedSyncTaskCount} (${analytics.syncErrorSampleCount} with error text)',
+          '- Queued Prints: ${analytics.queuedPrintCount} (${analytics.staleQueuedPrintCount} stale, ${analytics.pendingConfirmationCount} pending)',
+          '- Roster Records: ${analytics.totalParticipants} (${analytics.uniqueRegisteredDeviceCount} device IDs)',
         ]);
-        _appendBreakdown(lines, 'Device IDs and check-in counts',
+        _appendBreakdown(lines, 'Device IDs And Check-In Counts',
             analytics.deviceCheckInRows);
+        _appendBreakdown(lines, 'Pending Sync Tasks By Type',
+            analytics.syncTypeRows);
+        _appendBreakdown(lines, 'Recent Print Failure Reasons',
+            analytics.printFailureReasonRows);
+        lines.addAll([
+          '',
+          'App version: $_appVersion ($_appBuildNumber)',
+          'Database version: $_dbVersion',
+          _formatLastSync(appState.lastSyncedAt),
+        ]);
         break;
     }
 
     return lines;
+  }
+
+  void _appendBlockers(
+    List<String> lines,
+    _AnalyticsSnapshot analytics,
+  ) {
+    if (analytics.checkedInMissingTableCount > 0) {
+      lines.add(
+          '- ${analytics.checkedInMissingTableCount} arrived participant(s) still need a group assignment.');
+    }
+    if (analytics.checkedInMissingRoomCount > 0) {
+      lines.add(
+          '- ${analytics.checkedInMissingRoomCount} arrived participant(s) still need a room assignment.');
+    }
+    if (analytics.failedSyncTaskCount > 0) {
+      lines.add(
+          '- ${analytics.failedSyncTaskCount} sync task(s) have failed and need review.');
+    }
+    if (analytics.staleQueuedPrintCount > 0) {
+      lines.add(
+          '- ${analytics.staleQueuedPrintCount} print job(s) queued for over 10 minutes.');
+    }
+    if (analytics.urgentMedicalOnSiteCount > 0) {
+      lines.add(
+          '- ${analytics.urgentMedicalOnSiteCount} on-site participant(s) need urgent medical review.');
+    }
+    if (analytics.medicalWithoutLocationCount > 0) {
+      lines.add(
+          '- ${analytics.medicalWithoutLocationCount} medical-flagged participant(s) with no room or group.');
+    }
+    if (analytics.partiallyVerifiedCount > 0) {
+      lines.add(
+          '- ${analytics.partiallyVerifiedCount} participant(s) partially registered and not fully complete.');
+    }
+    if (lines.last == 'CRITICAL BLOCKERS') {
+      lines.add('- None');
+    }
   }
 
   void _appendBreakdown(
@@ -2505,7 +2714,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       case _CommitteeView.registration:
         return '${sn(analytics.checkedInCount, 'participant')} of ${analytics.totalParticipants} participants have arrived so far.';
       case _CommitteeView.logistics:
-        return '${sn(analytics.checkedInCount, 'participant')} confirmed on site, with ${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting logistics planning.';
+        return '${sn(analytics.checkedInCount, 'participant')} confirmed on site, with ${sn(analytics.pendingCount, 'no-show')} currently ${areIs(analytics.pendingCount)} affecting materials planning.';
       case _CommitteeView.food:
         return '${sn(analytics.dietAttentionOnSiteCount, 'checked-in participant')} currently ${verb(analytics.dietAttentionOnSiteCount, 'needs', 'need')} restriction review before meals are served.';
       case _CommitteeView.medical:
@@ -2538,10 +2747,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       case _CommitteeView.developers:
         return 'Developers';
     }
-  }
-
-  String _committeeViewKey(_CommitteeView view) {
-    return view.name;
   }
 
   String _formatLastSync(DateTime? syncedAt) {
@@ -3003,7 +3208,7 @@ class _AnalyticsSnapshot {
           (participant) => _ParticipantAlert(
             name: participant.fullName,
             detail:
-                'Checked in already, but logistics still needs to assign a room.',
+                'Checked in already, but Coordinators still need to assign a room.',
             trailing: _participantTableWardLabel(participant),
             icon: Icons.meeting_room_outlined,
             color: FSYScannerApp.accentGold,
@@ -3016,7 +3221,7 @@ class _AnalyticsSnapshot {
           (participant) => _ParticipantAlert(
             name: participant.fullName,
             detail:
-                'Checked in already, but logistics still needs to assign a group.',
+                'Checked in already, but Coordinators still need to assign a group.',
             trailing: _participantRoomWardLabel(participant),
             icon: Icons.table_restaurant_outlined,
             color: Colors.orangeAccent,
