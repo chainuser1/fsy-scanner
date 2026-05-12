@@ -66,7 +66,8 @@ class GoogleAuth {
   }
 
   /// Resolve credentials: DB app_settings first, then .env fallback.
-  static Future<(String email, String privateKey)?> _resolveCredentials() async {
+  static Future<(String email, String privateKey)?>
+      _resolveCredentials() async {
     try {
       final db = await DatabaseHelper.database;
 
@@ -81,12 +82,10 @@ class GoogleAuth {
         whereArgs: ['google_service_account_private_key'],
       );
 
-      final dbEmail = emailResult.isNotEmpty
-          ? emailResult.first['value'] as String?
-          : null;
-      final dbKey = keyResult.isNotEmpty
-          ? keyResult.first['value'] as String?
-          : null;
+      final dbEmail =
+          emailResult.isNotEmpty ? emailResult.first['value'] as String? : null;
+      final dbKey =
+          keyResult.isNotEmpty ? keyResult.first['value'] as String? : null;
 
       if (dbEmail != null &&
           dbEmail.isNotEmpty &&

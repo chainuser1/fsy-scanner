@@ -489,7 +489,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       const SizedBox(height: 12),
       _buildSectionSummaryCard(
         title: 'Coordinators',
-        subtitle: 'Room assignments, group assignments, and on-site assignment gaps.',
+        subtitle:
+            'Room assignments, group assignments, and on-site assignment gaps.',
         lines: [
           '${sn(analytics.checkedInMissingRoomCount, 'attendee')} still ${verb(analytics.checkedInMissingRoomCount, 'needs', 'need')} a room and ${sn(analytics.checkedInMissingTableCount, 'attendee')} still ${verb(analytics.checkedInMissingTableCount, 'needs', 'need')} a group.',
           '${sn(analytics.checkedInCount, 'participant')} ${areIs(analytics.checkedInCount)} confirmed on site for coordination planning.',
@@ -747,8 +748,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       ),
     ];
   }
-
-
 
   List<Widget> _buildLogisticsView(
     AppState appState,
@@ -2369,8 +2368,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _appendBreakdown(
             lines, 'Registration Source', analytics.registrationSourceRows);
         _appendBreakdown(lines, 'Approval Status', analytics.statusRows);
-        _appendBreakdown(
-            lines, 'Stake Attendance', analytics.stakeRows);
+        _appendBreakdown(lines, 'Stake Attendance', analytics.stakeRows);
         _appendBreakdown(
             lines, 'Room & Group Readiness', analytics.locationReadinessRows);
         break;
@@ -2431,12 +2429,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           '- No-Shows: ${analytics.pendingCount}',
         ]);
         _appendBreakdown(lines, 'T-Shirt Sizes', analytics.tshirtRows);
-        _appendBreakdown(
-            lines, 'Participants By Stake', analytics.stakeRows);
-        _appendBreakdown(
-            lines, 'Participants By Ward', analytics.wardRows);
-        _appendBreakdown(
-            lines, 'Gender Breakdown', analytics.genderRows);
+        _appendBreakdown(lines, 'Participants By Stake', analytics.stakeRows);
+        _appendBreakdown(lines, 'Participants By Ward', analytics.wardRows);
+        _appendBreakdown(lines, 'Gender Breakdown', analytics.genderRows);
         lines.addAll([
           '',
           'NO-SHOWS (${analytics.noShowAlerts.length})',
@@ -2463,8 +2458,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             lines, 'Restriction Categories', analytics.foodCategoryRows);
         _appendBreakdown(
             lines, 'Meal Groups By Group', analytics.tablePresenceRows);
-        _appendBreakdown(
-            lines, 'Serving Load By Stake', analytics.stakeRows);
+        _appendBreakdown(lines, 'Serving Load By Stake', analytics.stakeRows);
         lines.addAll([
           '',
           'RESTRICTION LIST (${analytics.foodAttentionAlerts.length})',
@@ -2545,16 +2539,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ]);
         _appendBreakdown(
             lines, 'Check-In Timeline', analytics.hourlyCheckInRows);
-        _appendBreakdown(
-            lines, 'Approval Status', analytics.statusRows);
+        _appendBreakdown(lines, 'Approval Status', analytics.statusRows);
         _appendBreakdown(
             lines, 'Registration Source', analytics.registrationSourceRows);
-        _appendBreakdown(
-            lines, 'Attendance By Stake', analytics.stakeRows);
-        _appendBreakdown(
-            lines, 'Attendance By Ward', analytics.wardRows);
-        _appendBreakdown(
-            lines, 'Device Activity', analytics.deviceCheckInRows);
+        _appendBreakdown(lines, 'Attendance By Stake', analytics.stakeRows);
+        _appendBreakdown(lines, 'Attendance By Ward', analytics.wardRows);
+        _appendBreakdown(lines, 'Device Activity', analytics.deviceCheckInRows);
         lines.addAll([
           '',
           'ROOM ASSIGNMENTS',
@@ -2607,10 +2597,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ]);
         _appendBreakdown(
             lines, 'Group Assignments', analytics.tablePresenceRows);
-        _appendBreakdown(
-            lines, 'Group / Stake Breakdown', analytics.stakeRows);
-        _appendBreakdown(
-            lines, 'Gender Mix', analytics.genderRows);
+        _appendBreakdown(lines, 'Group / Stake Breakdown', analytics.stakeRows);
+        _appendBreakdown(lines, 'Gender Mix', analytics.genderRows);
         lines.addAll([
           '',
           'MISSING GROUP (${analytics.missingTableAlerts.length})',
@@ -2634,8 +2622,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ]);
         _appendBreakdown(lines, 'Device IDs And Check-In Counts',
             analytics.deviceCheckInRows);
-        _appendBreakdown(lines, 'Pending Sync Tasks By Type',
-            analytics.syncTypeRows);
+        _appendBreakdown(
+            lines, 'Pending Sync Tasks By Type', analytics.syncTypeRows);
         _appendBreakdown(lines, 'Recent Print Failure Reasons',
             analytics.printFailureReasonRows);
         lines.addAll([

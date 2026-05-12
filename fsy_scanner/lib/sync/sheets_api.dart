@@ -215,14 +215,12 @@ class SheetsApi {
     final range = '$tabName!1:1';
     final url = Uri.parse('$baseUrl/$sheetId/values/$range');
     try {
-      final response = await http
-          .get(
-            url,
-            headers: {
-              HttpHeaders.authorizationHeader: 'Bearer $accessToken',
-            },
-          )
-          .timeout(const Duration(seconds: 15));
+      final response = await http.get(
+        url,
+        headers: {
+          HttpHeaders.authorizationHeader: 'Bearer $accessToken',
+        },
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 429) {
         throw SheetsRateLimitException();
@@ -331,7 +329,8 @@ class SheetsApi {
 
       // Apply user-defined header overrides: add entries keyed by internal
       // field name so lookups like colMap[SheetColumns.name] still work.
-      final effectiveOverrides = headerOverrides ?? await _loadHeaderOverrides(db);
+      final effectiveOverrides =
+          headerOverrides ?? await _loadHeaderOverrides(db);
       if (effectiveOverrides.isNotEmpty) {
         for (final entry in effectiveOverrides.entries) {
           final rawIndex = colMap[entry.value];

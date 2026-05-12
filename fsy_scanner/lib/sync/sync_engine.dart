@@ -339,7 +339,8 @@ class SyncEngine {
       // iteration immediately so settings are re-read from the DB.
       if (_configChanged) {
         _configChanged = false;
-        LoggerUtil.info('[SyncEngine] Config change detected — re-checking settings.');
+        LoggerUtil.info(
+            '[SyncEngine] Config change detected — re-checking settings.');
         if (_isSyncing) {
           // An in-progress manual sync will finish with old settings; the
           // next tick will use the new ones.  Wait for it to complete.
@@ -566,7 +567,8 @@ class SyncEngine {
   static void signalConfigChanged() {
     _configChanged = true;
     _rateLimitBackoffMultiplier = 1;
-    LoggerUtil.info('[SyncEngine] Config change signalled — next tick will re-read all settings.');
+    LoggerUtil.info(
+        '[SyncEngine] Config change signalled — next tick will re-read all settings.');
   }
 
   /// ------------------------------------------------------------------

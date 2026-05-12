@@ -110,8 +110,7 @@ class AppState extends ChangeNotifier {
 
   // ── Google creds getters ─────────────────────────────────────
   String get googleServiceAccountEmail => _googleServiceAccountEmail;
-  String get googleServiceAccountPrivateKey =>
-      _googleServiceAccountPrivateKey;
+  String get googleServiceAccountPrivateKey => _googleServiceAccountPrivateKey;
 
   // ── Column overrides getter ──────────────────────────────────
   Map<String, String> get columnHeaderOverrides =>
@@ -342,8 +341,7 @@ class AppState extends ChangeNotifier {
       final raw = colOverrideResult.first['value'] as String? ?? '';
       if (raw.isNotEmpty) {
         try {
-          _columnHeaderOverrides =
-              Map<String, String>.from(jsonDecode(raw));
+          _columnHeaderOverrides = Map<String, String>.from(jsonDecode(raw));
         } catch (_) {
           _columnHeaderOverrides = {};
         }
@@ -614,8 +612,10 @@ class AppState extends ChangeNotifier {
     final eventName = (profile['event_name'] as String?) ?? '';
     final orgName = (profile['organization_name'] as String?) ?? '';
     final colMapRaw = (profile['col_map_override'] as String?) ?? '';
-    final googleEmail = (profile['google_service_account_email'] as String?) ?? '';
-    final googleKey = (profile['google_service_account_private_key'] as String?) ?? '';
+    final googleEmail =
+        (profile['google_service_account_email'] as String?) ?? '';
+    final googleKey =
+        (profile['google_service_account_private_key'] as String?) ?? '';
 
     // Clear stale col_map so the next sync rebuilds it from scratch
     await db.delete('app_settings', where: 'key = ?', whereArgs: ['col_map']);

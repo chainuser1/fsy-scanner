@@ -1239,7 +1239,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ],
                                 selected: {currentMode},
                                 onSelectionChanged: (selection) {
-                                  final printerAddress = _selectedPrinterAddress;
+                                  final printerAddress =
+                                      _selectedPrinterAddress;
                                   if (printerAddress == null ||
                                       selection.isEmpty) {
                                     return;
@@ -1742,8 +1743,7 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('Connection test failed: $e',
-          backgroundColor: Colors.red);
+      _showSnackBar('Connection test failed: $e', backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _isTestingCredentials = false);
     }
@@ -1958,9 +1958,8 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
       where: 'key = ?',
       whereArgs: ['col_map'],
     );
-    final currentColMap = colMapResult.isNotEmpty
-        ? colMapResult.first['value'] as String?
-        : null;
+    final currentColMap =
+        colMapResult.isNotEmpty ? colMapResult.first['value'] as String? : null;
 
     setState(() => _isSavingProfile = true);
     try {
@@ -1980,8 +1979,7 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
       );
       _profileNameController.clear();
       if (!mounted) return;
-      _showSnackBar('Profile "$name" created.',
-          backgroundColor: Colors.green);
+      _showSnackBar('Profile "$name" created.', backgroundColor: Colors.green);
     } catch (e) {
       if (!mounted) return;
       _showSnackBar('Failed to create profile: $e',
@@ -2343,8 +2341,7 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton.icon(
-                        onPressed: () =>
-                            _deleteProfile(_selectedProfileId!),
+                        onPressed: () => _deleteProfile(_selectedProfileId!),
                         icon: const Icon(Icons.delete_forever,
                             color: Colors.redAccent),
                         label: const Text(
@@ -2382,9 +2379,8 @@ class _AdvancedSettingsSectionState extends State<_AdvancedSettingsSection> {
                                 ),
                               )
                             : const Icon(Icons.add),
-                        label: Text(_isSavingProfile
-                            ? 'Saving...'
-                            : 'Save as Profile'),
+                        label: Text(
+                            _isSavingProfile ? 'Saving...' : 'Save as Profile'),
                       ),
                     ),
                   ],
