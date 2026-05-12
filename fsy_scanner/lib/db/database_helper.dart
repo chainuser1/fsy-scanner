@@ -81,6 +81,7 @@ class DatabaseHelper {
 
   static Future<void> runMigrations(Database db) async {
     await _ensureParticipantColumns(db);
+    await _migrateToV8(db);
 
     // device_id
     final deviceIdResult = await db.rawQuery(

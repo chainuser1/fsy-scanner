@@ -4491,3 +4491,38 @@ None.
 
 ### Deviations from Plan
 None.
+
+***
+
+## 67.0 — SQLite Migration Fix: Missing `event_profiles` Columns on Fresh Install
+
+**Date/Time:** 2026-05-12 10:30:00
+**Status:** ✅ Complete
+
+### What I Did
+
+Fixed a SQLite migration gap where the `event_profiles` table was created without the `organization_name`, `col_map_override`, `google_service_account_email`, and `google_service_account_private_key` columns on fresh database installs. The `_migrateToV8()` method existed but was only called from the `onUpgrade` path (v7 → v8 upgrades), not from `runMigrations()` which runs after `onCreate` on fresh installs.
+
+### Changes Made
+
+- **`database_helper.dart` — `runMigrations()`**: Added `await _migrateToV8(db);` call right after `_ensureParticipantColumns(db)` so the v8 columns are always ensured regardless of whether the database was freshly created or upgraded.
+- The `_migrateToV8()` method is already idempotent — it checks `PRAGMA table_info(event_profiles)` before each `ALTER TABLE` — so the call is safe on every startup.
+
+### Files Modified
+| File | Description |
+|------|-------------|
+| `lib/db/database_helper.dart` | Added `_migrateToV8(db)` call in `runMigrations()` |
+
+### Verification Result
+- `flutter analyze` reports **0 issues**
+- Fresh database installations now correctly include `organization_name`, `col_map_override`, `google_service_account_email`, and `google_service_account_private_key` columns in `event_profiles`
+- Existing databases continue to work unchanged (migration is idempotent)
+
+### Issues Encountered
+- The `_migrateToV8()` method was only wired into `onUpgrade` (when `oldVersion < 8`), so fresh installs via `onCreate` → `runMigrations` never added the columns, causing `table event_profiles has no column organization_name` SQL errors at runtime.
+
+### Corrections Made
+- Added the missing `_migrateToV8(db)` call to `runMigrations()`, which runs after both `onCreate` and `onUpgrade`, ensuring the columns are always present.
+
+### Deviations from Plan
+None — this closes a gap between the migration system and fresh-install path.
